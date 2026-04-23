@@ -27,9 +27,3 @@ dist/
 # Docker volumes
 pgdata/
 miniodata/
-
-# Local staging
-data/staging/
-!data/staging/
-data/staging/*
-!data/staging/.gitkeep

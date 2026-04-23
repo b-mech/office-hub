@@ -82,8 +82,19 @@ class ClaudeProvider(BaseProvider):
         return "\n".join(text_blocks).strip()
 
     def _parse_json_response(self, raw_response: str) -> dict[str, Any]:
+        cleaned_response = raw_response.strip()
+        response_lines = cleaned_response.splitlines()
+
+        if response_lines and response_lines[0].strip() in {"```json", "```"}:
+            response_lines = response_lines[1:]
+
+        if response_lines and response_lines[-1].strip() == "```":
+            response_lines = response_lines[:-1]
+
+        cleaned_response = "\n".join(response_lines).strip()
+
         try:
-            parsed = json.loads(raw_response)
+            parsed = json.loads(cleaned_response)
         except json.JSONDecodeError as exc:
             raise ValueError("Claude returned invalid JSON") from exc
 
