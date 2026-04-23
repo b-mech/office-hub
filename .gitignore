@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+.next/
+dist/
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/settings.json
+*.swp
+
+# Docker volumes
+pgdata/
+miniodata/
