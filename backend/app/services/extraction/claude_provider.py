@@ -96,12 +96,27 @@ class ClaudeProvider(BaseProvider):
         try:
             parsed = json.loads(cleaned_response)
         except json.JSONDecodeError as exc:
-            raise ValueError("Claude returned invalid JSON") from exc
+            parsed = self._extract_json_object(cleaned_response)
+            if parsed is None:
+                raise ValueError("Claude returned invalid JSON") from exc
 
         if not isinstance(parsed, dict):
             raise ValueError("Claude response JSON must be an object")
 
         return parsed
+
+    def _extract_json_object(self, response_text: str) -> dict[str, Any] | None:
+        start = response_text.find("{")
+        end = response_text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            return None
+
+        try:
+            parsed = json.loads(response_text[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+
+        return parsed if isinstance(parsed, dict) else None
 
     def _normalize_field_confidences(
         self,

@@ -16,8 +16,8 @@ from dotenv import load_dotenv
 
 
 PDF_PATH = Path("/Users/nicholastenszen/Documents/1D - OTP (Land) - 185 Woodland Way.pdf")
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-BACKEND_ROOT = PROJECT_ROOT / "backend"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = PROJECT_ROOT
 
 load_dotenv(PROJECT_ROOT / ".env")
 if str(BACKEND_ROOT) not in sys.path:
@@ -45,6 +45,8 @@ def normalize_confidence(value: float) -> Decimal:
 def normalize_ocr_method(method: str) -> str:
     if method in {"pdfplumber", "tesseract", "manual"}:
         return method
+    if method == "mixed":
+        return "tesseract"
     raise ValueError(f"Unsupported OCR method for documents.ingestions: {method}")
 
 
@@ -52,6 +54,7 @@ async def run(document_id: UUID) -> None:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL is not set")
+    database_url = normalize_database_url(database_url)
 
     if not PDF_PATH.exists():
         raise FileNotFoundError(f"PDF not found: {PDF_PATH}")
@@ -162,6 +165,12 @@ async def fetch_document_type(
 def main() -> None:
     args = parse_args()
     asyncio.run(run(args.document_id))
+
+
+def normalize_database_url(database_url: str) -> str:
+    if database_url.startswith("postgresql+asyncpg://"):
+        return database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    return database_url
 
 
 if __name__ == "__main__":
