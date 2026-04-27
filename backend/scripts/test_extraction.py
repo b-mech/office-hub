@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -9,13 +10,14 @@ from datetime import datetime
 from datetime import timezone
 from decimal import Decimal
 from pathlib import Path
+from uuid import uuid4
 from uuid import UUID
 
 import asyncpg
 from dotenv import load_dotenv
 
 
-PDF_PATH = Path("/Users/nicholastenszen/Documents/1D - OTP (Land) - 185 Woodland Way.pdf")
+DEFAULT_PDF_PATH = Path("/Users/nicholastenszen/Documents/1D - OTP (Land) - 185 Woodland Way.pdf")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = PROJECT_ROOT
 
@@ -34,7 +36,27 @@ def parse_args() -> argparse.Namespace:
             "against an existing documents.documents record."
         )
     )
-    parser.add_argument("document_id", type=UUID)
+    parser.add_argument("document_id", nargs="?", type=UUID)
+    parser.add_argument(
+        "--pdf-path",
+        type=Path,
+        default=DEFAULT_PDF_PATH,
+        help="Local PDF path to OCR and extract.",
+    )
+    parser.add_argument(
+        "--doc-type",
+        choices=["land_otp", "sale_otp", "invoice", "legal", "other"],
+        help="Document type to use when creating a new document record.",
+    )
+    parser.add_argument(
+        "--org-id",
+        type=UUID,
+        help="Org ID to use when creating a new document record.",
+    )
+    parser.add_argument(
+        "--original-filename",
+        help="Optional original filename to store on a newly created document.",
+    )
     return parser.parse_args()
 
 
@@ -50,22 +72,33 @@ def normalize_ocr_method(method: str) -> str:
     raise ValueError(f"Unsupported OCR method for documents.ingestions: {method}")
 
 
-async def run(document_id: UUID) -> None:
+async def run(args: argparse.Namespace) -> None:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError("DATABASE_URL is not set")
     database_url = normalize_database_url(database_url)
 
-    if not PDF_PATH.exists():
-        raise FileNotFoundError(f"PDF not found: {PDF_PATH}")
+    pdf_path: Path = args.pdf_path.expanduser().resolve()
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     conn = await asyncpg.connect(database_url)
     try:
         async with conn.transaction():
+            document_id = args.document_id
+            if document_id is None:
+                document_id = await create_document(
+                    conn=conn,
+                    org_id=args.org_id,
+                    doc_type=args.doc_type,
+                    pdf_path=pdf_path,
+                    original_filename=args.original_filename,
+                )
+
             document_type = await fetch_document_type(conn, document_id, for_update=True)
 
             ocr_started_at = datetime.now(timezone.utc)
-            ocr_result = await asyncio.to_thread(PDFExtractor().extract, PDF_PATH)
+            ocr_result = await asyncio.to_thread(PDFExtractor().extract, pdf_path)
             ocr_completed_at = datetime.now(timezone.utc)
 
             extraction_service = get_extraction_service()
@@ -139,6 +172,7 @@ async def run(document_id: UUID) -> None:
 
     print(f"ingestion_id={ingestion_id}")
     print(f"extraction_id={extraction_id}")
+    print(f"document_id={document_id}")
 
 
 async def fetch_document_type(
@@ -162,9 +196,84 @@ async def fetch_document_type(
     return str(row["doc_type"])
 
 
+async def create_document(
+    conn: asyncpg.Connection,
+    *,
+    org_id: UUID | None,
+    doc_type: str | None,
+    pdf_path: Path,
+    original_filename: str | None,
+) -> UUID:
+    if org_id is None:
+        raise RuntimeError("--org-id is required when document_id is omitted")
+    if doc_type is None:
+        raise RuntimeError("--doc-type is required when document_id is omitted")
+
+    file_size = pdf_path.stat().st_size
+    checksum = sha256_file(pdf_path)
+    filename = original_filename or pdf_path.name
+    minio_key = f"manual/{uuid4()}-{pdf_path.name}"
+
+    try:
+        document_id = await conn.fetchval(
+            """
+            INSERT INTO documents.documents (
+                org_id,
+                doc_type,
+                status,
+                original_filename,
+                minio_bucket,
+                minio_key,
+                file_size_bytes,
+                checksum_sha256
+            )
+            VALUES ($1, $2, 'received', $3, 'documents', $4, $5, $6)
+            RETURNING id
+            """,
+            org_id,
+            doc_type,
+            filename,
+            minio_key,
+            file_size,
+            checksum,
+        )
+    except asyncpg.UniqueViolationError:
+        document_id = await conn.fetchval(
+            """
+            INSERT INTO documents.documents (
+                org_id,
+                doc_type,
+                status,
+                original_filename,
+                minio_bucket,
+                minio_key,
+                file_size_bytes,
+                checksum_sha256
+            )
+            VALUES ($1, $2, 'received', $3, 'documents', $4, $5, NULL)
+            RETURNING id
+            """,
+            org_id,
+            doc_type,
+            filename,
+            minio_key,
+            file_size,
+        )
+
+    return document_id
+
+
+def sha256_file(pdf_path: Path) -> str:
+    digest = hashlib.sha256()
+    with pdf_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def main() -> None:
     args = parse_args()
-    asyncio.run(run(args.document_id))
+    asyncio.run(run(args))
 
 
 def normalize_database_url(database_url: str) -> str:

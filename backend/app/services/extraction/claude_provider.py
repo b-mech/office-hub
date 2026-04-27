@@ -47,10 +47,9 @@ class ClaudeProvider(BaseProvider):
         )
 
         extracted_payload = {
-            "agreement": parsed_response.get("agreement"),
-            "security_deposit": parsed_response.get("security_deposit"),
-            "lots": parsed_response.get("lots", []),
-            "notable_clauses": parsed_response.get("notable_clauses", []),
+            key: value
+            for key, value in parsed_response.items()
+            if key != "field_confidences"
         }
 
         return ExtractionResponse(
