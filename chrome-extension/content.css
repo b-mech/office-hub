@@ -1,0 +1,98 @@
+.office-hub-panel,
+.office-hub-summary {
+  color: #26231f;
+  font-family: Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+.office-hub-panel {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 2147483647;
+  width: 340px;
+  max-width: calc(100vw - 48px);
+  background: #efe9df;
+  border: 1px solid #d7cbbc;
+  border-radius: 8px;
+  box-shadow: 0 14px 40px rgba(38, 35, 31, 0.2);
+  padding: 14px;
+}
+
+.office-hub-panel h2 {
+  font-size: 15px;
+  line-height: 20px;
+  margin: 0 0 10px;
+}
+
+.office-hub-attachment {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid #d7cbbc;
+}
+
+.office-hub-attachment:first-of-type {
+  border-top: 0;
+}
+
+.office-hub-filename {
+  display: block;
+  font-size: 13px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.office-hub-select {
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid #b9ad9c;
+  border-radius: 6px;
+  background: #fffaf2;
+  color: #26231f;
+  font-size: 13px;
+  padding: 6px;
+}
+
+.office-hub-button {
+  width: 100%;
+  margin-top: 12px;
+  border: 0;
+  border-radius: 7px;
+  background: #26231f;
+  color: #fffaf2;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  padding: 9px 10px;
+}
+
+.office-hub-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.office-hub-message {
+  font-size: 12px;
+  line-height: 17px;
+  margin-top: 10px;
+}
+
+.office-hub-summary {
+  display: inline-block;
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  background: #efe9df;
+  border: 1px solid #d7cbbc;
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.office-hub-summary a {
+  color: #26231f;
+  font-weight: 700;
+  text-decoration: none;
+}

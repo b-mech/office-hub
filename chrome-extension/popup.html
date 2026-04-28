@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Office Hub</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header>
+        <h1>Office Hub</h1>
+        <label class="toggle">
+          <input id="autoMode" type="checkbox" />
+          <span>Auto mode</span>
+        </label>
+      </header>
+
+      <section class="status">
+        <h2>Last ingestion</h2>
+        <p id="lastStatus">No documents sent yet.</p>
+      </section>
+
+      <a class="review-link" href="http://localhost:3000/documents" target="_blank">
+        Open review queue
+      </a>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
