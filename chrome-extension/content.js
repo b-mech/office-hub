@@ -342,26 +342,10 @@ function renderPanel(attachments, messageRoot) {
 
 async function ingestAttachment(attachment, docType, messageRoot) {
   showInlineSummary(messageRoot, `Office Hub: sending ${attachment.filename}...`);
-  const file = await downloadAttachment(attachment);
-
-  const formData = new FormData();
-  formData.append("file", file, file.name);
-  formData.append("doc_type", docType);
-
-  const response = await fetch(`${OFFICE_HUB_API}/api/v1/ingest`, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Office Hub ingest failed: ${response.status} ${errorText}`);
-  }
-
-  const result = await response.json();
+  const { result, filename } = await ingestAttachmentInBackground(attachment, docType);
   const documentUrl = `${OFFICE_HUB_APP}/documents/${result.document_id}`;
   const lastIngestion = {
-    documentName: attachment.filename,
+    documentName: filename || attachment.filename,
     status: result.status,
     timestamp: new Date().toISOString(),
     documentId: result.document_id,
@@ -379,11 +363,12 @@ async function ingestAttachment(attachment, docType, messageRoot) {
   return result;
 }
 
-async function downloadAttachment(attachment) {
+async function ingestAttachmentInBackground(attachment, docType) {
   const response = await sendRuntimeMessage({
-    type: "DOWNLOAD_ATTACHMENT",
+    type: "INGEST_ATTACHMENT",
     url: attachment.url,
     filename: attachment.filename,
+    docType,
   });
 
   if (response.downloaded) {
@@ -394,11 +379,10 @@ async function downloadAttachment(attachment) {
     throw new Error(response.error || `Could not download ${attachment.filename}`);
   }
 
-  const bytes = base64ToUint8Array(response.base64);
-  const filename = response.filename || attachment.filename;
-  return new File([bytes], filename, {
-    type: response.mimeType || "application/pdf",
-  });
+  return {
+    filename: response.filename || attachment.filename,
+    result: response.ingest,
+  };
 }
 
 function sendRuntimeMessage(message) {
@@ -413,19 +397,6 @@ function sendRuntimeMessage(message) {
       resolve(response || { ok: false, error: "No response from background worker." });
     });
   });
-}
-
-function base64ToUint8Array(base64) {
-  if (!base64) {
-    throw new Error("Could not download attachment bytes.");
-  }
-
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
 }
 
 function showInlineSummary(messageRoot, text, href) {

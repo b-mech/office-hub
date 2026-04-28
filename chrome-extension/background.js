@@ -1,3 +1,5 @@
+const OFFICE_HUB_API = "http://localhost:8000";
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.sync.get({ autoMode: false }, ({ autoMode }) => {
     chrome.storage.sync.set({ autoMode: Boolean(autoMode) });
@@ -5,21 +7,35 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "DOWNLOAD_ATTACHMENT") {
+  if (message?.type !== "INGEST_ATTACHMENT") {
     return false;
   }
 
-  downloadAttachment(message)
+  ingestAttachment(message)
     .then((result) => sendResponse({ ok: true, ...result }))
     .catch((error) => {
       sendResponse({
         ok: false,
-        error: error instanceof Error ? error.message : "Attachment download failed.",
+        error: error instanceof Error ? error.message : "Attachment ingest failed.",
       });
     });
 
   return true;
 });
+
+async function ingestAttachment({ url, filename, docType }) {
+  const attachment = await downloadAttachment({ url, filename });
+  if (attachment.downloaded) {
+    return attachment;
+  }
+
+  return await postToOfficeHub({
+    filename: attachment.filename,
+    mimeType: attachment.mimeType,
+    buffer: attachment.buffer,
+    docType: docType || "auto",
+  });
+}
 
 async function downloadAttachment({ url, filename }) {
   if (!url) {
@@ -68,7 +84,29 @@ async function fetchAttachmentBytes(url, filename) {
   return {
     filename: dispositionFilename || filename,
     mimeType: contentType,
-    base64: arrayBufferToBase64(buffer),
+    buffer,
+  };
+}
+
+async function postToOfficeHub({ filename, mimeType, buffer, docType }) {
+  const formData = new FormData();
+  formData.append("file", new Blob([buffer], { type: mimeType || "application/pdf" }), filename);
+  formData.append("doc_type", docType);
+
+  const response = await fetch(`${OFFICE_HUB_API}/api/v1/ingest`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Office Hub ingest failed: ${response.status} ${errorText}`);
+  }
+
+  const result = await response.json();
+  return {
+    filename,
+    ingest: result,
   };
 }
 
@@ -189,17 +227,4 @@ function filenameFromDisposition(disposition) {
 
   const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
   return filenameMatch ? filenameMatch[1] : "";
-}
-
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 0x8000;
-
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    const chunk = bytes.subarray(index, index + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-
-  return btoa(binary);
 }
