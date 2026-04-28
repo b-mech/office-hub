@@ -92,7 +92,15 @@ function getMessageKey(messageRoot) {
 function findPdfAttachments(messageRoot) {
   const byKey = new Map();
   const candidates = Array.from(
-    messageRoot.querySelectorAll("[download_url], a[href], div[aria-label], span[aria-label]")
+    messageRoot.querySelectorAll(
+      [
+        "[download_url]",
+        "a[href]",
+        "[data-tooltip]",
+        "div[aria-label]",
+        "span[aria-label]",
+      ].join(", ")
+    )
   );
 
   for (const candidate of candidates) {
@@ -106,25 +114,27 @@ function findPdfAttachments(messageRoot) {
 }
 
 function parseAttachment(node) {
-  const downloadUrl = node.getAttribute("download_url");
+  const filename = getFilename(node);
+  const downloadUrl = getDownloadUrl(node);
   if (downloadUrl) {
     const parts = downloadUrl.split(":");
     const mimeType = parts[0] || "";
-    const filename = parts[1] || getFilename(node);
+    const downloadFilename = parts[1] || filename;
     const url = parts.slice(2).join(":");
-    if (isPdf(filename, mimeType) && url) {
-      return { node, filename, url, key: `${filename}|${url}` };
+    if (isPdf(downloadFilename, mimeType) && url) {
+      const resolvedFilename = preferFilename(filename, downloadFilename);
+      return { node, filename: resolvedFilename, url, key: `${resolvedFilename}|${url}` };
     }
   }
 
-  const href = node.getAttribute("href");
-  const filename = getFilename(node);
+  const href = getDownloadHref(node);
   if (href && isPdf(filename, "")) {
+    const url = new URL(href, location.origin).toString();
     return {
       node,
       filename,
-      url: new URL(href, location.origin).toString(),
-      key: `${filename}|${href}`,
+      url,
+      key: `${filename}|${url}`,
     };
   }
 
@@ -132,19 +142,113 @@ function parseAttachment(node) {
 }
 
 function getFilename(node) {
-  const label = [
-    node.getAttribute("aria-label"),
-    node.getAttribute("title"),
-    node.textContent,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const match = label.match(/[\w .()[\]-]+\.pdf/i);
-  return match ? match[0].trim() : "attachment.pdf";
+  const labels = collectAttachmentText(node);
+  for (const label of labels) {
+    const downloadUrl = label.startsWith("application/pdf:") ? label : "";
+    if (downloadUrl) {
+      const filename = downloadUrl.split(":")[1];
+      if (filename?.toLowerCase().endsWith(".pdf")) {
+        return filename.trim();
+      }
+    }
+
+    const match = label.match(/[^\\/:*?"<>|\n\r]+\.pdf/i);
+    if (match) {
+      return cleanFilename(match[0]);
+    }
+  }
+
+  return "attachment.pdf";
 }
 
 function isPdf(filename, mimeType) {
   return filename.toLowerCase().endsWith(".pdf") || mimeType === "application/pdf";
+}
+
+function getDownloadUrl(node) {
+  const downloadNode =
+    node.matches?.("[download_url]")
+      ? node
+      : node.querySelector?.("[download_url]") ||
+        node.closest?.("[download_url]") ||
+        findAttachmentContainer(node)?.querySelector("[download_url]");
+
+  return downloadNode?.getAttribute("download_url") || "";
+}
+
+function getDownloadHref(node) {
+  const container = findAttachmentContainer(node);
+  const link =
+    findBestDownloadLink(node) ||
+    (container ? findBestDownloadLink(container) : null);
+
+  return link?.getAttribute("href") || "";
+}
+
+function findBestDownloadLink(root) {
+  if (root.matches?.("a[href]") && looksLikeDownloadLink(root)) {
+    return root;
+  }
+
+  return Array.from(root.querySelectorAll?.("a[href]") || []).find(looksLikeDownloadLink) || null;
+}
+
+function looksLikeDownloadLink(link) {
+  const href = link.getAttribute("href") || "";
+  const label = collectAttachmentText(link).join(" ").toLowerCase();
+  return (
+    href.includes("disp=attd") ||
+    href.includes("view=att") ||
+    href.includes("attid=") ||
+    label.includes("download")
+  );
+}
+
+function findAttachmentContainer(node) {
+  return (
+    node.closest?.("[data-tooltip*='.pdf' i]") ||
+    node.closest?.("[aria-label*='.pdf' i]") ||
+    node.closest?.(".aQH, .aZo, .aQy, .brc, .hq")
+  );
+}
+
+function collectAttachmentText(node) {
+  const container = findAttachmentContainer(node);
+  const nodes = [node, container, ...(container ? Array.from(container.querySelectorAll("*")) : [])]
+    .filter(Boolean);
+  const labels = [];
+
+  for (const current of nodes) {
+    for (const attr of ["data-tooltip", "aria-label", "title", "download_url"]) {
+      const value = current.getAttribute?.(attr);
+      if (value) {
+        labels.push(value);
+      }
+    }
+  }
+
+  if (node.textContent) {
+    labels.push(node.textContent);
+  }
+  if (container?.textContent) {
+    labels.push(container.textContent);
+  }
+
+  return labels;
+}
+
+function cleanFilename(filename) {
+  return filename
+    .replace(/^(download|open|preview|attachment)\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function preferFilename(primary, fallback) {
+  if (primary && primary !== "attachment.pdf") {
+    return primary;
+  }
+  return fallback || primary || "attachment.pdf";
 }
 
 async function autoIngest(attachments, messageRoot) {
@@ -271,15 +375,48 @@ async function ingestAttachment(attachment, docType, messageRoot) {
 }
 
 async function downloadAttachment(attachment) {
-  const response = await fetch(attachment.url, {
-    credentials: "include",
+  const response = await sendRuntimeMessage({
+    type: "DOWNLOAD_ATTACHMENT",
+    url: attachment.url,
+    filename: attachment.filename,
   });
+
   if (!response.ok) {
-    throw new Error(`Could not download ${attachment.filename}`);
+    throw new Error(response.error || `Could not download ${attachment.filename}`);
   }
 
-  const blob = await response.blob();
-  return new File([blob], attachment.filename, { type: "application/pdf" });
+  const bytes = base64ToUint8Array(response.base64);
+  const filename = response.filename || attachment.filename;
+  return new File([bytes], filename, {
+    type: response.mimeType || "application/pdf",
+  });
+}
+
+function sendRuntimeMessage(message) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      const runtimeError = chrome.runtime.lastError;
+      if (runtimeError) {
+        reject(new Error(runtimeError.message));
+        return;
+      }
+
+      resolve(response || { ok: false, error: "No response from background worker." });
+    });
+  });
+}
+
+function base64ToUint8Array(base64) {
+  if (!base64) {
+    throw new Error("Could not download attachment bytes.");
+  }
+
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 function showInlineSummary(messageRoot, text, href) {
