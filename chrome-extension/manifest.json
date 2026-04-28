@@ -4,7 +4,11 @@
   "version": "0.1.0",
   "description": "Send Gmail PDF attachments to Office Hub.",
   "permissions": ["activeTab", "storage", "scripting", "tabs", "downloads"],
-  "host_permissions": ["http://localhost:8000/*", "https://mail.google.com/*"],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "https://mail.google.com/*",
+    "https://*.googleusercontent.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },

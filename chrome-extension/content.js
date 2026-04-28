@@ -257,7 +257,12 @@ async function autoIngest(attachments, messageRoot) {
       continue;
     }
     processedAttachmentKeys.add(attachment.key);
-    await ingestAttachment(attachment, "auto", messageRoot);
+    try {
+      await ingestAttachment(attachment, "auto", messageRoot);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Office Hub ingest failed.";
+      showInlineSummary(messageRoot, `Office Hub: ${message}`);
+    }
   }
 }
 
@@ -340,7 +345,7 @@ async function ingestAttachment(attachment, docType, messageRoot) {
   const file = await downloadAttachment(attachment);
 
   const formData = new FormData();
-  formData.append("file", file, attachment.filename);
+  formData.append("file", file, file.name);
   formData.append("doc_type", docType);
 
   const response = await fetch(`${OFFICE_HUB_API}/api/v1/ingest`, {
@@ -380,6 +385,10 @@ async function downloadAttachment(attachment) {
     url: attachment.url,
     filename: attachment.filename,
   });
+
+  if (response.downloaded) {
+    throw new Error(response.error || "Gmail blocked extension upload. The file was downloaded.");
+  }
 
   if (!response.ok) {
     throw new Error(response.error || `Could not download ${attachment.filename}`);
