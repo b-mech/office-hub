@@ -561,15 +561,15 @@ export default function CostbookPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [issuePOLine, setIssuePOLine] = useState<BudgetLine | null>(null);
+  const visibleBudget = budget && (!lotId || budget.lot_agreement_id === lotId) ? budget : null;
 
   useEffect(() => {
     getBudgets()
       .then((budgets) => {
-        // Find budget for this lot or use first budget
         const match = lotId
-          ? budgets.find((b) => b.lot_agreement_id === lotId) || budgets[0]
+          ? budgets.find((b) => b.lot_agreement_id === lotId)
           : budgets[0];
-        if (match) setBudget(match);
+        setBudget(match ?? null);
       })
       .finally(() => setLoading(false));
   }, [lotId]);
@@ -588,8 +588,8 @@ export default function CostbookPage() {
   }
 
   async function handleLineUpdate(lineId: string, field: "estimate" | "actual", value: number) {
-    if (!budget) return;
-    const updated = await updateBudgetLine(budget.id, lineId, { [field]: value });
+    if (!visibleBudget) return;
+    const updated = await updateBudgetLine(visibleBudget.id, lineId, { [field]: value });
     setBudget((prev) => {
       if (!prev) return prev;
       const lines = prev.lines.map((l) => (l.id === updated.id ? { ...l, [field]: value } : l));
@@ -609,11 +609,11 @@ export default function CostbookPage() {
           </Link>
         )}
         <h1 className="text-base font-semibold text-white">
-          {budget ? budget.label : "Costbook"}
+          {visibleBudget ? visibleBudget.label : "Costbook"}
         </h1>
-        {budget && (
+        {visibleBudget && (
           <span className="text-xs font-mono text-white/30 bg-white/5 px-2 py-0.5 rounded">
-            {budget.status}
+            {visibleBudget.status}
           </span>
         )}
       </div>
@@ -621,7 +621,7 @@ export default function CostbookPage() {
       <div className="px-8 py-6">
         {loading ? (
           <div className="text-white/30 text-sm py-16 text-center">Loading…</div>
-        ) : !budget ? (
+        ) : !visibleBudget ? (
           <div className="text-center py-16">
             <p className="text-white/40 text-sm mb-4">No budget yet for this lot.</p>
             <button
@@ -653,23 +653,23 @@ export default function CostbookPage() {
 
             {activeTab === "Budget" && (
               <BudgetTab
-                budget={budget}
+                budget={visibleBudget}
                 onLineUpdate={handleLineUpdate}
                 onIssuePO={(line) => setIssuePOLine(line)}
               />
             )}
-            {activeTab === "Purchase Orders" && <POTab budgetId={budget.id} />}
+            {activeTab === "Purchase Orders" && <POTab budgetId={visibleBudget.id} />}
             {activeTab === "Invoices" && (
-              <InvoiceTab budgetId={budget.id} budgetLines={budget.lines} />
+              <InvoiceTab budgetId={visibleBudget.id} budgetLines={visibleBudget.lines} />
             )}
           </>
         )}
       </div>
 
-      {issuePOLine && (
+      {issuePOLine && visibleBudget && (
         <IssuePODrawer
           line={issuePOLine}
-          budgetId={budget!.id}
+          budgetId={visibleBudget.id}
           onClose={() => setIssuePOLine(null)}
           onCreated={() => {}}
         />
