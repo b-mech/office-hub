@@ -1,6 +1,7 @@
 // content.js
 const OFFICE_HUB_API = "http://localhost:8000";
 const OFFICE_HUB_APP = "http://localhost:3000";
+const INGEST_RESPONSE_TIMEOUT_MS = 150000;
 
 let observer = null;
 let scanTimer = null;
@@ -299,6 +300,7 @@ function renderPanel(attachments, messageRoot) {
     let successCount = 0;
     for (const attachment of selected) {
       try {
+        setStatus(panel, `Sending ${attachment.filename}...`);
         await ingestAttachment(attachment, messageRoot);
         successCount++;
       } catch (error) {
@@ -310,6 +312,8 @@ function renderPanel(attachments, messageRoot) {
     if (successCount === selected.length) {
       setStatus(panel, `✓ ${successCount} file${successCount !== 1 ? "s" : ""} sent`);
       window.setTimeout(removePanel, 2000);
+    } else if (successCount > 0) {
+      setStatus(panel, `${successCount} sent, ${selected.length - successCount} failed.`);
     }
 
     button.disabled = false;
@@ -391,7 +395,12 @@ async function ingestAttachment(attachment, messageRoot) {
 
 function sendRuntimeMessage(message) {
   return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error("Office Hub did not respond. Check that the backend is running."));
+    }, INGEST_RESPONSE_TIMEOUT_MS);
+
     chrome.runtime.sendMessage(message, (response) => {
+      window.clearTimeout(timeoutId);
       const err = chrome.runtime.lastError;
       if (err) { reject(new Error(err.message)); return; }
       resolve(response || { ok: false, error: "No response from background worker." });

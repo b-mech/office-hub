@@ -1,4 +1,6 @@
 const OFFICE_HUB_API = "http://localhost:8000";
+const GMAIL_FETCH_TIMEOUT_MS = 45000;
+const OFFICE_HUB_POST_TIMEOUT_MS = 120000;
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.sync.get({ autoMode: false }, ({ autoMode }) => {
@@ -96,6 +98,7 @@ async function postToOfficeHub({ filename, mimeType, buffer, docType }) {
   const response = await fetch(`${OFFICE_HUB_API}/api/v1/ingest`, {
     method: "POST",
     body: formData,
+    signal: AbortSignal.timeout(OFFICE_HUB_POST_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -121,7 +124,7 @@ async function fetchWithRedirects(url) {
   };
 
   try {
-    return await fetch(url, requestOptions);
+    return await fetch(url, withTimeout(requestOptions, GMAIL_FETCH_TIMEOUT_MS));
   } catch (_error) {
     return await fetchWithManualRedirects(url);
   }
@@ -135,6 +138,7 @@ async function fetchWithManualRedirects(initialUrl) {
       mode: "cors",
       credentials: "include",
       redirect: "manual",
+      signal: AbortSignal.timeout(GMAIL_FETCH_TIMEOUT_MS),
       headers: {
         "X-Requested-With": "XMLHttpRequest",
       },
@@ -213,6 +217,13 @@ function waitForDownload(downloadId) {
 
 function sanitizeFilename(filename) {
   return filename.replace(/[\\/:*?"<>|]/g, "-").trim() || "attachment.pdf";
+}
+
+function withTimeout(options, timeoutMs) {
+  return {
+    ...options,
+    signal: AbortSignal.timeout(timeoutMs),
+  };
 }
 
 function filenameFromDisposition(disposition) {
