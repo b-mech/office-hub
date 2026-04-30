@@ -37,17 +37,11 @@ class ClaudeProvider(BaseProvider):
                 {
                     "role": "user",
                     "content": user_prompt,
-                },
-                {
-                    "role": "assistant",
-                    "content": "{",
                 }
             ],
         )
 
         raw_response = self._extract_text_response(response)
-        if raw_response and not raw_response.lstrip().startswith("{"):
-            raw_response = "{" + raw_response
         parsed_response = self._parse_json_response(raw_response)
         field_confidences = self._normalize_field_confidences(
             parsed_response.get("field_confidences", {})
