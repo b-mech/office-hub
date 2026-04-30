@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import anthropic
@@ -36,11 +37,17 @@ class ClaudeProvider(BaseProvider):
                 {
                     "role": "user",
                     "content": user_prompt,
+                },
+                {
+                    "role": "assistant",
+                    "content": "{",
                 }
             ],
         )
 
         raw_response = self._extract_text_response(response)
+        if raw_response and not raw_response.lstrip().startswith("{"):
+            raw_response = "{" + raw_response
         parsed_response = self._parse_json_response(raw_response)
         field_confidences = self._normalize_field_confidences(
             parsed_response.get("field_confidences", {})
@@ -91,18 +98,28 @@ class ClaudeProvider(BaseProvider):
             response_lines = response_lines[:-1]
 
         cleaned_response = "\n".join(response_lines).strip()
+        cleaned_response = self._strip_code_fence(cleaned_response)
 
-        try:
-            parsed = json.loads(cleaned_response)
-        except json.JSONDecodeError as exc:
+        parsed = self._decode_json_object(cleaned_response)
+        if parsed is None:
+            repaired_response = self._remove_trailing_commas(cleaned_response)
+            parsed = self._decode_json_object(repaired_response)
+        if parsed is None:
             parsed = self._extract_json_object(cleaned_response)
-            if parsed is None:
-                raise ValueError("Claude returned invalid JSON") from exc
+        if parsed is None:
+            raise ValueError("Claude returned invalid JSON")
 
         if not isinstance(parsed, dict):
             raise ValueError("Claude response JSON must be an object")
 
         return parsed
+
+    def _strip_code_fence(self, response_text: str) -> str:
+        stripped = response_text.strip()
+        if stripped.startswith("```"):
+            stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
+            stripped = re.sub(r"\s*```$", "", stripped)
+        return stripped.strip()
 
     def _extract_json_object(self, response_text: str) -> dict[str, Any] | None:
         start = response_text.find("{")
@@ -110,12 +127,26 @@ class ClaudeProvider(BaseProvider):
         if start == -1 or end == -1 or end <= start:
             return None
 
-        try:
-            parsed = json.loads(response_text[start : end + 1])
-        except json.JSONDecodeError:
-            return None
+        candidate = response_text[start : end + 1]
+        parsed = self._decode_json_object(candidate)
+        if parsed is None:
+            parsed = self._decode_json_object(self._remove_trailing_commas(candidate))
 
         return parsed if isinstance(parsed, dict) else None
+
+    def _decode_json_object(self, response_text: str) -> Any | None:
+        decoder = json.JSONDecoder(strict=False)
+        stripped = response_text.strip()
+        if not stripped.startswith("{"):
+            return None
+        try:
+            parsed, _end = decoder.raw_decode(stripped)
+        except json.JSONDecodeError:
+            return None
+        return parsed
+
+    def _remove_trailing_commas(self, response_text: str) -> str:
+        return re.sub(r",(\s*[}\]])", r"\1", response_text)
 
     def _normalize_field_confidences(
         self,
