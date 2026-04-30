@@ -1,5 +1,8 @@
+// popup.js
 const autoModeInput = document.getElementById("autoMode");
+const lastIngestionSection = document.getElementById("lastIngestionSection");
 const lastStatus = document.getElementById("lastStatus");
+const reviewLink = document.getElementById("reviewLink");
 
 init();
 
@@ -16,18 +19,17 @@ async function init() {
 }
 
 function renderLastIngestion(lastIngestion) {
-  if (!lastIngestion) {
-    lastStatus.textContent = "No documents sent yet.";
-    return;
-  }
+  if (!lastIngestion) return;
 
+  const name = lastIngestion.extractionSummary || lastIngestion.documentName || "Document";
   const timestamp = new Date(lastIngestion.timestamp);
-  const timeText = Number.isNaN(timestamp.getTime())
-    ? ""
-    : ` · ${timestamp.toLocaleString()}`;
-  lastStatus.textContent = `${lastIngestionName(lastIngestion)} · ${lastIngestion.status}${timeText}`;
-}
+  const timeText = !Number.isNaN(timestamp.getTime())
+    ? timestamp.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "";
 
-function lastIngestionName(lastIngestion) {
-  return lastIngestion.extractionSummary || lastIngestion.documentName || "Document";
+  lastStatus.textContent = `${name}${timeText ? " · " + timeText : ""}`;
+  if (lastIngestion.documentUrl) {
+    reviewLink.href = lastIngestion.documentUrl;
+  }
+  lastIngestionSection.classList.remove("hidden");
 }

@@ -8,21 +8,25 @@
   </head>
   <body>
     <main class="popup">
-      <header>
-        <h1>Office Hub</h1>
+      <header class="popup-header">
+        <div class="popup-logo">
+          <span class="popup-logo-mark">⬡</span>
+          <span class="popup-logo-text">Office Hub</span>
+        </div>
         <label class="toggle">
           <input id="autoMode" type="checkbox" />
-          <span>Auto mode</span>
+          <span class="toggle-track"></span>
+          <span class="toggle-label">Auto</span>
         </label>
       </header>
 
-      <section class="status">
-        <h2>Last ingestion</h2>
-        <p id="lastStatus">No documents sent yet.</p>
+      <section id="lastIngestionSection" class="last-ingestion hidden">
+        <p id="lastStatus"></p>
+        <a id="reviewLink" href="http://localhost:3000/documents" target="_blank">View in dashboard →</a>
       </section>
 
-      <a class="review-link" href="http://localhost:3000/documents" target="_blank">
-        Open review queue
+      <a class="open-dashboard" href="http://localhost:3000/documents" target="_blank">
+        Open review queue →
       </a>
     </main>
     <script src="popup.js"></script>
