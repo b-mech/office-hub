@@ -148,10 +148,18 @@ function isPdfFilename(filename) {
 }
 
 function cleanFilename(filename) {
-  return (filename || "")
+  return decodeFilename(filename || "")
     .replace(/^(download|open|preview|attachment)\s+/i, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function decodeFilename(filename) {
+  try {
+    return decodeURIComponent(filename);
+  } catch (_error) {
+    return filename;
+  }
 }
 
 // ─── Panel UI ─────────────────────────────────────────────────────────────────
