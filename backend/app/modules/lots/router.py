@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -35,33 +35,50 @@ class LotOut(BaseModel):
 @router.get("", response_model=List[LotOut])
 async def list_lots(db: AsyncSession = Depends(get_db)):
     """
-    Join land.agreements and sales.agreements to produce a unified lot list.
-
-    NOTE: This query makes reasonable assumptions about the column names in
-    land.agreements and sales.agreements based on the OTP ingestion pipeline.
-    Adjust column names if they differ in your actual schema.
+    Produce a unified lot list from core.lots with optional sales data.
     """
     query = text("""
         SELECT
-            la.id::text                                         AS id,
-            COALESCE(la.property_address, la.address, 'Unknown Address') AS address,
-            la.lot_number::text,
-            COALESCE(la.community, la.development_name, 'Unknown Community') AS community,
-            CONCAT_WS(' ', sa.buyer_first_name, sa.buyer_last_name) AS buyer_name,
+            l.id::text AS id,
+            COALESCE(l.civic_address, l.legal_description_normalized, 'Unknown Address') AS address,
+            l.lot_number::text,
+            COALESCE(d.name, d.municipality, 'Unknown Community') AS community,
+            buyers.buyer_name,
             sa.possession_date::text,
-            sa.framing_date::text,
-            sa.closing_date::text,
+            NULL::text AS framing_date,
+            NULL::text AS closing_date,
             CASE
                 WHEN sa.possession_date IS NOT NULL AND sa.possession_date <= CURRENT_DATE THEN 'possession'
-                WHEN la.status = 'complete' OR sa.status = 'complete'                     THEN 'complete'
+                WHEN l.status IN ('possession', 'warranty') OR sa.status = 'possession_complete' THEN 'complete'
                 ELSE 'active'
             END AS status,
-            la.id::text  AS land_agreement_id,
-            sa.id::text  AS sale_agreement_id
-        FROM land.agreements la
-        LEFT JOIN sales.agreements sa ON sa.land_agreement_id = la.id
-        WHERE la.org_id = :org_id
-        ORDER BY la.created_at DESC
+            lt.agreement_id::text AS land_agreement_id,
+            sa.id::text AS sale_agreement_id
+        FROM core.lots l
+        JOIN core.developments d ON d.id = l.development_id
+        LEFT JOIN LATERAL (
+            SELECT agreement_id
+            FROM land.lot_terms
+            WHERE lot_id = l.id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) lt ON true
+        LEFT JOIN LATERAL (
+            SELECT id, possession_date, status
+            FROM sales.agreements
+            WHERE lot_id = l.id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) sa ON true
+        LEFT JOIN LATERAL (
+            SELECT string_agg(c.full_name, ', ' ORDER BY sp.is_primary DESC, c.full_name) AS buyer_name
+            FROM sales.parties sp
+            JOIN core.contacts c ON c.id = sp.contact_id
+            WHERE sp.agreement_id = sa.id
+              AND sp.party_role IN ('buyer', 'co_buyer')
+        ) buyers ON true
+        WHERE d.org_id = :org_id
+        ORDER BY l.created_at DESC
     """)
 
     result = await db.execute(query, {"org_id": str(DEFAULT_ORG_ID)})
@@ -89,25 +106,46 @@ async def list_lots(db: AsyncSession = Depends(get_db)):
 async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
     query = text("""
         SELECT
-            la.id::text                                         AS id,
-            COALESCE(la.property_address, la.address, 'Unknown Address') AS address,
-            la.lot_number::text,
-            COALESCE(la.community, la.development_name, 'Unknown Community') AS community,
-            CONCAT_WS(' ', sa.buyer_first_name, sa.buyer_last_name) AS buyer_name,
+            l.id::text AS id,
+            COALESCE(l.civic_address, l.legal_description_normalized, 'Unknown Address') AS address,
+            l.lot_number::text,
+            COALESCE(d.name, d.municipality, 'Unknown Community') AS community,
+            buyers.buyer_name,
             sa.possession_date::text,
-            sa.framing_date::text,
-            sa.closing_date::text,
+            NULL::text AS framing_date,
+            NULL::text AS closing_date,
             CASE
                 WHEN sa.possession_date IS NOT NULL AND sa.possession_date <= CURRENT_DATE THEN 'possession'
-                WHEN la.status = 'complete' OR sa.status = 'complete'                     THEN 'complete'
+                WHEN l.status IN ('possession', 'warranty') OR sa.status = 'possession_complete' THEN 'complete'
                 ELSE 'active'
             END AS status,
-            la.id::text  AS land_agreement_id,
-            sa.id::text  AS sale_agreement_id
-        FROM land.agreements la
-        LEFT JOIN sales.agreements sa ON sa.land_agreement_id = la.id
-        WHERE la.id = :lot_id
-          AND la.org_id = :org_id
+            lt.agreement_id::text AS land_agreement_id,
+            sa.id::text AS sale_agreement_id
+        FROM core.lots l
+        JOIN core.developments d ON d.id = l.development_id
+        LEFT JOIN LATERAL (
+            SELECT agreement_id
+            FROM land.lot_terms
+            WHERE lot_id = l.id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) lt ON true
+        LEFT JOIN LATERAL (
+            SELECT id, possession_date, status
+            FROM sales.agreements
+            WHERE lot_id = l.id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) sa ON true
+        LEFT JOIN LATERAL (
+            SELECT string_agg(c.full_name, ', ' ORDER BY sp.is_primary DESC, c.full_name) AS buyer_name
+            FROM sales.parties sp
+            JOIN core.contacts c ON c.id = sp.contact_id
+            WHERE sp.agreement_id = sa.id
+              AND sp.party_role IN ('buyer', 'co_buyer')
+        ) buyers ON true
+        WHERE l.id = :lot_id
+          AND d.org_id = :org_id
     """)
 
     result = await db.execute(query, {"lot_id": lot_id, "org_id": str(DEFAULT_ORG_ID)})
