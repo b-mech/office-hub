@@ -50,11 +50,19 @@ async function scanOpenEmail() {
   if (attachments.length === 0) { removePanel(); return; }
 
   const { autoMode } = await chrome.storage.sync.get({ autoMode: false });
+  renderPanel(attachments, messageRoot);
+
   if (autoMode) {
-    removePanel();
-    await autoIngest(attachments, messageRoot);
-  } else {
-    renderPanel(attachments, messageRoot);
+    const panel = document.querySelector(".office-hub-panel");
+    setStatus(panel, "Auto mode on. Sending detected PDFs...");
+    const { sent, failed } = await autoIngest(attachments, messageRoot);
+    if (failed > 0) {
+      setStatus(panel, `${failed} file${failed !== 1 ? "s" : ""} failed in auto mode.`);
+    } else if (sent > 0) {
+      setStatus(panel, `${sent} file${sent !== 1 ? "s" : ""} sent in auto mode.`);
+    } else {
+      setStatus(panel, "Auto mode on. PDFs already sent.");
+    }
   }
 }
 
@@ -65,14 +73,36 @@ function findOpenMessageRoot() {
   if (!conversation) return null;
   const expandedMessages = Array.from(
     conversation.querySelectorAll('div[role="listitem"], .adn, .gs')
-  ).filter((node) => node.querySelector("[download_url], a[href]"));
-  return expandedMessages.at(-1) || conversation;
+  );
+  const messagesWithPdfAttachments = expandedMessages.filter(hasPdfAttachmentMarker);
+  return messagesWithPdfAttachments.at(-1) || conversation;
 }
 
 function getMessageKey(messageRoot) {
   const subject = document.querySelector("h2[data-thread-perm-id], h2.hP, h2")?.textContent || "";
   const date = messageRoot.querySelector("[title][alt], [title]")?.getAttribute("title") || "";
   return `${location.href}|${subject.trim()}|${date}`;
+}
+
+function hasPdfAttachmentMarker(node) {
+  const downloadNodes = Array.from(node.querySelectorAll("[download_url]"));
+  if (downloadNodes.some((downloadNode) => {
+    const raw = downloadNode.getAttribute("download_url") || "";
+    return raw.startsWith("application/pdf:");
+  })) {
+    return true;
+  }
+
+  const links = Array.from(node.querySelectorAll("a[href]"));
+  return links.some((link) => {
+    const href = link.getAttribute("href") || "";
+    if (!looksLikeAttachmentLink(href)) return false;
+
+    const labels = ["aria-label", "data-tooltip", "title"]
+      .map((attr) => link.getAttribute(attr) || "")
+      .join(" ");
+    return /\.pdf\b/i.test(labels) || /\.pdf\b/i.test(href);
+  });
 }
 
 // ─── PDF attachment detection ─────────────────────────────────────────────────
@@ -262,6 +292,7 @@ function renderPanel(attachments, messageRoot) {
 }
 
 function setStatus(panel, text) {
+  if (!panel) return;
   const statusEl = panel.querySelector(".office-hub-status");
   if (statusEl) statusEl.textContent = text;
 }
@@ -269,16 +300,23 @@ function setStatus(panel, text) {
 // ─── Ingest ───────────────────────────────────────────────────────────────────
 
 async function autoIngest(attachments, messageRoot) {
+  let sent = 0;
+  let failed = 0;
+
   for (const attachment of attachments) {
     if (processedAttachmentKeys.has(attachment.key)) continue;
     processedAttachmentKeys.add(attachment.key);
     try {
       await ingestAttachment(attachment, messageRoot);
+      sent += 1;
     } catch (error) {
+      failed += 1;
       const msg = error instanceof Error ? error.message : "Office Hub ingest failed.";
       showInlineSummary(messageRoot, `Office Hub: ${msg}`);
     }
   }
+
+  return { sent, failed };
 }
 
 async function ingestAttachment(attachment, messageRoot) {
