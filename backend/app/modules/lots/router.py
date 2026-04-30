@@ -75,11 +75,16 @@ async def list_lots(db: AsyncSession = Depends(get_db)):
             LIMIT 1
         ) sa ON true
         LEFT JOIN LATERAL (
-            SELECT string_agg(c.full_name, ', ' ORDER BY sp.is_primary DESC, c.full_name) AS buyer_name
+            SELECT string_agg(
+                COALESCE(c.full_name, c.company_name),
+                ', '
+                ORDER BY sp.is_primary DESC, COALESCE(c.full_name, c.company_name)
+            ) AS buyer_name
             FROM sales.parties sp
             JOIN core.contacts c ON c.id = sp.contact_id
             WHERE sp.agreement_id = sa.id
               AND sp.party_role IN ('buyer', 'co_buyer')
+              AND COALESCE(c.full_name, c.company_name) IS NOT NULL
         ) buyers ON true
         WHERE d.org_id = :org_id
         ORDER BY l.created_at DESC
@@ -146,11 +151,16 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
             LIMIT 1
         ) sa ON true
         LEFT JOIN LATERAL (
-            SELECT string_agg(c.full_name, ', ' ORDER BY sp.is_primary DESC, c.full_name) AS buyer_name
+            SELECT string_agg(
+                COALESCE(c.full_name, c.company_name),
+                ', '
+                ORDER BY sp.is_primary DESC, COALESCE(c.full_name, c.company_name)
+            ) AS buyer_name
             FROM sales.parties sp
             JOIN core.contacts c ON c.id = sp.contact_id
             WHERE sp.agreement_id = sa.id
               AND sp.party_role IN ('buyer', 'co_buyer')
+              AND COALESCE(c.full_name, c.company_name) IS NOT NULL
         ) buyers ON true
         WHERE l.id = :lot_id
           AND d.org_id = :org_id
