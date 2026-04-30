@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from app.database import Base  # adjust import path to match your project
+from app.core.database import Base
 
 
 class CostCategory(Base):
