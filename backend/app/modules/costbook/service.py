@@ -13,6 +13,7 @@ Example: 2601-3130-01
 """
 import logging
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
 
@@ -319,6 +320,10 @@ async def create_purchase_order(
         notes=data.notes,
     )
     db.add(po)
+
+    line.estimate = Decimal(str(data.amount))
+    line.origin_of_number = f"PO {po_number}"
+
     await db.commit()
     await db.refresh(po)
     return po

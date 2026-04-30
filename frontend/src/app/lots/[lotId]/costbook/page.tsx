@@ -455,6 +455,8 @@ function IssuePODrawer({
       });
       onCreated(po);
       onClose();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to issue purchase order.");
     } finally {
       setSaving(false);
     }
@@ -616,6 +618,20 @@ export default function CostbookPage() {
     });
   }
 
+  function handlePOCreated(po: PurchaseOrder) {
+    setBudget((prev) => {
+      if (!prev) return prev;
+      const lines = prev.lines.map((line) =>
+        line.id === po.budget_line_id
+          ? { ...line, estimate: po.amount, origin_of_number: `PO ${po.po_number}` }
+          : line
+      );
+      const total_estimate = lines.reduce((sum, line) => sum + (line.estimate || 0), 0);
+      const total_actual = lines.reduce((sum, line) => sum + (line.actual || 0), 0);
+      return { ...prev, lines, total_estimate, total_actual, total_variance: total_actual - total_estimate };
+    });
+  }
+
   return (
     <div className="min-h-screen bg-[#0f1117] text-white">
       {/* Top bar */}
@@ -688,7 +704,7 @@ export default function CostbookPage() {
           line={issuePOLine}
           budgetId={visibleBudget.id}
           onClose={() => setIssuePOLine(null)}
-          onCreated={() => {}}
+          onCreated={handlePOCreated}
         />
       )}
     </div>
