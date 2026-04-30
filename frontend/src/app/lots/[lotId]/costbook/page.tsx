@@ -116,7 +116,8 @@ function BudgetTab({
                         {editingCell?.lineId === line.id && editingCell.field === "estimate" ? (
                           <input
                             autoFocus
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => commitEdit(line, "estimate")}
@@ -138,7 +139,8 @@ function BudgetTab({
                         {editingCell?.lineId === line.id && editingCell.field === "actual" ? (
                           <input
                             autoFocus
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => commitEdit(line, "actual")}
@@ -507,7 +509,8 @@ function IssuePODrawer({
           <div>
             <label className="text-xs text-white/40 mb-1.5 block">Amount (CAD)</label>
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400/50"
