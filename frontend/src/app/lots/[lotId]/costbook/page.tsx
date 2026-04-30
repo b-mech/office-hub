@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   getBudgets, createBudget, updateBudgetLine,
@@ -550,7 +550,6 @@ function IssuePODrawer({
 export default function CostbookPage() {
   const params = useParams();
   const searchParams = useSearchParams();
-  const router = useRouter();
   const lotId = params?.lotId as string | undefined;
 
   const initialTab = (searchParams?.get("tab") === "invoices" ? "Invoices" : "Budget") as Tab;

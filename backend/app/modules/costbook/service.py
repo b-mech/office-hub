@@ -168,6 +168,9 @@ async def list_budgets(db: AsyncSession, org_id: UUID) -> List[Budget]:
     result = await db.execute(
         select(Budget)
         .where(Budget.org_id == org_id)
+        .options(
+            selectinload(Budget.lines).selectinload(BudgetLine.cost_category)
+        )
         .order_by(Budget.fiscal_year.desc(), Budget.project_number.asc())
     )
     return result.scalars().all()
