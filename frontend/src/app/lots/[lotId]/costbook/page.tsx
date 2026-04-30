@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-  getBudgets, createBudget, updateBudgetLine, getLot,
+  getBudgets, createBudget, updateBudget, updateBudgetLine, getLot,
   getPurchaseOrders, createPurchaseOrder, updatePoStatus,
   getInvoices, ingestInvoice, approveInvoice, rejectInvoice,
   getVendors,
@@ -565,26 +565,37 @@ export default function CostbookPage() {
   const visibleBudget = budget && (!lotId || budget.lot_agreement_id === lotId) ? budget : null;
 
   useEffect(() => {
-    if (!lotId) return;
-    getLot(lotId).then(setLot).catch(() => setLot(null));
-  }, [lotId]);
-
-  useEffect(() => {
-    getBudgets()
-      .then((budgets) => {
+    const load = async () => {
+      try {
+        const [lotData, budgets] = await Promise.all([
+          lotId ? getLot(lotId).catch(() => null) : Promise.resolve(null),
+          getBudgets(),
+        ]);
+        setLot(lotData);
         const match = lotId
           ? budgets.find((b) => b.lot_agreement_id === lotId)
           : budgets[0];
-        setBudget(match ?? null);
-      })
-      .finally(() => setLoading(false));
+        if (match && lotData?.address && match.label === "New Budget") {
+          const renamed = await updateBudget(match.id, { label: lotData.address });
+          setBudget(renamed);
+        } else {
+          setBudget(match ?? null);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
   }, [lotId]);
 
   async function handleCreate() {
     setCreating(true);
     try {
+      const lotData = lot ?? (lotId ? await getLot(lotId).catch(() => null) : null);
+      if (lotData) setLot(lotData);
       const b = await createBudget({
-        label: lot?.address || "New Budget",
+        label: lotData?.address || "New Budget",
         lot_agreement_id: lotId,
       });
       setBudget(b);

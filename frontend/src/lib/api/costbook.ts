@@ -112,6 +112,16 @@ export async function createBudget(data: {
   });
 }
 
+export async function updateBudget(
+  id: string,
+  data: { label?: string; lot_agreement_id?: string; notes?: string; status?: string }
+): Promise<Budget> {
+  return apiFetch<Budget>(`/api/v1/costbook/budgets/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
 export async function updateBudgetLine(
   budgetId: string,
   lineId: string,
