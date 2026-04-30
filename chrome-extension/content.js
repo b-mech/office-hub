@@ -6,6 +6,8 @@ let observer = null;
 let scanTimer = null;
 let currentMessageKey = "";
 let processedAttachmentKeys = new Set();
+let selectedAttachmentKeys = new Set();
+let renderedAttachmentSignature = "";
 
 init();
 
@@ -42,12 +44,19 @@ async function scanOpenEmail() {
   if (messageKey !== currentMessageKey) {
     currentMessageKey = messageKey;
     processedAttachmentKeys = new Set();
+    selectedAttachmentKeys = new Set();
+    renderedAttachmentSignature = "";
     removePanel();
     removeSummaries();
   }
 
   const attachments = findPdfAttachments(messageRoot);
-  if (attachments.length === 0) { removePanel(); return; }
+  if (attachments.length === 0) {
+    selectedAttachmentKeys = new Set();
+    renderedAttachmentSignature = "";
+    removePanel();
+    return;
+  }
 
   const { autoMode } = await chrome.storage.sync.get({ autoMode: false });
   renderPanel(attachments, messageRoot);
@@ -195,7 +204,23 @@ function decodeFilename(filename) {
 // ─── Panel UI ─────────────────────────────────────────────────────────────────
 
 function renderPanel(attachments, messageRoot) {
+  const attachmentSignature = attachments.map((attachment) => attachment.key).join("|");
+  const existingPanel = document.querySelector(".office-hub-panel");
+  if (existingPanel && attachmentSignature === renderedAttachmentSignature) {
+    return;
+  }
+
+  if (selectedAttachmentKeys.size === 0) {
+    selectedAttachmentKeys = new Set(attachments.map((attachment) => attachment.key));
+  } else {
+    const availableKeys = new Set(attachments.map((attachment) => attachment.key));
+    selectedAttachmentKeys = new Set(
+      Array.from(selectedAttachmentKeys).filter((key) => availableKeys.has(key))
+    );
+  }
+
   removePanel();
+  renderedAttachmentSignature = attachmentSignature;
 
   const panel = document.createElement("aside");
   panel.className = "office-hub-panel";
@@ -231,8 +256,15 @@ function renderPanel(attachments, messageRoot) {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.className = "office-hub-checkbox";
-    checkbox.checked = true;
+    checkbox.checked = selectedAttachmentKeys.has(attachment.key);
     checkbox.dataset.key = attachment.key;
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        selectedAttachmentKeys.add(attachment.key);
+      } else {
+        selectedAttachmentKeys.delete(attachment.key);
+      }
+    });
 
     const filename = document.createElement("span");
     filename.className = "office-hub-filename";
