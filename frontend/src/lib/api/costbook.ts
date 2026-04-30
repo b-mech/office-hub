@@ -23,6 +23,8 @@ export interface Lot {
   lot_number?: string;
   community: string;
   buyer_name?: string;
+  agreement_date?: string;
+  condition_removal_date?: string;
   possession_date?: string;
   framing_date?: string;
   closing_date?: string;

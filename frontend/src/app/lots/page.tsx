@@ -83,8 +83,8 @@ function LotCard({
 
 function LotDetail({ lot }: { lot: Lot }) {
   const dates = [
-    { label: "Framing", value: lot.framing_date },
-    { label: "Closing", value: lot.closing_date },
+    { label: "Agreement", value: lot.agreement_date },
+    { label: "Conditions", value: lot.condition_removal_date },
     { label: "Possession", value: lot.possession_date },
   ];
 

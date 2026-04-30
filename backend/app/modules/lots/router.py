@@ -24,6 +24,8 @@ class LotOut(BaseModel):
     lot_number: Optional[str] = None
     community: str
     buyer_name: Optional[str] = None
+    agreement_date: Optional[str] = None
+    condition_removal_date: Optional[str] = None
     possession_date: Optional[str] = None
     framing_date: Optional[str] = None
     closing_date: Optional[str] = None
@@ -44,6 +46,8 @@ async def list_lots(db: AsyncSession = Depends(get_db)):
             l.lot_number::text,
             COALESCE(d.name, d.municipality, 'Unknown Community') AS community,
             buyers.buyer_name,
+            sa.agreement_date::text,
+            sa.condition_removal_date::text,
             sa.possession_date::text,
             NULL::text AS framing_date,
             NULL::text AS closing_date,
@@ -64,7 +68,7 @@ async def list_lots(db: AsyncSession = Depends(get_db)):
             LIMIT 1
         ) lt ON true
         LEFT JOIN LATERAL (
-            SELECT id, possession_date, status
+            SELECT id, agreement_date, possession_date, condition_removal_date, status
             FROM sales.agreements
             WHERE lot_id = l.id
             ORDER BY created_at DESC
@@ -91,6 +95,8 @@ async def list_lots(db: AsyncSession = Depends(get_db)):
             lot_number=row.get("lot_number"),
             community=row["community"],
             buyer_name=row.get("buyer_name") or None,
+            agreement_date=row.get("agreement_date"),
+            condition_removal_date=row.get("condition_removal_date"),
             possession_date=row.get("possession_date"),
             framing_date=row.get("framing_date"),
             closing_date=row.get("closing_date"),
@@ -111,6 +117,8 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
             l.lot_number::text,
             COALESCE(d.name, d.municipality, 'Unknown Community') AS community,
             buyers.buyer_name,
+            sa.agreement_date::text,
+            sa.condition_removal_date::text,
             sa.possession_date::text,
             NULL::text AS framing_date,
             NULL::text AS closing_date,
@@ -131,7 +139,7 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
             LIMIT 1
         ) lt ON true
         LEFT JOIN LATERAL (
-            SELECT id, possession_date, status
+            SELECT id, agreement_date, possession_date, condition_removal_date, status
             FROM sales.agreements
             WHERE lot_id = l.id
             ORDER BY created_at DESC
@@ -160,6 +168,8 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
         lot_number=row.get("lot_number"),
         community=row["community"],
         buyer_name=row.get("buyer_name") or None,
+        agreement_date=row.get("agreement_date"),
+        condition_removal_date=row.get("condition_removal_date"),
         possession_date=row.get("possession_date"),
         framing_date=row.get("framing_date"),
         closing_date=row.get("closing_date"),

@@ -4,11 +4,11 @@ import { useEffect, useState, useMemo } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-  getBudgets, createBudget, updateBudgetLine,
+  getBudgets, createBudget, updateBudgetLine, getLot,
   getPurchaseOrders, createPurchaseOrder, updatePoStatus,
   getInvoices, ingestInvoice, approveInvoice, rejectInvoice,
   getVendors,
-  type Budget, type BudgetLine, type PurchaseOrder, type Invoice, type Vendor,
+  type Budget, type BudgetLine, type PurchaseOrder, type Invoice, type Vendor, type Lot,
 } from "@/lib/api/costbook";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -558,10 +558,16 @@ export default function CostbookPage() {
   const initialTab = (searchParams?.get("tab") === "invoices" ? "Invoices" : "Budget") as Tab;
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [budget, setBudget] = useState<Budget | null>(null);
+  const [lot, setLot] = useState<Lot | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [issuePOLine, setIssuePOLine] = useState<BudgetLine | null>(null);
   const visibleBudget = budget && (!lotId || budget.lot_agreement_id === lotId) ? budget : null;
+
+  useEffect(() => {
+    if (!lotId) return;
+    getLot(lotId).then(setLot).catch(() => setLot(null));
+  }, [lotId]);
 
   useEffect(() => {
     getBudgets()
@@ -578,7 +584,7 @@ export default function CostbookPage() {
     setCreating(true);
     try {
       const b = await createBudget({
-        label: "New Budget",
+        label: lot?.address || "New Budget",
         lot_agreement_id: lotId,
       });
       setBudget(b);
