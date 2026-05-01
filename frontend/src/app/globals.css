@@ -1,8 +1,17 @@
 @import "../../node_modules/tailwindcss/index.css";
 
 :root {
-  --background: #f0e9df;
-  --foreground: #1f1a15;
+  --background: #f4ecdc;
+  --foreground: #17130f;
+  --monocle-ink: #17130f;
+  --monocle-coal: #211b15;
+  --monocle-paper: #f7f0e2;
+  --monocle-newsprint: #fffaf0;
+  --monocle-rule: #d8c7aa;
+  --monocle-muted: #706454;
+  --monocle-gold: #c89332;
+  --monocle-rust: #a84d2a;
+  --monocle-sage: #68765b;
   --font-sans-app: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
   --font-mono-app: "SFMono-Regular", "Menlo", "Consolas", monospace;
 }
@@ -39,6 +48,156 @@ textarea {
 }
 
 ::selection {
-  background: rgba(113, 92, 63, 0.18);
-  color: #1f1a15;
+  background: rgba(200, 147, 50, 0.28);
+  color: var(--monocle-ink);
+}
+
+.theme-monocle {
+  background:
+    linear-gradient(180deg, rgba(255, 250, 240, 0.82), rgba(244, 236, 220, 0.96)),
+    var(--monocle-paper);
+  color: var(--monocle-ink);
+}
+
+.theme-monocle [class~="bg-[#0f1117]"] {
+  background:
+    radial-gradient(circle at top left, rgba(255, 250, 240, 0.9), rgba(244, 236, 220, 0.95) 48%, rgba(231, 218, 194, 0.9)),
+    var(--monocle-paper);
+}
+
+.theme-monocle [class~="bg-[#11141b]"],
+.theme-monocle [class~="bg-[#161921]"] {
+  background: var(--monocle-coal);
+}
+
+.theme-monocle [class~="text-white"] {
+  color: var(--monocle-ink);
+}
+
+.theme-monocle [class~="bg-[#11141b]"] [class~="text-white"],
+.theme-monocle [class~="bg-[#161921]"] [class~="text-white"],
+.theme-monocle [class~="bg-stone-950"] [class~="text-white"],
+.theme-monocle [class~="bg-stone-900"] [class~="text-white"] {
+  color: var(--monocle-newsprint);
+}
+
+.theme-monocle [class~="text-white/80"],
+.theme-monocle [class~="text-white/70"],
+.theme-monocle [class~="text-white/60"] {
+  color: #4d4438;
+}
+
+.theme-monocle [class~="text-white/50"],
+.theme-monocle [class~="text-white/40"],
+.theme-monocle [class~="text-white/30"],
+.theme-monocle [class~="text-white/20"] {
+  color: var(--monocle-muted);
+}
+
+.theme-monocle [class~="bg-[#11141b]"] [class~="text-white/60"],
+.theme-monocle [class~="bg-[#11141b]"] [class~="text-white/50"],
+.theme-monocle [class~="bg-[#11141b]"] [class~="text-white/40"],
+.theme-monocle [class~="bg-[#11141b]"] [class~="text-white/30"],
+.theme-monocle [class~="bg-[#161921]"] [class~="text-white/60"],
+.theme-monocle [class~="bg-[#161921]"] [class~="text-white/50"],
+.theme-monocle [class~="bg-[#161921]"] [class~="text-white/40"],
+.theme-monocle [class~="bg-[#161921]"] [class~="text-white/30"] {
+  color: rgba(255, 250, 240, 0.68);
+}
+
+.theme-monocle [class~="border-white/20"],
+.theme-monocle [class~="border-white/10"],
+.theme-monocle [class~="border-white/5"],
+.theme-monocle [class~="border-stone-300/70"],
+.theme-monocle [class~="border-stone-200"] {
+  border-color: var(--monocle-rule);
+}
+
+.theme-monocle [class~="bg-white/10"],
+.theme-monocle [class~="bg-white/5"],
+.theme-monocle [class~="bg-white/3"],
+.theme-monocle [class~="bg-white/2"],
+.theme-monocle [class~="bg-white/80"],
+.theme-monocle [class~="bg-white/92"],
+.theme-monocle [class~="bg-white/96"],
+.theme-monocle [class~="bg-white"] {
+  background-color: rgba(255, 250, 240, 0.86);
+}
+
+.theme-monocle [class~="hover:bg-white/10"]:hover,
+.theme-monocle [class~="hover:bg-white/5"]:hover,
+.theme-monocle [class~="hover:bg-white/3"]:hover {
+  background-color: rgba(225, 209, 181, 0.62);
+}
+
+.theme-monocle [class~="hover:text-white"]:hover,
+.theme-monocle [class~="hover:text-white/70"]:hover,
+.theme-monocle [class~="hover:text-white/60"]:hover {
+  color: var(--monocle-ink);
+}
+
+.theme-monocle [class~="text-amber-300"],
+.theme-monocle [class~="text-amber-400"],
+.theme-monocle [class~="text-amber-700"],
+.theme-monocle [class~="text-amber-800"] {
+  color: var(--monocle-rust);
+}
+
+.theme-monocle [class~="bg-amber-400/20"],
+.theme-monocle [class~="bg-amber-500/15"],
+.theme-monocle [class~="bg-amber-500/10"],
+.theme-monocle [class~="bg-amber-100"],
+.theme-monocle [class~="bg-amber-50"] {
+  background-color: rgba(200, 147, 50, 0.16);
+}
+
+.theme-monocle [class~="border-amber-400/30"],
+.theme-monocle [class~="border-amber-400/50"],
+.theme-monocle [class~="border-amber-500/30"],
+.theme-monocle [class~="border-amber-300"] {
+  border-color: rgba(168, 77, 42, 0.46);
+}
+
+.theme-monocle [class~="bg-amber-400"],
+.theme-monocle [class~="bg-amber-500"] {
+  background-color: var(--monocle-gold);
+}
+
+.theme-monocle [class~="text-emerald-300"],
+.theme-monocle [class~="text-emerald-400"],
+.theme-monocle [class~="text-emerald-700"],
+.theme-monocle [class~="text-emerald-800"] {
+  color: var(--monocle-sage);
+}
+
+.theme-monocle [class~="bg-emerald-500/15"],
+.theme-monocle [class~="bg-emerald-500/20"],
+.theme-monocle [class~="bg-emerald-100"],
+.theme-monocle [class~="bg-emerald-50"] {
+  background-color: rgba(104, 118, 91, 0.16);
+}
+
+.theme-monocle [class~="border-emerald-500/30"],
+.theme-monocle [class~="border-emerald-200"] {
+  border-color: rgba(104, 118, 91, 0.38);
+}
+
+.theme-monocle [class~="bg-emerald-700"] {
+  background-color: var(--monocle-sage);
+}
+
+.theme-monocle [class~="text-red-300"],
+.theme-monocle [class~="text-red-400"],
+.theme-monocle [class~="text-rose-600"],
+.theme-monocle [class~="text-rose-700"] {
+  color: var(--monocle-rust);
+}
+
+.theme-monocle [class~="bg-red-500/15"],
+.theme-monocle [class~="bg-red-500/20"] {
+  background-color: rgba(168, 77, 42, 0.14);
+}
+
+.theme-monocle [class~="bg-rose-700"] {
+  background-color: var(--monocle-rust);
 }

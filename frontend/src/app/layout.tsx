@@ -19,7 +19,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="min-h-full bg-[#0f1117] text-white">
+      <body className="theme-monocle min-h-full bg-[#0f1117] text-white">
         <div className="flex min-h-screen">
           <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#11141b] px-4 py-5 lg:block">
             <Link href="/documents" className="flex items-center gap-2">
