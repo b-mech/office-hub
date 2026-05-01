@@ -80,13 +80,17 @@ Rules:
    - civic_address = 214 Woodland Way
 4f. Do not leave block, lot_number, or civic_address null if a plausible row-level value is present in the lot schedule table text, even if OCR is noisy. Use a lower confidence instead.
 4g. Prefer values that stay internally consistent across the row. For example, if a row clearly contains a block, lot number, street number, street name, plan, and purchase price together, treat them as one lot row.
-5. Extract notable clauses as an array of objects with:
+5. Extract at most 6 notable clauses as an array of objects with:
    - clause_ref
    - label
    - text
    - category
+5a. Prefer clauses needed for review and promotion: deposits, balance due timing, interest,
+    construction restrictions, security deposit, GST, assignment/default. Keep clause text concise.
 6. Return ONLY valid JSON. Do not include explanation, markdown, or code fences.
-7. For each field include a confidence score between 0.0 and 1.0.
+7. Include confidence scores between 0.0 and 1.0 only for agreement-level fields and
+   security_deposit fields. Do not emit confidence entries for every lot row or every
+   notable clause; the response must stay complete valid JSON.
 8. If a field cannot be found, return null for the value and 0.0 for confidence.
 9. The top-level JSON keys must be exactly:
    - agreement
@@ -94,13 +98,11 @@ Rules:
    - lots
    - notable_clauses
    - field_confidences
-10. field_confidences must be an object using dotted key paths. Examples:
+10. field_confidences must be a compact object using dotted key paths for agreement and
+    security_deposit only. Examples:
    - "agreement.agreement_date"
    - "agreement.vendor_name"
    - "security_deposit.rate_per_lot"
-   - "lots.0.block"
-   - "lots.0.deposit_2_due_date"
-   - "notable_clauses.0.clause_ref"
 11. Do not invent auto-calculated fields such as legal_description_normalized, balance_due_date, calculated_amount, deposit triggers beyond due_trigger, or lot status.
 12. Preserve exact document wording where helpful, especially for interest_terms_text and notable clause text.
 13. If the OCR is ambiguous or the chart total appears inconsistent, lower the relevant confidence scores.
