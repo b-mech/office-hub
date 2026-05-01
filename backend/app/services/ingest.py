@@ -79,13 +79,6 @@ class IngestService:
                 else requested_doc_type
             )
 
-            extraction_service = get_extraction_service()
-            extraction_result = await asyncio.to_thread(
-                extraction_service.extract,
-                resolved_doc_type.value,
-                ocr_result.raw_text,
-            )
-
             org_id = await self._fetch_default_org_id()
             document = Document(
                 org_id=org_id,
@@ -129,27 +122,45 @@ class IngestService:
             self._db.add(ingestion)
             await self._db.flush()
 
-            extraction = Extraction(
-                ingestion_id=ingestion.id,
-                model_provider=extraction_result.model_provider,
-                model_version=extraction_result.model_version,
-                prompt_version=extraction_result.prompt_version,
-                extracted_payload=extraction_result.extracted_payload,
-                field_confidences=extraction_result.field_confidences,
-                low_confidence_fields=extraction_result.low_confidence_fields,
-            )
-            self._db.add(extraction)
+            extraction_service = get_extraction_service()
+            extraction_result = None
+            try:
+                extraction_result = await asyncio.to_thread(
+                    extraction_service.extract,
+                    resolved_doc_type.value,
+                    ocr_result.raw_text,
+                )
+            except Exception as exc:
+                ingestion.error_message = f"Extraction failed: {exc}"
+
+            if extraction_result is not None:
+                extraction = Extraction(
+                    ingestion_id=ingestion.id,
+                    model_provider=extraction_result.model_provider,
+                    model_version=extraction_result.model_version,
+                    prompt_version=extraction_result.prompt_version,
+                    extracted_payload=extraction_result.extracted_payload,
+                    field_confidences=extraction_result.field_confidences,
+                    low_confidence_fields=extraction_result.low_confidence_fields,
+                )
+                self._db.add(extraction)
 
             document.status = DocumentStatus.IN_REVIEW
             await self._db.commit()
 
+            extraction_summary = (
+                self._build_summary(
+                    doc_type=resolved_doc_type,
+                    payload=extraction_result.extracted_payload,
+                )
+                if extraction_result is not None
+                else "Document received; extraction failed"
+            )
+
             return IngestResult(
                 document_id=document.id,
                 status=document.status,
-                extraction_summary=self._build_summary(
-                    doc_type=resolved_doc_type,
-                    payload=extraction_result.extracted_payload,
-                ),
+                extraction_summary=extraction_summary,
             )
         finally:
             await file.close()
