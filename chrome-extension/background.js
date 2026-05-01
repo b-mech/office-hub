@@ -1,6 +1,6 @@
 const OFFICE_HUB_API = "http://localhost:8000";
 const GMAIL_FETCH_TIMEOUT_MS = 45000;
-const OFFICE_HUB_POST_TIMEOUT_MS = 120000;
+const OFFICE_HUB_POST_TIMEOUT_MS = 600000;
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.sync.get({ autoMode: false }, ({ autoMode }) => {

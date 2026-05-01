@@ -1,7 +1,7 @@
 // content.js
 const OFFICE_HUB_API = "http://localhost:8000";
 const OFFICE_HUB_APP = "http://localhost:3000";
-const INGEST_RESPONSE_TIMEOUT_MS = 150000;
+const INGEST_RESPONSE_TIMEOUT_MS = 620000;
 
 let observer = null;
 let scanTimer = null;
