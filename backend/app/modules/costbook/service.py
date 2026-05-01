@@ -320,9 +320,14 @@ async def create_purchase_order(
         notes=data.notes,
     )
     db.add(po)
+    await db.flush()
 
-    line.estimate = Decimal(str(data.amount))
-    line.origin_of_number = f"PO {po_number}"
+    total_result = await db.execute(
+        select(func.coalesce(func.sum(PurchaseOrder.amount), 0))
+        .where(PurchaseOrder.budget_line_id == data.budget_line_id)
+    )
+    line.estimate = Decimal(str(total_result.scalar_one()))
+    line.origin_of_number = "PO total"
 
     await db.commit()
     await db.refresh(po)

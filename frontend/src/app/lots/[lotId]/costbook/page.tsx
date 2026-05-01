@@ -623,7 +623,7 @@ export default function CostbookPage() {
       if (!prev) return prev;
       const lines = prev.lines.map((line) =>
         line.id === po.budget_line_id
-          ? { ...line, estimate: po.amount, origin_of_number: `PO ${po.po_number}` }
+          ? { ...line, estimate: (line.estimate || 0) + po.amount, origin_of_number: "PO total" }
           : line
       );
       const total_estimate = lines.reduce((sum, line) => sum + (line.estimate || 0), 0);
