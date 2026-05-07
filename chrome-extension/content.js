@@ -2,6 +2,7 @@
 const OFFICE_HUB_API = "http://localhost:8000";
 const OFFICE_HUB_APP = "http://localhost:3000";
 const INGEST_RESPONSE_TIMEOUT_MS = 620000;
+const OFFICE_HUB_ICON_URL = chrome.runtime.getURL("favicon.png");
 
 let observer = null;
 let scanTimer = null;
@@ -9,6 +10,7 @@ let currentMessageKey = "";
 let processedAttachmentKeys = new Set();
 let selectedAttachmentKeys = new Set();
 let renderedAttachmentSignature = "";
+let panelExpanded = false;
 
 init();
 
@@ -39,7 +41,13 @@ function scheduleScan() {
 
 async function scanOpenEmail() {
   const messageRoot = findOpenMessageRoot();
-  if (!messageRoot) { removePanel(); return; }
+  if (!messageRoot) {
+    selectedAttachmentKeys = new Set();
+    renderedAttachmentSignature = "";
+    panelExpanded = false;
+    renderPanel([], null);
+    return;
+  }
 
   const messageKey = getMessageKey(messageRoot);
   if (messageKey !== currentMessageKey) {
@@ -47,7 +55,7 @@ async function scanOpenEmail() {
     processedAttachmentKeys = new Set();
     selectedAttachmentKeys = new Set();
     renderedAttachmentSignature = "";
-    removePanel();
+    panelExpanded = false;
     removeSummaries();
   }
 
@@ -55,7 +63,8 @@ async function scanOpenEmail() {
   if (attachments.length === 0) {
     selectedAttachmentKeys = new Set();
     renderedAttachmentSignature = "";
-    removePanel();
+    panelExpanded = false;
+    renderPanel([], messageRoot);
     return;
   }
 
@@ -207,7 +216,13 @@ function decodeFilename(filename) {
 function renderPanel(attachments, messageRoot) {
   const attachmentSignature = attachments.map((attachment) => attachment.key).join("|");
   const existingPanel = document.querySelector(".office-hub-panel");
-  if (existingPanel && attachmentSignature === renderedAttachmentSignature) {
+  const existingMode = existingPanel?.dataset.mode || "";
+  const nextMode = panelExpanded && attachments.length > 0 ? "expanded" : "launcher";
+  if (
+    existingPanel &&
+    attachmentSignature === renderedAttachmentSignature &&
+    existingMode === nextMode
+  ) {
     return;
   }
 
@@ -224,19 +239,63 @@ function renderPanel(attachments, messageRoot) {
   renderedAttachmentSignature = attachmentSignature;
 
   const panel = document.createElement("aside");
-  panel.className = "office-hub-panel";
+  panel.className = `office-hub-panel office-hub-panel--${nextMode}`;
+  panel.dataset.mode = nextMode;
   document.body.appendChild(panel);
+
+  if (nextMode === "launcher") {
+    const launcher = document.createElement("button");
+    launcher.className = "office-hub-launcher";
+    launcher.type = "button";
+    launcher.title = attachments.length > 0
+      ? `${attachments.length} PDF${attachments.length !== 1 ? "s" : ""} detected`
+      : "Office Hub";
+    launcher.setAttribute("aria-label", launcher.title);
+
+    const icon = document.createElement("img");
+    icon.className = "office-hub-launcher-icon";
+    icon.src = OFFICE_HUB_ICON_URL;
+    icon.alt = "";
+    icon.draggable = false;
+    launcher.appendChild(icon);
+
+    if (attachments.length > 0) {
+      const documentBadge = document.createElement("span");
+      documentBadge.className = "office-hub-document-badge";
+      documentBadge.setAttribute("aria-hidden", "true");
+      launcher.appendChild(documentBadge);
+    }
+
+    launcher.addEventListener("click", () => {
+      if (attachments.length === 0) return;
+      panelExpanded = true;
+      renderPanel(attachments, messageRoot);
+    });
+
+    panel.appendChild(launcher);
+    return;
+  }
 
   // Header
   const header = document.createElement("div");
   header.className = "office-hub-panel-header";
   const title = document.createElement("span");
   title.className = "office-hub-panel-title";
-  title.textContent = "Office Hub";
+  const titleIcon = document.createElement("img");
+  titleIcon.className = "office-hub-panel-title-icon";
+  titleIcon.src = OFFICE_HUB_ICON_URL;
+  titleIcon.alt = "";
+  titleIcon.draggable = false;
+  const titleText = document.createElement("span");
+  titleText.textContent = "Office Hub";
+  title.append(titleIcon, titleText);
   const closeBtn = document.createElement("button");
   closeBtn.className = "office-hub-panel-close";
   closeBtn.textContent = "×";
-  closeBtn.addEventListener("click", removePanel);
+  closeBtn.addEventListener("click", () => {
+    panelExpanded = false;
+    renderPanel(attachments, messageRoot);
+  });
   header.append(title, closeBtn);
   panel.appendChild(header);
 
@@ -311,7 +370,10 @@ function renderPanel(attachments, messageRoot) {
 
     if (successCount === selected.length) {
       setStatus(panel, `✓ ${successCount} file${successCount !== 1 ? "s" : ""} sent`);
-      window.setTimeout(removePanel, 2000);
+      window.setTimeout(() => {
+        panelExpanded = false;
+        renderPanel(attachments, messageRoot);
+      }, 2000);
     } else if (successCount > 0) {
       setStatus(panel, `${successCount} sent, ${selected.length - successCount} failed.`);
     }
