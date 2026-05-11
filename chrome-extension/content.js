@@ -3,7 +3,7 @@ const OFFICE_HUB_API = "http://localhost:8000";
 const OFFICE_HUB_APP = "http://localhost:3000";
 const INGEST_RESPONSE_TIMEOUT_MS = 620000;
 const OFFICE_HUB_ICON_URL = chrome.runtime.getURL("favicon.png");
-const KRISTY_EMAIL = "";
+const KRISTY_EMAIL = "kristy@connectionhomes.ca";
 
 let observer = null;
 let scanTimer = null;
