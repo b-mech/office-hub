@@ -28,9 +28,15 @@ class ChangeOrderLineItem(BaseModel):
 class ChangeOrderDraft(BaseModel):
     address: str = ""
     client_name: str = ""
+    co_number: str = ""
+    date: str = ""
     line_items: list[ChangeOrderLineItem] = Field(default_factory=list)
     payment_method: Literal["add_to_mortgage", "due_upon_receipt"] = "due_upon_receipt"
     notes: str = ""
+
+
+class ChangeOrderDraftResponse(BaseModel):
+    id: str
 
 
 @router.post("/extract", response_model=ChangeOrderDraft)
@@ -39,6 +45,11 @@ async def extract_change_order(request: ChangeOrderExtractRequest) -> ChangeOrde
     raw_response = await asyncio.to_thread(_request_change_order_extract, provider, request.email_body)
     parsed = provider._parse_json_response(raw_response)
     return _normalize_change_order_draft(parsed)
+
+
+@router.post("/draft", response_model=ChangeOrderDraftResponse)
+async def save_change_order_draft(_draft: ChangeOrderDraft) -> ChangeOrderDraftResponse:
+    return ChangeOrderDraftResponse(id="stub-001")
 
 
 def _request_change_order_extract(provider: ClaudeProvider, email_body: str) -> str:
@@ -69,6 +80,8 @@ def _normalize_change_order_draft(parsed: dict[str, Any]) -> ChangeOrderDraft:
     return ChangeOrderDraft(
         address=_as_text(parsed.get("address")),
         client_name=_as_text(parsed.get("client_name")),
+        co_number=_as_text(parsed.get("co_number")),
+        date=_as_text(parsed.get("date")),
         line_items=_normalize_line_items(parsed.get("line_items")),
         payment_method=_normalize_payment_method(parsed.get("payment_method")),
         notes=_as_text(parsed.get("notes")),
