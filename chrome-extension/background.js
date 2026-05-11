@@ -9,20 +9,33 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "INGEST_ATTACHMENT") {
-    return false;
+  if (message?.type === "INGEST_ATTACHMENT") {
+    ingestAttachment(message)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : "Attachment ingest failed.",
+        });
+      });
+
+    return true;
   }
 
-  ingestAttachment(message)
-    .then((result) => sendResponse({ ok: true, ...result }))
-    .catch((error) => {
-      sendResponse({
-        ok: false,
-        error: error instanceof Error ? error.message : "Attachment ingest failed.",
+  if (message?.type === "EXTRACT_CHANGE_ORDER") {
+    extractChangeOrder(message)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : "Change order extraction failed.",
+        });
       });
-    });
 
-  return true;
+    return true;
+  }
+
+  return false;
 });
 
 async function ingestAttachment({ url, filename, docType }) {
@@ -111,6 +124,49 @@ async function postToOfficeHub({ filename, mimeType, buffer, docType }) {
     filename,
     ingest: result,
   };
+}
+
+async function extractChangeOrder({ emailBody }) {
+  if (!emailBody) {
+    throw new Error("Missing change order email body.");
+  }
+
+  const pendingChangeOrder = {
+    emailBody,
+    timestamp: new Date().toISOString(),
+  };
+  await chrome.storage.local.set({ pendingChangeOrder });
+  await setPendingChangeOrderBadge(true);
+
+  const response = await fetch(`${OFFICE_HUB_API}/api/v1/change-orders/extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email_body: emailBody }),
+    signal: AbortSignal.timeout(OFFICE_HUB_POST_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Office Hub change order extract failed: ${response.status} ${errorText}`);
+  }
+
+  const draft = await response.json();
+  await chrome.storage.local.remove("pendingChangeOrder");
+  await setPendingChangeOrderBadge(false);
+  const draftParam = encodeURIComponent(JSON.stringify(draft));
+  await chrome.tabs.create({
+    url: `http://localhost:3000/change-orders/new?draft=${draftParam}`,
+  });
+
+  return { draft };
+}
+
+async function setPendingChangeOrderBadge(hasPending) {
+  await chrome.action.setBadgeText({ text: hasPending ? "CO" : "" });
+  if (hasPending) {
+    await chrome.action.setBadgeBackgroundColor({ color: "#FAC775" });
+    await chrome.action.setBadgeTextColor({ color: "#0f1117" });
+  }
 }
 
 async function fetchWithRedirects(url) {

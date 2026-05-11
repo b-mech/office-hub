@@ -224,3 +224,63 @@
 .office-hub-summary a:hover {
   text-decoration: underline;
 }
+
+/* ── Change order banner ── */
+.office-hub-co-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  background: #0f1117;
+  border: 0.5px solid rgba(250, 199, 117, 0.45);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  color: #f8fafc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+}
+
+.office-hub-co-banner-text {
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.office-hub-co-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.office-hub-co-button {
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.office-hub-co-button--primary {
+  background: #FAC775;
+  border: 0.5px solid #FAC775;
+  color: #0f1117;
+}
+
+.office-hub-co-button--ghost {
+  background: transparent;
+  border: 0.5px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.office-hub-co-button:hover {
+  filter: brightness(1.05);
+}
+
+.office-hub-co-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

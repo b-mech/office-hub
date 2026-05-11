@@ -3,6 +3,7 @@ const OFFICE_HUB_API = "http://localhost:8000";
 const OFFICE_HUB_APP = "http://localhost:3000";
 const INGEST_RESPONSE_TIMEOUT_MS = 620000;
 const OFFICE_HUB_ICON_URL = chrome.runtime.getURL("favicon.png");
+const KRISTY_EMAIL = "";
 
 let observer = null;
 let scanTimer = null;
@@ -11,6 +12,8 @@ let processedAttachmentKeys = new Set();
 let selectedAttachmentKeys = new Set();
 let renderedAttachmentSignature = "";
 let panelExpanded = false;
+let renderedChangeOrderBannerKey = "";
+let dismissedChangeOrderBannerKeys = new Set();
 
 init();
 
@@ -44,7 +47,10 @@ async function scanOpenEmail() {
   if (!messageRoot) {
     selectedAttachmentKeys = new Set();
     renderedAttachmentSignature = "";
+    renderedChangeOrderBannerKey = "";
+    dismissedChangeOrderBannerKeys = new Set();
     panelExpanded = false;
+    removeChangeOrderBanners();
     renderPanel([], null);
     return;
   }
@@ -55,9 +61,13 @@ async function scanOpenEmail() {
     processedAttachmentKeys = new Set();
     selectedAttachmentKeys = new Set();
     renderedAttachmentSignature = "";
+    renderedChangeOrderBannerKey = "";
     panelExpanded = false;
     removeSummaries();
+    removeChangeOrderBanners();
   }
+
+  renderChangeOrderBannerIfNeeded(messageRoot, messageKey);
 
   const attachments = findPdfAttachments(messageRoot);
   if (attachments.length === 0) {
@@ -94,13 +104,18 @@ function findOpenMessageRoot() {
     conversation.querySelectorAll('div[role="listitem"], .adn, .gs')
   );
   const messagesWithPdfAttachments = expandedMessages.filter(hasPdfAttachmentMarker);
-  return messagesWithPdfAttachments.at(-1) || conversation;
+  if (messagesWithPdfAttachments.length > 0) {
+    return messagesWithPdfAttachments.at(-1);
+  }
+  const messagesWithBodies = expandedMessages.filter((node) => node.querySelector(".a3s"));
+  return messagesWithBodies.at(-1) || conversation;
 }
 
 function getMessageKey(messageRoot) {
   const subject = document.querySelector("h2[data-thread-perm-id], h2.hP, h2")?.textContent || "";
   const date = messageRoot.querySelector("[title][alt], [title]")?.getAttribute("title") || "";
-  return `${location.href}|${subject.trim()}|${date}`;
+  const sender = getSenderEmail(messageRoot);
+  return `${location.href}|${subject.trim()}|${sender}|${date}`;
 }
 
 function hasPdfAttachmentMarker(node) {
@@ -131,22 +146,18 @@ function findPdfAttachments(messageRoot) {
   // which is Gmail's canonical attachment marker. Deduplicate by URL only
   // (not filename) to avoid the preview/download duplicate problem.
   const byUrl = new Map();
+  const roots = getAttachmentSearchRoots(messageRoot);
 
-  const nodes = Array.from(messageRoot.querySelectorAll("[download_url]"));
+  const nodes = roots.flatMap((root) => Array.from(root.querySelectorAll("[download_url]")));
   for (const node of nodes) {
     const raw = node.getAttribute("download_url") || "";
     // Gmail format: "application/pdf:filename.pdf:https://..."
-    if (!raw.startsWith("application/pdf:")) continue;
+    if (!raw.toLowerCase().startsWith("application/pdf:")) continue;
 
-    const parts = raw.split(":");
-    const mimeType = parts[0];               // application/pdf
-    const rawFilename = parts[1] || "";      // filename from download_url attribute
-    const url = parts.slice(2).join(":");    // https://...
+    const parsed = parseGmailDownloadUrl(raw);
+    if (!parsed) continue;
 
-    if (!url) continue;
-
-    // Clean the filename — use only the download_url part, not textContent
-    const filename = cleanFilename(rawFilename) || "attachment.pdf";
+    const { filename, url } = parsed;
 
     if (!byUrl.has(url)) {
       byUrl.set(url, { filename, url, key: url });
@@ -155,12 +166,12 @@ function findPdfAttachments(messageRoot) {
 
   // Fallback: href-based links for attachments without download_url
   if (byUrl.size === 0) {
-    const links = Array.from(messageRoot.querySelectorAll("a[href]"));
+    const links = roots.flatMap((root) => Array.from(root.querySelectorAll("a[href]")));
     for (const link of links) {
       const href = link.getAttribute("href") || "";
-      if (!looksLikeAttachmentLink(href)) continue;
-
       const filename = extractFilenameFromLink(link);
+      if (!looksLikeAttachmentLink(href) && !isPdfFilename(filename)) continue;
+
       if (!isPdfFilename(filename)) continue;
 
       const url = new URL(href, location.origin).toString();
@@ -173,23 +184,51 @@ function findPdfAttachments(messageRoot) {
   return Array.from(byUrl.values());
 }
 
+function getAttachmentSearchRoots(messageRoot) {
+  const roots = [messageRoot];
+  const main = document.querySelector('div[role="main"]');
+  if (main && main !== messageRoot) {
+    roots.push(main);
+  }
+  return roots.filter(Boolean);
+}
+
+function parseGmailDownloadUrl(raw) {
+  const match = raw.match(/^application\/pdf:([^:]*):(.*)$/i);
+  if (!match) return null;
+
+  const filename = cleanFilename(match[1]) || "attachment.pdf";
+  const url = match[2];
+  if (!url) return null;
+  return { filename, url };
+}
+
 function looksLikeAttachmentLink(href) {
   return (
     href.includes("disp=attd") ||
+    href.includes("disp=safe") ||
     href.includes("view=att") ||
-    href.includes("attid=")
+    href.includes("attid=") ||
+    href.includes("th=")
   );
 }
 
 function extractFilenameFromLink(link) {
   // Try aria-label or data-tooltip first — these are clean
-  for (const attr of ["aria-label", "data-tooltip", "title"]) {
+  for (const attr of ["aria-label", "data-tooltip", "title", "download"]) {
     const val = link.getAttribute(attr) || "";
     const match = val.match(/([^/\\]+\.pdf)/i);
     if (match) return cleanFilename(match[1]);
   }
-  // Avoid using textContent — it concatenates preview/download/filename
-  return "attachment.pdf";
+
+  const nearbyText = [
+    link.textContent || "",
+    link.closest("[role='listitem'], .aQH, .aZo, .aQy, .brc, .adn, .gs")?.textContent || "",
+  ].join(" ");
+  const match = nearbyText.match(/([^/\\\n\r\t]+\.pdf)/i);
+  if (match) return cleanFilename(match[1]);
+
+  return "";
 }
 
 function isPdfFilename(filename) {
@@ -209,6 +248,139 @@ function decodeFilename(filename) {
   } catch (_error) {
     return filename;
   }
+}
+
+// ─── Change order email detection ─────────────────────────────────────────────
+
+function renderChangeOrderBannerIfNeeded(messageRoot, messageKey) {
+  const match = getChangeOrderMatch(messageRoot);
+  if (!match) {
+    removeChangeOrderBanners();
+    renderedChangeOrderBannerKey = "";
+    return;
+  }
+
+  if (dismissedChangeOrderBannerKeys.has(messageKey)) {
+    return;
+  }
+
+  if (renderedChangeOrderBannerKey === messageKey && document.querySelector(".office-hub-co-banner")) {
+    return;
+  }
+
+  removeChangeOrderBanners();
+  renderedChangeOrderBannerKey = messageKey;
+
+  const banner = document.createElement("div");
+  banner.className = "office-hub-co-banner";
+  banner.dataset.officeHubMessageKey = messageKey;
+
+  const text = document.createElement("span");
+  text.className = "office-hub-co-banner-text";
+  text.textContent = "Change Order detected — extract details into Office Hub?";
+
+  const actions = document.createElement("div");
+  actions.className = "office-hub-co-banner-actions";
+
+  const extractButton = document.createElement("button");
+  extractButton.type = "button";
+  extractButton.className = "office-hub-co-button office-hub-co-button--primary";
+  extractButton.textContent = "Extract";
+  extractButton.addEventListener("click", async () => {
+    extractButton.disabled = true;
+    extractButton.textContent = "Extracting...";
+    try {
+      const response = await sendRuntimeMessage({
+        type: "EXTRACT_CHANGE_ORDER",
+        emailBody: match.emailBody,
+      });
+      if (!response.ok) {
+        throw new Error(response.error || "Change order extraction failed.");
+      }
+      banner.remove();
+      renderedChangeOrderBannerKey = "";
+    } catch (error) {
+      extractButton.disabled = false;
+      extractButton.textContent = "Extract";
+      text.textContent = error instanceof Error ? error.message : "Change order extraction failed.";
+    }
+  });
+
+  const dismissButton = document.createElement("button");
+  dismissButton.type = "button";
+  dismissButton.className = "office-hub-co-button office-hub-co-button--ghost";
+  dismissButton.textContent = "Dismiss";
+  dismissButton.addEventListener("click", () => {
+    dismissedChangeOrderBannerKeys.add(messageKey);
+    banner.remove();
+    renderedChangeOrderBannerKey = messageKey;
+  });
+
+  actions.append(extractButton, dismissButton);
+  banner.append(text, actions);
+
+  const bodyNode = findMessageBodyNode(messageRoot);
+  if (bodyNode) {
+    bodyNode.insertAdjacentElement("beforebegin", banner);
+  } else {
+    messageRoot.prepend(banner);
+  }
+}
+
+function getChangeOrderMatch(messageRoot) {
+  if (!KRISTY_EMAIL.trim()) return null;
+
+  const senderEmail = getSenderEmail(messageRoot).toLowerCase();
+  if (senderEmail !== KRISTY_EMAIL.trim().toLowerCase()) return null;
+
+  const subject = getEmailSubject();
+  const emailBody = getEmailBody(messageRoot);
+  if (!/change order/i.test(`${subject}\n${emailBody}`)) return null;
+
+  return { emailBody };
+}
+
+function getSenderEmail(messageRoot) {
+  const emailNode =
+    messageRoot.querySelector("[email]") ||
+    messageRoot.querySelector("[data-hovercard-id*='@']") ||
+    document.querySelector("[email], [data-hovercard-id*='@']");
+
+  const rawEmail =
+    emailNode?.getAttribute("email") ||
+    emailNode?.getAttribute("data-hovercard-id") ||
+    emailNode?.getAttribute("title") ||
+    emailNode?.textContent ||
+    "";
+
+  const match = rawEmail.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match ? match[0] : "";
+}
+
+function getEmailSubject() {
+  return document.querySelector("h2[data-thread-perm-id], h2.hP, h2")?.textContent?.trim() || "";
+}
+
+function getEmailBody(messageRoot) {
+  const bodyNode = findMessageBodyNode(messageRoot);
+  return normalizeEmailText(bodyNode?.innerText || messageRoot.innerText || "");
+}
+
+function findMessageBodyNode(messageRoot) {
+  return (
+    messageRoot.querySelector(".a3s.aiL") ||
+    messageRoot.querySelector(".a3s") ||
+    messageRoot.querySelector("[role='textbox']") ||
+    null
+  );
+}
+
+function normalizeEmailText(text) {
+  return text.replace(/\u00a0/g, " ").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function removeChangeOrderBanners() {
+  document.querySelectorAll(".office-hub-co-banner").forEach((node) => node.remove());
 }
 
 // ─── Panel UI ─────────────────────────────────────────────────────────────────
