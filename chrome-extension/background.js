@@ -1,4 +1,5 @@
 const OFFICE_HUB_API = "http://localhost:8000";
+const OFFICE_HUB_API_KEY = "b253ca1b038185185289506cd64642a1b8e478d86b09c8c58c8cad7faded8960";
 const GMAIL_FETCH_TIMEOUT_MS = 45000;
 const OFFICE_HUB_POST_TIMEOUT_MS = 600000;
 
@@ -110,6 +111,9 @@ async function postToOfficeHub({ filename, mimeType, buffer, docType }) {
 
   const response = await fetch(`${OFFICE_HUB_API}/api/v1/ingest`, {
     method: "POST",
+    headers: {
+      "X-API-Key": OFFICE_HUB_API_KEY,
+    },
     body: formData,
     signal: AbortSignal.timeout(OFFICE_HUB_POST_TIMEOUT_MS),
   });
@@ -140,7 +144,10 @@ async function extractChangeOrder({ emailBody }) {
 
   const response = await fetch(`${OFFICE_HUB_API}/api/v1/change-orders/extract`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": OFFICE_HUB_API_KEY,
+    },
     body: JSON.stringify({ email_body: emailBody }),
     signal: AbortSignal.timeout(OFFICE_HUB_POST_TIMEOUT_MS),
   });

@@ -1,9 +1,16 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const OFFICE_HUB_API_KEY =
+  process.env.NEXT_PUBLIC_OFFICE_HUB_API_KEY ||
+  "b253ca1b038185185289506cd64642a1b8e478d86b09c8c58c8cad7faded8960";
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": OFFICE_HUB_API_KEY,
+      ...options?.headers,
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -49,6 +56,10 @@ export async function saveDraft(draft: ChangeOrderDraft): Promise<{ id: string }
     method: "POST",
     body: JSON.stringify(draft),
   });
+}
+
+export async function getChangeOrders(): Promise<ChangeOrder[]> {
+  return apiFetch<ChangeOrder[]>("/api/v1/change-orders");
 }
 
 export async function getChangeOrder(id: string): Promise<ChangeOrder> {

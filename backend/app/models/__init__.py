@@ -22,6 +22,8 @@ from app.models.land import SecurityDeposit
 from app.models.land import TriggerType
 from app.models.sales import Party
 from app.models.sales import PartyRole
+from app.models.sales import ChangeOrder
+from app.models.sales import ChangeOrderLineItem
 from app.models.sales import SalesAgreement
 from app.models.sales import SalesAgreementStatus
 from app.models.sales import SalesDepositSchedule
@@ -32,6 +34,8 @@ __all__ = [
     "AuditLog",
     "Contact",
     "ContactType",
+    "ChangeOrder",
+    "ChangeOrderLineItem",
     "DepositSchedule",
     "Development",
     "DocType",

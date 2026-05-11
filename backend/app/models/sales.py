@@ -23,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -182,7 +183,118 @@ class SalesDepositSchedule(Base):
     )
 
 
+class ChangeOrder(Base):
+    __tablename__ = "change_orders"
+
+    id: Mapped[UUID] = _uuid_pk()
+    lot_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("land.agreements.id", ondelete="SET NULL"),
+    )
+    address: Mapped[str] = mapped_column(Text, nullable=False)
+    client_name: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"))
+    co_number: Mapped[str | None] = mapped_column(Text)
+    date: Mapped[date | None] = mapped_column(Date)
+    payment_method: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="due_upon_receipt",
+        server_default=text("'due_upon_receipt'"),
+    )
+    notes: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="draft",
+        server_default=text("'draft'"),
+    )
+    subtotal: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0"),
+        server_default=text("0"),
+    )
+    gst: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0"),
+        server_default=text("0"),
+    )
+    total: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0"),
+        server_default=text("0"),
+    )
+    docusign_envelope_id: Mapped[str | None] = mapped_column(Text)
+    box_file_id: Mapped[str | None] = mapped_column(Text)
+    org_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("core.orgs.id"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    line_items: Mapped[list["ChangeOrderLineItem"]] = relationship(
+        back_populates="change_order",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="ChangeOrderLineItem.sort_order",
+    )
+
+    __table_args__ = (
+        Index("idx_sales_change_orders_org_status_created", "org_id", "status", created_at.desc()),
+        {"schema": "sales"},
+    )
+
+
+class ChangeOrderLineItem(Base):
+    __tablename__ = "change_order_line_items"
+
+    id: Mapped[UUID] = _uuid_pk()
+    change_order_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("sales.change_orders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"))
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2),
+        nullable=False,
+        default=Decimal("0"),
+        server_default=text("0"),
+    )
+    is_credit: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    change_order: Mapped[ChangeOrder] = relationship(back_populates="line_items")
+
+    __table_args__ = (
+        Index("idx_sales_change_order_line_items_change_order", "change_order_id"),
+        {"schema": "sales"},
+    )
+
+
 __all__ = [
+    "ChangeOrder",
+    "ChangeOrderLineItem",
     "Party",
     "PartyRole",
     "SalesAgreement",

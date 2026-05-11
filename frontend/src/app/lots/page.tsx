@@ -183,7 +183,17 @@ function LotDetail({ lot }: { lot: Lot }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function LotsPage() {
+export function LotWorkspace({
+  title,
+  loadingText,
+  emptyText,
+  loadLots,
+}: {
+  title: string;
+  loadingText: string;
+  emptyText: string;
+  loadLots: () => Promise<Lot[]>;
+}) {
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Lot | null>(null);
@@ -191,13 +201,13 @@ export default function LotsPage() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    getLots()
+    loadLots()
       .then((data) => {
         setLots(data);
         if (data.length > 0) setSelected(data[0]);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [loadLots]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -241,7 +251,7 @@ export default function LotsPage() {
       <div className="w-80 shrink-0 flex flex-col border-r border-white/10">
         {/* Panel header */}
         <div className="p-4 border-b border-white/10">
-          <h1 className="text-base font-semibold text-white mb-3">Lots</h1>
+          <h1 className="text-base font-semibold text-white mb-3">{title}</h1>
 
           {/* Search */}
           <input
@@ -273,9 +283,9 @@ export default function LotsPage() {
         {/* List */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="p-8 text-center text-white/30 text-sm">Loading lots…</div>
+            <div className="p-8 text-center text-white/30 text-sm">{loadingText}</div>
           ) : Object.keys(grouped).length === 0 ? (
-            <div className="p-8 text-center text-white/30 text-sm">No lots found</div>
+            <div className="p-8 text-center text-white/30 text-sm">{emptyText}</div>
           ) : (
             Object.entries(grouped).map(([group, groupLots]) => (
               <div key={group}>
@@ -308,5 +318,16 @@ export default function LotsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function LotsPage() {
+  return (
+    <LotWorkspace
+      title="Lots"
+      loadingText="Loading lots..."
+      emptyText="No lots found"
+      loadLots={getLots}
+    />
   );
 }

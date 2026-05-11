@@ -227,11 +227,16 @@
 
 /* ── Change order banner ── */
 .office-hub-co-banner {
+  position: fixed;
+  right: 24px;
+  bottom: 72px;
+  z-index: 2147483647;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 8px 0 12px;
+  width: min(380px, calc(100vw - 48px));
+  margin: 0;
   padding: 10px 12px;
   background: #0f1117;
   border: 0.5px solid rgba(250, 199, 117, 0.45);

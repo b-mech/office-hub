@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 
 router = APIRouter(prefix="/api/v1/lots", tags=["lots"])
+projects_router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
 DEFAULT_ORG_ID = UUID("ed83acdb-7a3a-4999-b5b0-4d41ee24a99d")
 
@@ -34,12 +35,15 @@ class LotOut(BaseModel):
     sale_agreement_id: Optional[str] = None
 
 
-@router.get("", response_model=List[LotOut])
-async def list_lots(db: AsyncSession = Depends(get_db)):
+async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
     """
     Produce a unified lot list from core.lots with optional sales data.
     """
-    query = text("""
+    if sale_filter not in {"without_sale", "with_sale"}:
+        raise ValueError(f"Unsupported sale filter: {sale_filter}")
+
+    sale_predicate = "sa.id IS NULL" if sale_filter == "without_sale" else "sa.id IS NOT NULL"
+    query = text(f"""
         SELECT
             l.id::text AS id,
             COALESCE(l.civic_address, l.legal_description_normalized, 'Unknown Address') AS address,
@@ -87,6 +91,7 @@ async def list_lots(db: AsyncSession = Depends(get_db)):
               AND COALESCE(c.full_name, c.company_name) IS NOT NULL
         ) buyers ON true
         WHERE d.org_id = :org_id
+          AND {sale_predicate}
         ORDER BY l.created_at DESC
     """)
 
@@ -111,6 +116,16 @@ async def list_lots(db: AsyncSession = Depends(get_db)):
         )
         for row in rows
     ]
+
+
+@router.get("", response_model=List[LotOut])
+async def list_lots(db: AsyncSession = Depends(get_db)):
+    return await _list_lots(db, "without_sale")
+
+
+@projects_router.get("", response_model=List[LotOut])
+async def list_projects(db: AsyncSession = Depends(get_db)):
+    return await _list_lots(db, "with_sale")
 
 
 @router.get("/{lot_id}", response_model=LotOut)

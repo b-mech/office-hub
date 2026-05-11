@@ -37,6 +37,10 @@ export async function getLots(): Promise<Lot[]> {
   return apiFetch<Lot[]>("/api/v1/lots");
 }
 
+export async function getProjects(): Promise<Lot[]> {
+  return apiFetch<Lot[]>("/api/v1/projects");
+}
+
 export async function getLot(id: string): Promise<Lot> {
   return apiFetch<Lot>(`/api/v1/lots/${id}`);
 }

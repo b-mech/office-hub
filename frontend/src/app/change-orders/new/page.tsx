@@ -55,7 +55,7 @@ function parseDraftParam(value: string | null): ChangeOrderDraft | null {
       payment_method: normalizePaymentMethod(parsed.payment_method),
       notes: parsed.notes || "",
     };
-  } catch (_error) {
+  } catch {
     return null;
   }
 }
@@ -83,10 +83,7 @@ function NewChangeOrderForm() {
   const [lots, setLots] = useState<Lot[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft(parsedDraft || emptyDraft());
-  }, [parsedDraft]);
+  const [savedDraftId, setSavedDraftId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,10 +108,12 @@ function NewChangeOrderForm() {
   const canSave = draft.address.trim() && draft.client_name.trim() && !saving;
 
   function updateField<K extends keyof ChangeOrderDraft>(field: K, value: ChangeOrderDraft[K]) {
+    setSavedDraftId(null);
     setDraft((current) => ({ ...current, [field]: value }));
   }
 
   function updateLineItem(index: number, patch: Partial<ChangeOrderLineItem>) {
+    setSavedDraftId(null);
     setDraft((current) => ({
       ...current,
       line_items: current.line_items.map((item, itemIndex) =>
@@ -124,6 +123,7 @@ function NewChangeOrderForm() {
   }
 
   function addLineItem() {
+    setSavedDraftId(null);
     setDraft((current) => ({
       ...current,
       line_items: [...current.line_items, { ...emptyLineItem }],
@@ -131,6 +131,7 @@ function NewChangeOrderForm() {
   }
 
   function removeLineItem(index: number) {
+    setSavedDraftId(null);
     setDraft((current) => ({
       ...current,
       line_items: current.line_items.length === 1
@@ -143,13 +144,15 @@ function NewChangeOrderForm() {
     if (!canSave) return;
     setSaving(true);
     setError(null);
+    setSavedDraftId(null);
     try {
       const payload = {
         ...draft,
         line_items: draft.line_items.filter((item) => item.description.trim() || item.amount),
       };
       const result = await saveDraft(payload);
-      router.push(`/change-orders/${result.id}`);
+      setSavedDraftId(result.id);
+      setSaving(false);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save change order draft.");
       setSaving(false);
@@ -183,13 +186,19 @@ function NewChangeOrderForm() {
 
         {parsedDraft && (
           <section className="rounded-xl border border-[rgba(250,199,117,0.38)] bg-[rgba(250,199,117,0.1)] px-4 py-3 text-sm text-[#FAC775]">
-            Pre-filled from Kristy's email — please review before saving
+            Pre-filled from Kristy&apos;s email — please review before saving
           </section>
         )}
 
         {error && (
           <section className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
             {error}
+          </section>
+        )}
+
+        {savedDraftId && (
+          <section className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            Draft saved. Reference: {savedDraftId}
           </section>
         )}
 
@@ -387,14 +396,21 @@ function NewChangeOrderForm() {
           >
             Cancel
           </button>
-          <button
-            type="button"
-            disabled={!canSave}
-            onClick={handleSave}
-            className="rounded-lg bg-[#FAC775] px-5 py-2.5 text-sm font-bold text-[#0f1117] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            {saving ? "Saving..." : "Save Draft"}
-          </button>
+          <div className="flex items-center gap-3">
+            {savedDraftId && (
+              <p className="text-sm font-medium text-emerald-200" role="status">
+                Draft saved: {savedDraftId}
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={!canSave}
+              onClick={handleSave}
+              className="rounded-lg bg-[#FAC775] px-5 py-2.5 text-sm font-bold text-[#0f1117] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {saving ? "Saving..." : savedDraftId ? "Saved" : "Save Draft"}
+            </button>
+          </div>
         </div>
       </footer>
     </main>

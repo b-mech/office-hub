@@ -1,5 +1,6 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from uuid import UUID
 
 
 class Settings(BaseSettings):
@@ -17,6 +18,8 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(alias="OPENAI_API_KEY")
     active_model_provider: str = Field(alias="ACTIVE_MODEL_PROVIDER")
     secret_key: str = Field(alias="SECRET_KEY")
+    office_hub_api_key: str = Field(alias="OFFICE_HUB_API_KEY")
+    default_org_id: UUID = Field(alias="DEFAULT_ORG_ID")
     environment: str = Field(alias="ENVIRONMENT")
 
 

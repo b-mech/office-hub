@@ -4,6 +4,7 @@ const OFFICE_HUB_APP = "http://localhost:3000";
 const INGEST_RESPONSE_TIMEOUT_MS = 620000;
 const OFFICE_HUB_ICON_URL = chrome.runtime.getURL("favicon.png");
 const KRISTY_EMAIL = "kristy@connectionhomes.ca";
+const KRISTY_NAME = "kristy unrau";
 
 let observer = null;
 let scanTimer = null;
@@ -268,20 +269,21 @@ function renderChangeOrderBannerIfNeeded(messageRoot, messageKey) {
     return;
   }
 
-  if (dismissedChangeOrderBannerKeys.has(messageKey)) {
+  const bannerKey = match.messageKey || messageKey;
+  if (dismissedChangeOrderBannerKeys.has(bannerKey)) {
     return;
   }
 
-  if (renderedChangeOrderBannerKey === messageKey && document.querySelector(".office-hub-co-banner")) {
+  if (renderedChangeOrderBannerKey === bannerKey && document.querySelector(".office-hub-co-banner")) {
     return;
   }
 
   removeChangeOrderBanners();
-  renderedChangeOrderBannerKey = messageKey;
+  renderedChangeOrderBannerKey = bannerKey;
 
   const banner = document.createElement("div");
   banner.className = "office-hub-co-banner";
-  banner.dataset.officeHubMessageKey = messageKey;
+  banner.dataset.officeHubMessageKey = bannerKey;
 
   const text = document.createElement("span");
   text.className = "office-hub-co-banner-text";
@@ -319,35 +321,96 @@ function renderChangeOrderBannerIfNeeded(messageRoot, messageKey) {
   dismissButton.className = "office-hub-co-button office-hub-co-button--ghost";
   dismissButton.textContent = "Dismiss";
   dismissButton.addEventListener("click", () => {
-    dismissedChangeOrderBannerKeys.add(messageKey);
+    dismissedChangeOrderBannerKeys.add(bannerKey);
     banner.remove();
-    renderedChangeOrderBannerKey = messageKey;
+    renderedChangeOrderBannerKey = bannerKey;
   });
 
   actions.append(extractButton, dismissButton);
   banner.append(text, actions);
 
-  const bodyNode = findMessageBodyNode(messageRoot);
-  if (bodyNode) {
-    bodyNode.insertAdjacentElement("beforebegin", banner);
-  } else if (document.querySelector("h2[data-thread-perm-id], h2.hP, h2")) {
-    document.querySelector("h2[data-thread-perm-id], h2.hP, h2").insertAdjacentElement("afterend", banner);
-  } else {
-    messageRoot.prepend(banner);
-  }
+  document.body.appendChild(banner);
 }
 
 function getChangeOrderMatch(messageRoot) {
-  if (!KRISTY_EMAIL.trim()) return null;
+  const candidates = findChangeOrderCandidateRoots(messageRoot);
+  for (const candidateRoot of candidates) {
+    if (!isKristyMessage(candidateRoot)) continue;
 
+    const subject = getEmailSubject();
+    const emailBody = getEmailBody(candidateRoot);
+    if (!/change order/i.test(`${subject}\n${emailBody}`)) continue;
+
+    return {
+      emailBody,
+      messageKey: getMessageKey(candidateRoot),
+      messageRoot: candidateRoot,
+    };
+  }
+
+  const fallbackMatch = getVisibleThreadChangeOrderMatch(messageRoot, candidates);
+  if (fallbackMatch) {
+    return fallbackMatch;
+  }
+
+  return null;
+}
+
+function findChangeOrderCandidateRoots(messageRoot) {
+  const roots = [];
+  const main = document.querySelector('div[role="main"]');
+  if (main) {
+    roots.push(...findExpandedMessageRoots(main));
+  }
+  roots.push(messageRoot);
+  return Array.from(new Set(roots.filter(Boolean)));
+}
+
+function isKristyMessage(messageRoot) {
+  const expectedEmail = KRISTY_EMAIL.trim().toLowerCase();
   const senderEmail = getSenderEmail(messageRoot).toLowerCase();
-  if (senderEmail !== KRISTY_EMAIL.trim().toLowerCase()) return null;
+  if (expectedEmail && senderEmail === expectedEmail) {
+    return true;
+  }
 
+  const senderName = getSenderName(messageRoot).toLowerCase();
+  return senderName.includes(KRISTY_NAME);
+}
+
+function getVisibleThreadChangeOrderMatch(messageRoot, candidates) {
   const subject = getEmailSubject();
-  const emailBody = getEmailBody(messageRoot);
-  if (!/change order/i.test(`${subject}\n${emailBody}`)) return null;
+  const visibleText = getVisibleThreadText();
+  const searchableText = `${subject}\n${visibleText}`;
+  if (!/change order/i.test(searchableText)) {
+    return null;
+  }
 
-  return { emailBody };
+  if (!containsKristyIdentity(searchableText)) {
+    return null;
+  }
+
+  const matchedRoot =
+    candidates.find((candidateRoot) => /change order/i.test(getEmailBody(candidateRoot))) ||
+    messageRoot;
+
+  return {
+    emailBody: getEmailBody(matchedRoot) || normalizeEmailText(visibleText),
+    messageKey: getMessageKey(matchedRoot),
+    messageRoot: matchedRoot,
+  };
+}
+
+function containsKristyIdentity(text) {
+  const normalizedText = text.toLowerCase();
+  return (
+    normalizedText.includes(KRISTY_EMAIL.trim().toLowerCase()) ||
+    normalizedText.includes(KRISTY_NAME)
+  );
+}
+
+function getVisibleThreadText() {
+  const main = document.querySelector('div[role="main"]');
+  return normalizeEmailText(main?.innerText || main?.textContent || document.body.innerText || "");
 }
 
 function getSenderEmail(messageRoot) {
@@ -372,13 +435,31 @@ function getSenderEmail(messageRoot) {
   return match ? match[0] : "";
 }
 
+function getSenderName(messageRoot) {
+  const senderScope =
+    messageRoot.closest('div[role="listitem"], .adn') ||
+    messageRoot;
+  return (
+    senderScope.querySelector(".gD")?.textContent ||
+    senderScope.querySelector("[name]")?.getAttribute("name") ||
+    senderScope.querySelector("[data-hovercard-id*='@']")?.textContent ||
+    ""
+  ).trim();
+}
+
 function getEmailSubject() {
   return document.querySelector("h2[data-thread-perm-id], h2.hP, h2")?.textContent?.trim() || "";
 }
 
 function getEmailBody(messageRoot) {
   const bodyNode = findMessageBodyNode(messageRoot);
-  return normalizeEmailText(bodyNode?.innerText || messageRoot.innerText || "");
+  return normalizeEmailText(
+    bodyNode?.innerText ||
+    bodyNode?.textContent ||
+    messageRoot.innerText ||
+    messageRoot.textContent ||
+    ""
+  );
 }
 
 function findMessageBodyNode(messageRoot) {
