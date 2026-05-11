@@ -100,15 +100,23 @@ async function scanOpenEmail() {
 function findOpenMessageRoot() {
   const conversation = document.querySelector('div[role="main"]');
   if (!conversation) return null;
-  const expandedMessages = Array.from(
-    conversation.querySelectorAll('div[role="listitem"], .adn, .gs')
-  );
+  const expandedMessages = findExpandedMessageRoots(conversation);
   const messagesWithPdfAttachments = expandedMessages.filter(hasPdfAttachmentMarker);
   if (messagesWithPdfAttachments.length > 0) {
     return messagesWithPdfAttachments.at(-1);
   }
-  const messagesWithBodies = expandedMessages.filter((node) => node.querySelector(".a3s"));
-  return messagesWithBodies.at(-1) || conversation;
+  return expandedMessages.at(-1) || conversation;
+}
+
+function findExpandedMessageRoots(conversation) {
+  const roots = Array.from(conversation.querySelectorAll('div[role="listitem"], .adn'));
+  const expanded = roots.filter((node) => node.querySelector(".a3s"));
+  if (expanded.length > 0) {
+    return expanded;
+  }
+
+  const bodyNodes = Array.from(conversation.querySelectorAll(".a3s"));
+  return bodyNodes.map((node) => node.closest('div[role="listitem"], .adn, .gs') || node);
 }
 
 function getMessageKey(messageRoot) {
@@ -322,6 +330,8 @@ function renderChangeOrderBannerIfNeeded(messageRoot, messageKey) {
   const bodyNode = findMessageBodyNode(messageRoot);
   if (bodyNode) {
     bodyNode.insertAdjacentElement("beforebegin", banner);
+  } else if (document.querySelector("h2[data-thread-perm-id], h2.hP, h2")) {
+    document.querySelector("h2[data-thread-perm-id], h2.hP, h2").insertAdjacentElement("afterend", banner);
   } else {
     messageRoot.prepend(banner);
   }
@@ -341,10 +351,15 @@ function getChangeOrderMatch(messageRoot) {
 }
 
 function getSenderEmail(messageRoot) {
+  const senderScope =
+    messageRoot.closest('div[role="listitem"], .adn') ||
+    messageRoot;
   const emailNode =
-    messageRoot.querySelector("[email]") ||
-    messageRoot.querySelector("[data-hovercard-id*='@']") ||
-    document.querySelector("[email], [data-hovercard-id*='@']");
+    senderScope.querySelector(".gD[email]") ||
+    senderScope.querySelector("[email]") ||
+    senderScope.querySelector("[data-hovercard-id*='@']") ||
+    senderScope.querySelector("[title*='@']") ||
+    document.querySelector(".gD[email], [email], [data-hovercard-id*='@'], [title*='@']");
 
   const rawEmail =
     emailNode?.getAttribute("email") ||
