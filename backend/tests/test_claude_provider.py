@@ -5,9 +5,10 @@ import unittest
 
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/test")
-os.environ.setdefault("MINIO_URL", "http://localhost:9000")
-os.environ.setdefault("MINIO_ROOT_USER", "minio")
-os.environ.setdefault("MINIO_ROOT_PASSWORD", "minio123")
+os.environ.setdefault("MINIO_ENDPOINT", "http://localhost:9000")
+os.environ.setdefault("MINIO_ACCESS_KEY", "minio")
+os.environ.setdefault("MINIO_SECRET_KEY", "minio123")
+os.environ.setdefault("MINIO_BUCKET", "documents")
 os.environ.setdefault("IMAP_HOST", "localhost")
 os.environ.setdefault("IMAP_USER", "test")
 os.environ.setdefault("IMAP_PASSWORD", "test")
@@ -16,7 +17,11 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test")
 os.environ.setdefault("OPENAI_API_KEY", "test")
 os.environ.setdefault("ACTIVE_MODEL_PROVIDER", "claude")
 os.environ.setdefault("SECRET_KEY", "test")
+os.environ.setdefault("OFFICE_HUB_API_KEY", "test")
+os.environ.setdefault("DEFAULT_ORG_ID", "00000000-0000-0000-0000-000000000000")
+os.environ.setdefault("DEFAULT_USER_ID", "00000000-0000-0000-0000-000000000000")
 os.environ.setdefault("ENVIRONMENT", "test")
+os.environ.setdefault("APP_VERSION", "test")
 
 from app.services.extraction.claude_provider import ClaudeProvider
 

@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+# Every schema change must go through an Alembic migration.
+# Never modify the database schema manually.
+# To create a new migration:
+#   cd backend && alembic revision --autogenerate -m "description"
+# To apply migrations:
+#   cd backend && alembic upgrade head
+
 import asyncio
 from logging.config import fileConfig
 

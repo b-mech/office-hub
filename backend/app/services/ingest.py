@@ -32,9 +32,6 @@ from app.services.extraction.service import get_extraction_service
 from app.services.ocr.extractor import PDFExtractor
 
 
-DOCUMENTS_BUCKET = "documents"
-
-
 @dataclass(slots=True)
 class IngestResult:
     document_id: UUID
@@ -92,7 +89,7 @@ class IngestService:
                 doc_type=resolved_doc_type,
                 status=DocumentStatus.RECEIVED,
                 original_filename=filename,
-                minio_bucket=DOCUMENTS_BUCKET,
+                minio_bucket=settings.minio_bucket,
                 minio_key=minio_key,
                 file_size_bytes=file_size,
                 checksum_sha256=checksum,
@@ -108,7 +105,7 @@ class IngestService:
                     doc_type=resolved_doc_type,
                     status=DocumentStatus.RECEIVED,
                     original_filename=filename,
-                    minio_bucket=DOCUMENTS_BUCKET,
+                    minio_bucket=settings.minio_bucket,
                     minio_key=minio_key,
                     file_size_bytes=file_size,
                     checksum_sha256=None,
@@ -158,22 +155,22 @@ class IngestService:
     def _upload_pdf(self, *, temp_path: Path, minio_key: str) -> None:
         s3_client = boto3.client(
             "s3",
-            endpoint_url=settings.minio_url,
-            aws_access_key_id=settings.minio_root_user,
-            aws_secret_access_key=settings.minio_root_password,
+            endpoint_url=settings.minio_endpoint,
+            aws_access_key_id=settings.minio_access_key,
+            aws_secret_access_key=settings.minio_secret_key,
             region_name="us-east-1",
             config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
         )
 
         try:
-            s3_client.head_bucket(Bucket=DOCUMENTS_BUCKET)
+            s3_client.head_bucket(Bucket=settings.minio_bucket)
         except ClientError:
-            s3_client.create_bucket(Bucket=DOCUMENTS_BUCKET)
+            s3_client.create_bucket(Bucket=settings.minio_bucket)
 
         try:
             s3_client.upload_file(
                 str(temp_path),
-                DOCUMENTS_BUCKET,
+                settings.minio_bucket,
                 minio_key,
                 ExtraArgs={"ContentType": "application/pdf"},
             )
@@ -181,9 +178,9 @@ class IngestService:
             raise RuntimeError("Failed to upload PDF to MinIO") from exc
 
     async def _fetch_default_org_id(self) -> UUID:
-        org_id = await self._db.scalar(select(Org.id).order_by(Org.created_at.asc()).limit(1))
+        org_id = await self._db.scalar(select(Org.id).where(Org.id == settings.default_org_id).limit(1))
         if org_id is None:
-            raise RuntimeError("No core.orgs record exists for document ingestion")
+            raise RuntimeError(f"No core.orgs record exists for DEFAULT_ORG_ID={settings.default_org_id}")
         return org_id
 
     def _normalize_requested_doc_type(self, doc_type: str) -> DocType | None:

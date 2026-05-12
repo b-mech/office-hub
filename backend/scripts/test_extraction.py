@@ -17,9 +17,9 @@ import asyncpg
 from dotenv import load_dotenv
 
 
-DEFAULT_PDF_PATH = Path("/Users/nicholastenszen/Documents/1D - OTP (Land) - 185 Woodland Way.pdf")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = PROJECT_ROOT
+DEFAULT_PDF_PATH = Path(os.getenv("TEST_EXTRACTION_PDF_PATH", PROJECT_ROOT / "tmp" / "sample.pdf"))
 
 load_dotenv(PROJECT_ROOT / ".env")
 if str(BACKEND_ROOT) not in sys.path:

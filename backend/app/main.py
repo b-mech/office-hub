@@ -22,18 +22,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Office Hub API",
-    version="0.1.0",
+    version=settings.app_version,
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://mail.google.com",
-    ],
-    allow_origin_regex=r"(chrome-extension://.*|http://192\.168\.\d+\.\d+:3000)",
+    allow_origins=settings.cors_origin_list,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

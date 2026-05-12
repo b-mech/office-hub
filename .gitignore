@@ -11,6 +11,9 @@ venv/
 .env
 .env.*
 !.env.example
+.env.local
+.env.production
+.env.*.local
 
 # Node
 node_modules/

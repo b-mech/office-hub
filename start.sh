@@ -1,7 +1,11 @@
 #!/bin/bash
-export PATH="/Users/nicholastenszen/.nvm/versions/node/v20.20.2/bin:$PATH"
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 set -a
-source /Users/nicholastenszen/dev/office-hub/.env
+source "$ROOT_DIR/.env"
 set +a
-cd /Users/nicholastenszen/dev/office-hub
+
+cd "$ROOT_DIR"
 overmind start

@@ -4,18 +4,16 @@ Surfaces land.agreements + sales.agreements as unified Lot objects
 for the Lot Dashboard frontend.
 """
 from typing import List, Optional
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 
 router = APIRouter(prefix="/api/v1/lots", tags=["lots"])
-
-DEFAULT_ORG_ID = UUID("ed83acdb-7a3a-4999-b5b0-4d41ee24a99d")
 
 
 class LotOut(BaseModel):
@@ -90,7 +88,7 @@ async def list_lots(db: AsyncSession = Depends(get_db)):
         ORDER BY l.created_at DESC
     """)
 
-    result = await db.execute(query, {"org_id": str(DEFAULT_ORG_ID)})
+    result = await db.execute(query, {"org_id": str(settings.default_org_id)})
     rows = result.mappings().all()
 
     return [
@@ -166,7 +164,7 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
           AND d.org_id = :org_id
     """)
 
-    result = await db.execute(query, {"lot_id": lot_id, "org_id": str(DEFAULT_ORG_ID)})
+    result = await db.execute(query, {"lot_id": lot_id, "org_id": str(settings.default_org_id)})
     row = result.mappings().first()
 
     if not row:

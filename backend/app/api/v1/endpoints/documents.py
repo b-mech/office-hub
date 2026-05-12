@@ -147,9 +147,9 @@ async def get_document_pdf(
 
     s3_client = boto3.client(
         "s3",
-        endpoint_url=settings.minio_url,
-        aws_access_key_id=settings.minio_root_user,
-        aws_secret_access_key=settings.minio_root_password,
+        endpoint_url=settings.minio_endpoint,
+        aws_access_key_id=settings.minio_access_key,
+        aws_secret_access_key=settings.minio_secret_key,
         region_name="us-east-1",
         config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
     )
