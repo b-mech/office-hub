@@ -3,7 +3,14 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 
-import { processImport, type ImportDocType, type ImportResult } from "@/lib/api/imports";
+import { getProjects, type Lot } from "@/lib/api/costbook";
+import {
+  ImportApiError,
+  processImport,
+  type ImportDocType,
+  type ImportErrorDetail,
+  type ImportResult,
+} from "@/lib/api/imports";
 
 const IMPORT_TYPES: Array<{
   title: string;
@@ -54,19 +61,37 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [matchWarning, setMatchWarning] = useState<ImportErrorDetail | null>(null);
+  const [projects, setProjects] = useState<Lot[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
 
-  async function handleProcess() {
+  async function handleProcess(matchedLotId?: string) {
     if (!file) return;
     setProcessing(true);
     setError(null);
     setResult(null);
     try {
-      const importResult = await processImport(file, config.docType);
+      const importResult = await processImport(file, config.docType, { matchedLotId });
       setResult(importResult);
       setFile(null);
+      setMatchWarning(null);
+      setSelectedProjectId("");
       if (inputRef.current) inputRef.current.value = "";
     } catch (processError) {
-      setError(processError instanceof Error ? processError.message : "Import failed.");
+      if (
+        processError instanceof ImportApiError &&
+        typeof processError.detail === "object" &&
+        processError.detail?.code?.startsWith("budget_")
+      ) {
+        setMatchWarning(processError.detail);
+        setError(null);
+        if (projects.length === 0) {
+          const projectList = await getProjects();
+          setProjects(projectList);
+        }
+      } else {
+        setError(processError instanceof Error ? processError.message : "Import failed.");
+      }
     } finally {
       setProcessing(false);
     }
@@ -101,6 +126,8 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
           setFile(event.target.files?.[0] || null);
           setError(null);
           setResult(null);
+          setMatchWarning(null);
+          setSelectedProjectId("");
         }}
       />
 
@@ -119,7 +146,7 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
             <p className="mt-1 text-xs text-white/40">{fileSize(file.size)}</p>
             <button
               type="button"
-              onClick={handleProcess}
+              onClick={() => handleProcess()}
               disabled={processing}
               className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#FAC775] px-4 py-2 text-sm font-bold text-[#0f1117] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
             >
@@ -131,16 +158,95 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
           </div>
         )}
 
+        {file && matchWarning && (
+          <div className="rounded-lg border border-[#FAC775]/35 bg-[#FAC775]/10 p-3 text-sm text-[#FFE0A0]">
+            <p className="font-semibold">Project match required</p>
+            <p className="mt-1 text-[#FFE0A0]/80">{matchWarning.message}</p>
+            {matchWarning.search_text && (
+              <p className="mt-2 truncate text-xs text-[#FFE0A0]/55">Search: {matchWarning.search_text}</p>
+            )}
+
+            {matchWarning.candidates && matchWarning.candidates.length > 0 && (
+              <div className="mt-3">
+                <p className="mb-2 text-xs uppercase tracking-widest text-[#FFE0A0]/55">Possible matches</p>
+                <div className="space-y-1">
+                  {matchWarning.candidates.map((candidate) => (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      onClick={() => setSelectedProjectId(candidate.id)}
+                      className={`w-full rounded border px-3 py-2 text-left text-xs transition ${
+                        selectedProjectId === candidate.id
+                          ? "border-[#FAC775] bg-[#FAC775]/15"
+                          : "border-white/10 bg-black/15 hover:border-[#FAC775]/40"
+                      }`}
+                    >
+                      <span className="block font-semibold text-white">{candidate.address}</span>
+                      <span className="text-white/45">{candidate.community || "Unknown community"}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-3">
+              <label className="mb-1.5 block text-xs uppercase tracking-widest text-[#FFE0A0]/55">
+                Manual project match
+              </label>
+              <select
+                value={selectedProjectId}
+                onChange={(event) => setSelectedProjectId(event.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-[#0f1117] px-3 py-2 text-sm text-white outline-none focus:border-[#FAC775]/60"
+              >
+                <option value="">Select an existing project...</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.address} - {project.community}
+                  </option>
+                ))}
+              </select>
+              {projects.length === 0 && (
+                <p className="mt-2 text-xs text-[#FFE0A0]/70">
+                  No projects are available. Import and approve the Land OTP and Sale OTP first.
+                </p>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleProcess(selectedProjectId)}
+              disabled={processing || !selectedProjectId}
+              className="mt-3 rounded-lg bg-[#FAC775] px-4 py-2 text-sm font-bold text-[#0f1117] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
+            >
+              Import into selected project
+            </button>
+          </div>
+        )}
+
         {result && (
           <div className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
             <p className="font-semibold">Import complete</p>
-            <p className="mt-1 text-emerald-100/80">Document ID: {result.document_id}</p>
-            <Link
-              href={`/documents/${result.document_id}`}
-              className="mt-2 inline-block text-[#FAC775] hover:underline"
-            >
-              Open review
-            </Link>
+            {result.resource_type === "budget" && result.budget_id ? (
+              <>
+                <p className="mt-1 text-emerald-100/80">Draft budget ID: {result.budget_id}</p>
+                <Link
+                  href={`/costbook/budgets/${result.budget_id}`}
+                  className="mt-2 inline-block text-[#FAC775] hover:underline"
+                >
+                  Open draft budget
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="mt-1 text-emerald-100/80">Document ID: {result.document_id}</p>
+                <Link
+                  href={`/documents/${result.document_id}`}
+                  className="mt-2 inline-block text-[#FAC775] hover:underline"
+                >
+                  Open review
+                </Link>
+              </>
+            )}
           </div>
         )}
 

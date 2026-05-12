@@ -56,7 +56,7 @@ export default function CostbookIndexPage() {
               return (
                 <Link
                   key={b.id}
-                  href={`/lots/${b.lot_agreement_id || b.id}/costbook`}
+                  href={b.lot_agreement_id ? `/lots/${b.lot_agreement_id}/costbook` : `/costbook/budgets/${b.id}`}
                   className="block rounded-xl border border-white/10 bg-white/3 p-5 hover:bg-white/5 hover:border-white/20 transition-all group"
                 >
                   <div className="flex items-start justify-between gap-4 mb-4">

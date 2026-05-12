@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.modules.costbook import extraction, service
 from app.modules.costbook.models import Budget, BudgetLine, Invoice, PurchaseOrder
@@ -30,7 +31,6 @@ from app.modules.costbook.schemas import (
 
 router = APIRouter(prefix="/api/v1/costbook", tags=["costbook"])
 
-DEFAULT_ORG_ID = UUID("ed83acdb-7a3a-4999-b5b0-4d41ee24a99d")
 DEFAULT_USER_ID = UUID("00000000-0000-0000-0000-000000000000")
 
 
@@ -117,7 +117,7 @@ async def list_cost_categories(db: AsyncSession = Depends(get_db)) -> List[CostC
 
 @router.get("/budgets", response_model=List[BudgetOut])
 async def list_budgets(db: AsyncSession = Depends(get_db)) -> List[BudgetOut]:
-    budgets = await service.list_budgets(db, DEFAULT_ORG_ID)
+    budgets = await service.list_budgets(db, settings.default_org_id)
     return [_budget_out(budget) for budget in budgets]
 
 
@@ -126,7 +126,7 @@ async def create_budget(
     data: BudgetCreate,
     db: AsyncSession = Depends(get_db),
 ) -> BudgetOut:
-    budget = await service.create_budget(db, DEFAULT_ORG_ID, data)
+    budget = await service.create_budget(db, settings.default_org_id, data)
     reloaded = await service.get_budget(db, budget.id)
     if not reloaded:
         raise HTTPException(status_code=404, detail="Budget not found")
@@ -184,7 +184,7 @@ async def list_vendors(
     trade_category: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ) -> List[VendorOut]:
-    return await service.list_vendors(db, DEFAULT_ORG_ID, trade_category)
+    return await service.list_vendors(db, settings.default_org_id, trade_category)
 
 
 @router.post("/vendors", response_model=VendorOut)
@@ -192,7 +192,7 @@ async def create_vendor(
     data: VendorCreate,
     db: AsyncSession = Depends(get_db),
 ) -> VendorOut:
-    return await service.create_vendor(db, DEFAULT_ORG_ID, data)
+    return await service.create_vendor(db, settings.default_org_id, data)
 
 
 @router.get("/budgets/{budget_id}/purchase-orders", response_model=List[PurchaseOrderOut])
@@ -200,7 +200,7 @@ async def list_purchase_orders(
     budget_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> List[PurchaseOrderOut]:
-    purchase_orders = await service.list_purchase_orders(db, DEFAULT_ORG_ID, budget_id)
+    purchase_orders = await service.list_purchase_orders(db, settings.default_org_id, budget_id)
     return [_purchase_order_out(po) for po in purchase_orders]
 
 
@@ -211,7 +211,7 @@ async def create_purchase_order(
     db: AsyncSession = Depends(get_db),
 ) -> PurchaseOrderOut:
     try:
-        po = await service.create_purchase_order(db, DEFAULT_ORG_ID, budget_id, data)
+        po = await service.create_purchase_order(db, settings.default_org_id, budget_id, data)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return _purchase_order_out(po)
@@ -236,7 +236,7 @@ async def list_invoices(
     budget_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db),
 ) -> List[InvoiceOut]:
-    invoices = await service.list_invoices(db, DEFAULT_ORG_ID, status, budget_id)
+    invoices = await service.list_invoices(db, settings.default_org_id, status, budget_id)
     return [_invoice_out(invoice) for invoice in invoices]
 
 
@@ -252,7 +252,7 @@ async def ingest_invoice(
         extracted = await extraction.extract_invoice(file_bytes, file.filename or "invoice")
         invoice = await service.create_invoice_from_extraction(
             db,
-            DEFAULT_ORG_ID,
+            settings.default_org_id,
             extracted,
             budget_id=budget_id,
             purchase_order_id=purchase_order_id,

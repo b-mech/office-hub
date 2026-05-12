@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { Cog } from "lucide-react";
 import "./globals.css";
 
@@ -26,7 +27,7 @@ export default function RootLayout({
         <div className="flex min-h-screen">
           <aside className="hidden w-56 shrink-0 flex-col border-r border-white/10 bg-[#11141b] px-4 py-5 lg:flex">
             <Link href="/documents" className="flex items-center gap-2">
-              <img src="/favicon.png" alt="Office Hub" className="h-6 w-6" />
+              <Image src="/favicon.png" alt="Office Hub" width={24} height={24} />
               <span className="text-sm font-semibold text-white">Office Hub</span>
             </Link>
             <nav className="mt-8 flex flex-1 flex-col gap-1">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { Fragment, useEffect, useState, useMemo } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -95,8 +95,8 @@ function BudgetTab({
           </thead>
           <tbody>
             {Object.entries(sections).map(([section, lines]) => (
-              <>
-                <tr key={section} className="bg-white/3 border-t border-white/10">
+              <Fragment key={section}>
+                <tr className="bg-white/3 border-t border-white/10">
                   <td colSpan={6} className="px-4 py-2 text-[10px] font-bold text-white/30 uppercase tracking-widest">
                     {section}
                   </td>
@@ -175,7 +175,7 @@ function BudgetTab({
                     </tr>
                   );
                 })}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>

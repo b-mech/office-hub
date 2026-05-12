@@ -21,6 +21,18 @@ class Settings(BaseSettings):
     office_hub_api_key: str = Field(alias="OFFICE_HUB_API_KEY")
     default_org_id: UUID = Field(alias="DEFAULT_ORG_ID")
     environment: str = Field(alias="ENVIRONMENT")
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000,https://mail.google.com",
+        alias="CORS_ORIGINS",
+    )
+    cors_origin_regex: str = Field(
+        default=r"(chrome-extension://.*|http://192\.168\.\d+\.\d+:3000)",
+        alias="CORS_ORIGIN_REGEX",
+    )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 settings = Settings()

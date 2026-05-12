@@ -5,7 +5,39 @@ export type ImportDocType = "budget" | "sale_otp" | "land_otp" | "change_order";
 export interface ImportResult {
   document_id: string;
   status: string;
+  resource_type?: "document" | "budget";
+  resource_id?: string;
+  budget_id?: string;
   extraction_summary?: string;
+}
+
+export interface ImportMatchCandidate {
+  id: string;
+  address: string;
+  lot_number?: string | null;
+  community?: string | null;
+  land_agreement_id?: string | null;
+  sale_agreement_id?: string | null;
+}
+
+export interface ImportErrorDetail {
+  code?: string;
+  message?: string;
+  search_text?: string;
+  candidates?: ImportMatchCandidate[];
+}
+
+export class ImportApiError extends Error {
+  status: number;
+  detail: ImportErrorDetail | string | undefined;
+
+  constructor(status: number, detail: ImportErrorDetail | string | undefined) {
+    const message = typeof detail === "string" ? detail : detail?.message;
+    super(message || `Import failed with status ${status}`);
+    this.name = "ImportApiError";
+    this.status = status;
+    this.detail = detail;
+  }
 }
 
 export interface ImportHistoryItem {
@@ -16,10 +48,15 @@ export interface ImportHistoryItem {
   received_at?: string;
 }
 
-export async function processImport(file: File, docType: ImportDocType): Promise<ImportResult> {
+export async function processImport(
+  file: File,
+  docType: ImportDocType,
+  options: { matchedLotId?: string } = {}
+): Promise<ImportResult> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("doc_type", docType);
+  if (options.matchedLotId) formData.append("matched_lot_id", options.matchedLotId);
 
   const response = await fetch(`${API_BASE}/ingest`, {
     method: "POST",
@@ -28,8 +65,8 @@ export async function processImport(file: File, docType: ImportDocType): Promise
   });
 
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({})) as { detail?: string };
-    throw new Error(errorBody.detail || `Import failed with status ${response.status}`);
+    const errorBody = await response.json().catch(() => ({})) as { detail?: ImportErrorDetail | string };
+    throw new ImportApiError(response.status, errorBody.detail);
   }
 
   return await response.json() as ImportResult;
