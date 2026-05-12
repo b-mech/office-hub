@@ -10,6 +10,7 @@ from app.modules.costbook.router import router as costbook_router
 from app.modules.lots.router import projects_router
 from app.modules.lots.router import router as lots_router
 from app.routers.change_orders import router as change_orders_router
+from app.routers.users import router as users_router
 from app.core.config import settings
 
 
@@ -53,6 +54,7 @@ async def health_check() -> dict[str, str]:
 
 app.include_router(api_v1_router, prefix="/api/v1")
 app.include_router(change_orders_router, prefix="/api/v1")
+app.include_router(users_router, prefix="/api/v1")
 app.include_router(costbook_router)
 app.include_router(lots_router)
 app.include_router(projects_router)

@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Cog } from "lucide-react";
 import "./globals.css";
+
+const USER_NAME = process.env.USER_NAME || "Nicholas";
 
 export const metadata: Metadata = {
   title: "Office Hub",
@@ -21,12 +24,12 @@ export default function RootLayout({
     <html lang="en" className="h-full antialiased">
       <body className="theme-monocle min-h-full bg-[#0f1117] text-white">
         <div className="flex min-h-screen">
-          <aside className="hidden w-56 shrink-0 border-r border-white/10 bg-[#11141b] px-4 py-5 lg:block">
+          <aside className="hidden w-56 shrink-0 flex-col border-r border-white/10 bg-[#11141b] px-4 py-5 lg:flex">
             <Link href="/documents" className="flex items-center gap-2">
               <img src="/favicon.png" alt="Office Hub" className="h-6 w-6" />
               <span className="text-sm font-semibold text-white">Office Hub</span>
             </Link>
-            <nav className="mt-8 flex flex-col gap-1">
+            <nav className="mt-8 flex flex-1 flex-col gap-1">
               <Link
                 href="/documents"
                 className="rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/5 hover:text-white"
@@ -58,6 +61,18 @@ export default function RootLayout({
                 Costbook
               </Link>
             </nav>
+            <div className="border-t border-white/10 pt-3">
+              <Link
+                href="/settings"
+                className="flex items-center gap-3 rounded-lg px-2 py-2 text-white/65 transition hover:bg-white/5 hover:text-white"
+              >
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#FAC775] text-xs font-bold text-[#0f1117]">
+                  {USER_NAME.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{USER_NAME}</span>
+                <Cog size={15} strokeWidth={2} aria-hidden="true" />
+              </Link>
+            </div>
           </aside>
           <div className="min-w-0 flex-1">{children}</div>
         </div>
