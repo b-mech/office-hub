@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import re
 from dataclasses import dataclass
 from datetime import date
 from datetime import datetime
@@ -32,6 +33,11 @@ from app.models.land import DepositSchedule
 from app.models.land import LotTerms
 from app.models.land import SecurityDeposit
 from app.models.land import TriggerType
+from app.models.sales import Party
+from app.models.sales import PartyRole
+from app.models.sales import SalesAgreement
+from app.models.sales import SalesAgreementStatus
+from app.models.sales import SalesDepositSchedule
 
 
 @dataclass(slots=True)
@@ -83,6 +89,12 @@ class PromotionService:
                     document_id=document.id,
                     review_id=review.id,
                 )
+            elif document.doc_type.value == "sale_otp":
+                agreement_id = await self._promote_sale_otp(
+                    payload=payload,
+                    document_id=document.id,
+                    review_id=review.id,
+                )
             else:
                 raise ValueError(f"Unsupported document type for promotion: {document.doc_type.value}")
 
@@ -127,6 +139,7 @@ class PromotionService:
     ) -> UUID:
         agreement_payload = payload.get("agreement", {})
         security_deposit_payload = payload.get("security_deposit", {})
+        development_guidelines = payload.get("development_guidelines", {})
         lots_payload = payload.get("lots", [])
         notable_clauses = payload.get("notable_clauses", [])
 
@@ -145,6 +158,9 @@ class PromotionService:
             name=development_name,
             municipality=municipality,
             developer_contact_id=developer_contact_id,
+            development_guidelines=development_guidelines,
+            source_document_id=document_id,
+            review_id=review_id,
         )
         agreement_id = await self._insert_agreement(
             agreement=agreement_payload,
@@ -182,6 +198,46 @@ class PromotionService:
                 balance_due_date=balance_due_date,
             )
 
+        return agreement_id
+
+    async def _promote_sale_otp(
+        self,
+        payload: dict[str, Any],
+        document_id: UUID,
+        review_id: UUID,
+    ) -> UUID:
+        agreement_payload = payload.get("agreement", {})
+        payment_schedule = payload.get("payment_schedule", [])
+        conditions = payload.get("conditions", {})
+        notable_clauses = payload.get("notable_clauses", [])
+
+        lot_id = await self._match_sale_lot(agreement_payload)
+        agreement_id = await self._insert_sales_agreement(
+            agreement=agreement_payload,
+            conditions=self._build_sales_conditions_payload(payload),
+            notable_clauses=notable_clauses,
+            lot_id=lot_id,
+            document_id=document_id,
+            review_id=review_id,
+        )
+        await self._insert_sales_parties(agreement=agreement_payload, agreement_id=agreement_id)
+        await self._insert_sales_deposit_schedule(
+            payment_schedule=payment_schedule,
+            agreement_id=agreement_id,
+        )
+
+        lot = await self.db.get(Lot, lot_id)
+        if lot is not None:
+            lot.status = LotStatus.SALE_SIGNED
+            await self._write_audit_log(
+                schema_name="core",
+                table_name="lots",
+                record_id=lot.id,
+                action="UPDATE",
+                new_data={"status": LotStatus.SALE_SIGNED.value},
+            )
+
+        self._lots_matched = 1
         return agreement_id
 
     async def _upsert_contact(
@@ -234,6 +290,9 @@ class PromotionService:
         name: str,
         municipality: str,
         developer_contact_id: UUID,
+        development_guidelines: object | None = None,
+        source_document_id: UUID | None = None,
+        review_id: UUID | None = None,
     ) -> UUID:
         normalized_name = self._normalize_text(name)
         if not normalized_name:
@@ -243,6 +302,12 @@ class PromotionService:
             select(Development).where(func.lower(func.trim(Development.name)) == normalized_name)
         )
         if existing is not None:
+            await self._apply_development_guidelines(
+                development=existing,
+                development_guidelines=development_guidelines,
+                source_document_id=source_document_id,
+                review_id=review_id,
+            )
             await self._write_audit_log(
                 schema_name="core",
                 table_name="developments",
@@ -260,6 +325,11 @@ class PromotionService:
             developer_contact_id=developer_contact_id,
             name=name,
             municipality=municipality or None,
+            metadata_=self._build_development_metadata(
+                development_guidelines=development_guidelines,
+                source_document_id=source_document_id,
+                review_id=review_id,
+            ),
         )
         self.db.add(development)
         await self.db.flush()
@@ -271,6 +341,72 @@ class PromotionService:
             new_data={"name": development.name},
         )
         return development.id
+
+    async def _apply_development_guidelines(
+        self,
+        development: Development,
+        development_guidelines: object | None,
+        source_document_id: UUID | None,
+        review_id: UUID | None,
+    ) -> None:
+        metadata = self._build_development_metadata(
+            development_guidelines=development_guidelines,
+            source_document_id=source_document_id,
+            review_id=review_id,
+            existing_metadata=development.metadata_,
+        )
+        if metadata == (development.metadata_ or {}):
+            return
+
+        old_data = {"metadata": development.metadata_ or {}}
+        development.metadata_ = metadata
+        await self.db.flush()
+        await self._write_audit_log(
+            schema_name="core",
+            table_name="developments",
+            record_id=development.id,
+            action="UPDATE",
+            old_data=old_data,
+            new_data={"metadata": metadata},
+        )
+
+    def _build_development_metadata(
+        self,
+        development_guidelines: object | None,
+        source_document_id: UUID | None,
+        review_id: UUID | None,
+        existing_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        metadata = dict(existing_metadata or {})
+        cleaned_guidelines = self._clean_development_guidelines(development_guidelines)
+        if not cleaned_guidelines:
+            return metadata
+
+        metadata["development_guidelines"] = cleaned_guidelines
+        metadata["development_guidelines_source"] = {
+            "document_id": str(source_document_id) if source_document_id is not None else None,
+            "review_id": str(review_id) if review_id is not None else None,
+        }
+        return metadata
+
+    def _clean_development_guidelines(self, value: object | None) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {}
+
+        cleaned: dict[str, Any] = {}
+        for key, raw_value in value.items():
+            if isinstance(raw_value, list):
+                items = [self._as_text(item) for item in raw_value]
+                non_empty_items = [item for item in items if item]
+                if non_empty_items:
+                    cleaned[key] = non_empty_items
+                continue
+
+            text_value = self._as_text(raw_value)
+            if text_value:
+                cleaned[key] = text_value
+
+        return cleaned
 
     async def _upsert_lot(self, lot: dict[str, Any], development_id: UUID) -> UUID:
         legal_description_normalized = self._build_legal_description(lot)
@@ -312,6 +448,129 @@ class PromotionService:
             new_data={"legal_description_normalized": lot_record.legal_description_normalized},
         )
         return lot_record.id
+
+    async def _match_sale_lot(self, agreement: dict[str, Any]) -> UUID:
+        legal_description = agreement.get("legal_description")
+        if isinstance(legal_description, dict):
+            try:
+                normalized = self._build_legal_description(
+                    {
+                        "block": legal_description.get("block"),
+                        "lot_number": legal_description.get("lot"),
+                        "plan": legal_description.get("plan"),
+                    }
+                )
+            except ValueError:
+                normalized = ""
+            if normalized:
+                existing = await self.db.scalar(
+                    select(Lot).where(Lot.legal_description_normalized == normalized)
+                )
+                if existing is not None:
+                    await self._write_audit_log(
+                        schema_name="core",
+                        table_name="lots",
+                        record_id=existing.id,
+                        action="MATCHED_EXISTING",
+                        new_data={"legal_description_normalized": existing.legal_description_normalized},
+                    )
+                    return existing.id
+
+        civic_address = self._normalize_text(self._as_text(agreement.get("civic_address")))
+        if civic_address:
+            existing = await self.db.scalar(
+                select(Lot).where(func.lower(func.trim(Lot.civic_address)) == civic_address)
+            )
+            if existing is not None:
+                await self._write_audit_log(
+                    schema_name="core",
+                    table_name="lots",
+                    record_id=existing.id,
+                    action="MATCHED_EXISTING",
+                    new_data={"civic_address": existing.civic_address},
+                )
+                return existing.id
+
+        return await self._create_sale_lot_from_agreement(agreement)
+
+    async def _create_sale_lot_from_agreement(self, agreement: dict[str, Any]) -> UUID:
+        legal_description = agreement.get("legal_description")
+        if not isinstance(legal_description, dict):
+            legal_description = {}
+
+        lot_payload = {
+            "block": legal_description.get("block"),
+            "lot_number": legal_description.get("lot"),
+            "plan": legal_description.get("plan"),
+            "civic_address": agreement.get("civic_address"),
+        }
+        legal_description_normalized = self._build_legal_description(lot_payload)
+        development_id = await self._upsert_sale_development(agreement)
+        street_number, street_name = self._split_civic_address(
+            self._as_text(agreement.get("civic_address"))
+        )
+
+        lot_record = Lot(
+            development_id=development_id,
+            legal_description_raw=legal_description_normalized,
+            legal_description_normalized=legal_description_normalized,
+            civic_address=self._as_text(agreement.get("civic_address")) or None,
+            street_number=street_number,
+            street_name=street_name,
+            lot_number=self._as_text(legal_description.get("lot")) or None,
+            block=self._as_text(legal_description.get("block")) or None,
+            plan=self._as_text(legal_description.get("plan")) or None,
+            status=LotStatus.SALE_SIGNED,
+        )
+        self.db.add(lot_record)
+        await self.db.flush()
+        self._lots_created += 1
+        await self._write_audit_log(
+            schema_name="core",
+            table_name="lots",
+            record_id=lot_record.id,
+            action="INSERT",
+            new_data={"legal_description_normalized": lot_record.legal_description_normalized},
+        )
+        return lot_record.id
+
+    async def _upsert_sale_development(self, agreement: dict[str, Any]) -> UUID:
+        civic_address = self._as_text(agreement.get("civic_address"))
+        development_name = self._extract_development_name(civic_address)
+        normalized_name = self._normalize_text(development_name)
+        existing = await self.db.scalar(
+            select(Development).where(func.lower(func.trim(Development.name)) == normalized_name)
+        )
+        if existing is not None:
+            await self._write_audit_log(
+                schema_name="core",
+                table_name="developments",
+                record_id=existing.id,
+                action="MATCHED_EXISTING",
+                new_data={"name": existing.name},
+            )
+            return existing.id
+
+        if self._org_id is None:
+            raise ValueError("Organization context is not available for development upsert")
+
+        development = Development(
+            org_id=self._org_id,
+            developer_contact_id=None,
+            name=development_name,
+            municipality=development_name,
+            province=None,
+        )
+        self.db.add(development)
+        await self.db.flush()
+        await self._write_audit_log(
+            schema_name="core",
+            table_name="developments",
+            record_id=development.id,
+            action="INSERT",
+            new_data={"name": development.name},
+        )
+        return development.id
 
     async def _insert_agreement(
         self,
@@ -363,6 +622,172 @@ class PromotionService:
             new_data={"document_id": str(document_id), "review_id": str(review_id)},
         )
         return agreement_record.id
+
+    async def _insert_sales_agreement(
+        self,
+        agreement: dict[str, Any],
+        conditions: dict[str, Any],
+        notable_clauses: list[Any],
+        lot_id: UUID,
+        document_id: UUID,
+        review_id: UUID,
+    ) -> UUID:
+        condition_source = conditions.get("conditions", conditions)
+        if not isinstance(condition_source, dict):
+            condition_source = {}
+        condition_dates = [
+            self._coerce_date(condition_source.get("financing_condition_date")),
+            self._coerce_date(condition_source.get("lawyer_approval_date")),
+            self._coerce_date(condition_source.get("design_meeting_date")),
+            self._coerce_date(condition_source.get("acceptance_date")),
+        ]
+        condition_removal_date = max((value for value in condition_dates if value is not None), default=None)
+        sales_agreement = SalesAgreement(
+            lot_id=lot_id,
+            document_id=document_id,
+            review_id=review_id,
+            sale_price=self._require_decimal(
+                agreement.get("purchase_price_total"),
+                field_name="agreement.purchase_price_total",
+            ),
+            agreement_date=self._coerce_date(agreement.get("agreement_date")),
+            possession_date=self._coerce_date(agreement.get("estimated_occupancy_date")),
+            condition_removal_date=condition_removal_date,
+            status=SalesAgreementStatus.RECEIVED,
+            conditions=conditions or {},
+            notable_clauses=notable_clauses or [],
+        )
+        self.db.add(sales_agreement)
+        await self.db.flush()
+        await self._write_audit_log(
+            schema_name="sales",
+            table_name="agreements",
+            record_id=sales_agreement.id,
+            action="INSERT",
+            new_data={"document_id": str(document_id), "review_id": str(review_id)},
+        )
+        return sales_agreement.id
+
+    async def _insert_sales_parties(
+        self,
+        agreement: dict[str, Any],
+        agreement_id: UUID,
+    ) -> None:
+        purchaser_names = agreement.get("purchaser_names")
+        if isinstance(purchaser_names, str):
+            purchaser_names = [purchaser_names]
+        if not isinstance(purchaser_names, list):
+            purchaser_names = []
+
+        for index, purchaser_name in enumerate(purchaser_names):
+            name = self._as_text(purchaser_name)
+            if not name:
+                continue
+            contact_id = await self._upsert_contact(
+                name=name,
+                company_name="",
+                address=self._as_text(agreement.get("purchaser_address")),
+                contact_type=ContactType.BUYER.value,
+            )
+            await self._insert_party(
+                agreement_id=agreement_id,
+                contact_id=contact_id,
+                party_role=PartyRole.BUYER if index == 0 else PartyRole.CO_BUYER,
+                is_primary=index == 0,
+            )
+
+        realtor_fields = [
+            ("buyers_realtor_name", "buyers_brokerage", PartyRole.BUYERS_REALTOR),
+            ("sellers_realtor_name", "sellers_brokerage", PartyRole.SELLERS_REALTOR),
+        ]
+        for name_field, brokerage_field, role in realtor_fields:
+            name = self._as_text(agreement.get(name_field))
+            if not name:
+                continue
+            contact_id = await self._upsert_contact(
+                name=name,
+                company_name=self._as_text(agreement.get(brokerage_field)),
+                address="",
+                contact_type=ContactType.REALTOR.value,
+            )
+            await self._insert_party(
+                agreement_id=agreement_id,
+                contact_id=contact_id,
+                party_role=role,
+                is_primary=False,
+            )
+
+    async def _insert_party(
+        self,
+        agreement_id: UUID,
+        contact_id: UUID,
+        party_role: PartyRole,
+        is_primary: bool,
+    ) -> None:
+        party = Party(
+            agreement_id=agreement_id,
+            contact_id=contact_id,
+            party_role=party_role,
+            is_primary=is_primary,
+        )
+        self.db.add(party)
+        await self.db.flush()
+        await self._write_audit_log(
+            schema_name="sales",
+            table_name="parties",
+            record_id=party.id,
+            action="INSERT",
+            new_data={"agreement_id": str(agreement_id), "party_role": party_role.value},
+        )
+
+    async def _insert_sales_deposit_schedule(
+        self,
+        payment_schedule: object,
+        agreement_id: UUID,
+    ) -> None:
+        if not isinstance(payment_schedule, list):
+            return
+
+        deposit_number = 1
+        for payment in payment_schedule:
+            if not isinstance(payment, dict):
+                continue
+            amount = self._coerce_decimal(payment.get("amount"), scale=2)
+            if amount is None:
+                continue
+            stage = self._normalize_text(self._as_text(payment.get("stage")))
+            trigger = self._normalize_text(self._as_text(payment.get("trigger")))
+            if "deposit" not in stage and "deposit" not in trigger:
+                continue
+            row = SalesDepositSchedule(
+                agreement_id=agreement_id,
+                deposit_number=deposit_number,
+                amount=amount,
+                due_date=self._coerce_date(payment.get("due_date")),
+                held_by=self._coerce_held_by(payment.get("payable_to")),
+            )
+            self.db.add(row)
+            await self.db.flush()
+            await self._write_audit_log(
+                schema_name="sales",
+                table_name="deposit_schedule",
+                record_id=row.id,
+                action="INSERT",
+                new_data={"agreement_id": str(agreement_id), "deposit_number": deposit_number},
+            )
+            deposit_number += 1
+
+    def _build_sales_conditions_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "conditions": payload.get("conditions", {}),
+            "construction_summary": payload.get("construction_summary", {}),
+            "standard_specs": payload.get("standard_specs", {}),
+            "upgrades": payload.get("upgrades", []),
+            "landscaping": payload.get("landscaping", {}),
+            "financial": payload.get("financial", {}),
+            "payment_schedule": payload.get("payment_schedule", []),
+            "agreement_snapshot": payload.get("agreement", {}),
+        }
 
     async def _insert_security_deposit(
         self,
@@ -615,4 +1040,31 @@ class PromotionService:
                 return parser(text_value)
             except ValueError:
                 continue
+        return None
+
+    def _extract_development_name(self, civic_address: str) -> str:
+        parts = [part.strip() for part in civic_address.split(",") if part.strip()]
+        if len(parts) >= 2:
+            return parts[1]
+        return "Unassigned Sale Lots"
+
+    def _split_civic_address(self, civic_address: str) -> tuple[str | None, str | None]:
+        first_part = civic_address.split(",", 1)[0].strip()
+        if not first_part:
+            return None, None
+        match = re.match(r"^(\d+[A-Za-z]?)\s+(.+)$", first_part)
+        if match is None:
+            return None, first_part
+        return match.group(1), match.group(2).strip()
+
+    def _coerce_held_by(self, value: object) -> str | None:
+        text_value = self._normalize_text(self._as_text(value))
+        if not text_value:
+            return None
+        if "lawyer" in text_value or "solicitor" in text_value:
+            return "lawyer"
+        if "realtor" in text_value or "broker" in text_value or "realty" in text_value:
+            return "realtor"
+        if "builder" in text_value or "connection" in text_value:
+            return "builder"
         return None

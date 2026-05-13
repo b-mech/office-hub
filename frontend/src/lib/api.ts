@@ -25,11 +25,11 @@ export interface DocumentDetail {
   } | null;
   extraction: {
     id: string;
-    extracted_payload: {
-      agreement?: Record<string, string | number | null>;
-      security_deposit?: Record<string, string | number | null>;
-      lots?: Array<Record<string, string | number | null>>;
-      notable_clauses?: Array<Record<string, string | number | null>>;
+    extracted_payload: Record<string, unknown> & {
+      agreement?: Record<string, unknown>;
+      security_deposit?: Record<string, unknown>;
+      lots?: Array<Record<string, unknown>>;
+      notable_clauses?: Array<Record<string, unknown>>;
     };
     field_confidences: Record<string, number>;
     low_confidence_fields: string[];

@@ -12,17 +12,24 @@ import {
   submitReview,
 } from "@/lib/api";
 
-type ScalarValue = string | number | null;
-type AgreementFields = Record<string, ScalarValue>;
-type SecurityDepositFields = Record<string, ScalarValue>;
-type LotFields = Record<string, ScalarValue>;
-type ClauseFields = Record<string, ScalarValue>;
-
-type ReviewPayload = {
-  agreement: AgreementFields;
-  security_deposit: SecurityDepositFields;
-  lots: LotFields[];
-  notable_clauses: ClauseFields[];
+type ScalarValue = string | number | boolean | null;
+type ReviewValue = unknown;
+interface ReviewObject {
+  [key: string]: ReviewValue;
+}
+type ReviewPayload = ReviewObject & {
+  agreement: ReviewObject;
+  security_deposit: ReviewObject;
+  development_guidelines: ReviewObject;
+  lots: ReviewObject[];
+  notable_clauses: ReviewObject[];
+  payment_schedule: ReviewObject[];
+  construction_summary: ReviewObject;
+  conditions: ReviewObject;
+  standard_specs: ReviewObject;
+  upgrades: ReviewObject[];
+  landscaping: ReviewObject;
+  financial: ReviewObject;
 };
 
 const agreementFieldLabels: Array<[string, string]> = [
@@ -43,6 +50,25 @@ const agreementFieldLabels: Array<[string, string]> = [
   ["gst_registration", "GST Registration"],
 ];
 
+const saleAgreementFieldLabels: Array<[string, string]> = [
+  ["agreement_date", "Agreement Date"],
+  ["purchaser_names", "Purchaser Names"],
+  ["purchaser_address", "Purchaser Address"],
+  ["builder_name", "Builder Name"],
+  ["builder_address", "Builder Address"],
+  ["buyers_realtor_name", "Buyer's Realtor"],
+  ["buyers_brokerage", "Buyer's Brokerage"],
+  ["sellers_realtor_name", "Seller's Realtor"],
+  ["sellers_brokerage", "Seller's Brokerage"],
+  ["civic_address", "Civic Address"],
+  ["legal_description.block", "Legal Block"],
+  ["legal_description.lot", "Legal Lot"],
+  ["legal_description.plan", "Legal Plan"],
+  ["estimated_occupancy_date", "Estimated Occupancy Date"],
+  ["purchase_price_total", "Purchase Price Total"],
+  ["commission_rate", "Commission Rate"],
+];
+
 const securityDepositFields: Array<[string, string]> = [
   ["rate_per_lot", "Rate Per Lot"],
   ["maximum_amount", "Maximum Amount"],
@@ -59,6 +85,84 @@ const lotFieldLabels: Array<[string, string]> = [
   ["deposit_2_due_date", "Deposit 2 Due Date"],
 ];
 
+const paymentScheduleFieldLabels: Array<[string, string]> = [
+  ["stage", "Stage"],
+  ["amount", "Amount"],
+  ["due_date", "Due Date"],
+  ["trigger", "Trigger"],
+  ["payable_to", "Payable To"],
+];
+
+const clauseFieldLabels: Array<[string, string]> = [
+  ["label", "Label"],
+  ["clause_ref", "Clause Ref"],
+  ["category", "Category"],
+  ["text", "Text"],
+];
+
+const constructionSummaryFields: Array<[string, string]> = [
+  ["house_sqft", "House Sqft"],
+  ["house_plan_type", "House Plan Type"],
+  ["lot_type_feature", "Lot Type Feature"],
+  ["bedrooms", "Bedrooms"],
+  ["bathrooms", "Bathrooms"],
+  ["garage_size", "Garage Size"],
+  ["lower_level_development", "Lower Level Development"],
+];
+
+const standardSpecFields: Array<[string, string]> = [
+  ["foundation", "Foundation"],
+  ["exterior_finishes", "Exterior Finishes"],
+  ["cabinets", "Cabinets"],
+  ["framing_insulation", "Framing / Insulation"],
+  ["interior_finishes", "Interior Finishes"],
+  ["electrical", "Electrical"],
+  ["mechanical", "Mechanical"],
+  ["plumbing", "Plumbing"],
+  ["exterior_yard", "Exterior Yard"],
+];
+
+const upgradeFieldLabels: Array<[string, string]> = [
+  ["item_number", "Item Number"],
+  ["description", "Description"],
+];
+
+const conditionFields: Array<[string, string]> = [
+  ["financing_condition_date", "Financing Condition Date"],
+  ["lawyer_approval_date", "Lawyer Approval Date"],
+  ["design_meeting_date", "Design Meeting Date"],
+  ["acceptance_date", "Acceptance Date"],
+];
+
+const financialFields: Array<[string, string]> = [
+  ["land_value", "Land Value"],
+  ["builders_lien_holdback_percent", "Builders Lien Holdback Percent"],
+  ["interest_rate_on_late_payments", "Interest Rate On Late Payments"],
+  ["materials_escalation_cap", "Materials Escalation Cap"],
+];
+
+const landscapingFields: Array<[string, string]> = [
+  ["landscaping_requirements", "Landscaping Requirements"],
+  ["landscaping_deadline", "Landscaping Deadline"],
+  ["security_deposit_amount", "Security Deposit Amount"],
+  ["security_deposit_return_condition", "Security Deposit Return Condition"],
+];
+
+const developmentGuidelineFields: Array<[string, string]> = [
+  ["architectural_controls", "Architectural Controls"],
+  ["exterior_materials", "Exterior Materials"],
+  ["roof_requirements", "Roof Requirements"],
+  ["driveway_requirements", "Driveway Requirements"],
+  ["landscaping_requirements", "Landscaping Requirements"],
+  ["fencing_requirements", "Fencing Requirements"],
+  ["construction_start_deadline", "Construction Start Deadline"],
+  ["construction_completion_deadline", "Construction Completion Deadline"],
+  ["deposit_return_conditions", "Deposit Return Conditions"],
+  ["developer_approval_requirements", "Developer Approval Requirements"],
+  ["municipal_or_utility_requirements", "Municipal / Utility Requirements"],
+  ["other_restrictions", "Other Restrictions"],
+];
+
 function getStatusBadge(status: string): string {
   if (status === "approved") {
     return "bg-emerald-100 text-emerald-800 ring-emerald-200";
@@ -72,14 +176,118 @@ function getStatusBadge(status: string): string {
   return "bg-slate-100 text-slate-700 ring-slate-200";
 }
 
+function formatDocType(docType: string): string {
+  if (docType === "sale_otp") {
+    return "OTP SALE";
+  }
+  if (docType === "land_otp") {
+    return "OTP LAND";
+  }
+  return docType.replaceAll("_", " ");
+}
+
 function createDefaultPayload(detail: DocumentDetail | null): ReviewPayload {
-  const payload = detail?.extraction?.extracted_payload;
+  const payload = detail?.extraction?.extracted_payload as ReviewObject | undefined;
   return {
-    agreement: { ...(payload?.agreement || {}) },
-    security_deposit: { ...(payload?.security_deposit || {}) },
-    lots: [...(payload?.lots || [])],
-    notable_clauses: [...(payload?.notable_clauses || [])],
+    ...(payload || {}),
+    agreement: { ...((payload?.agreement as ReviewObject | undefined) || {}) },
+    security_deposit: { ...((payload?.security_deposit as ReviewObject | undefined) || {}) },
+    development_guidelines: {
+      ...((payload?.["development_guidelines"] as ReviewObject | undefined) || {}),
+    },
+    lots: [...((payload?.lots as ReviewObject[] | undefined) || [])],
+    payment_schedule: [...((payload?.["payment_schedule"] as ReviewObject[] | undefined) || [])],
+    construction_summary: {
+      ...((payload?.["construction_summary"] as ReviewObject | undefined) || {}),
+    },
+    conditions: { ...((payload?.["conditions"] as ReviewObject | undefined) || {}) },
+    standard_specs: {
+      ...((payload?.["standard_specs"] as ReviewObject | undefined) || {}),
+    },
+    upgrades: [...((payload?.["upgrades"] as ReviewObject[] | undefined) || [])],
+    landscaping: { ...((payload?.["landscaping"] as ReviewObject | undefined) || {}) },
+    financial: { ...((payload?.["financial"] as ReviewObject | undefined) || {}) },
+    notable_clauses: [...((payload?.notable_clauses as ReviewObject[] | undefined) || [])],
   };
+}
+
+function getNestedValue(source: ReviewObject | undefined, path: string): ReviewValue | undefined {
+  let current: ReviewValue | undefined = source;
+  for (const segment of path.split(".")) {
+    if (!current || Array.isArray(current) || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as ReviewObject)[segment];
+  }
+  return current;
+}
+
+function formatInputValue(value: ReviewValue | undefined): string {
+  if (value == null) {
+    return "";
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) =>
+        item && typeof item === "object"
+          ? Object.values(item).filter(Boolean).join(": ")
+          : String(item ?? ""),
+      )
+      .filter(Boolean)
+      .join("; ");
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function parseInputValue(value: string): ScalarValue {
+  return value || null;
+}
+
+function updateNestedObject(source: ReviewObject, path: string, value: ScalarValue): ReviewObject {
+  const [head, ...rest] = path.split(".");
+  if (rest.length === 0) {
+    return { ...source, [head]: value };
+  }
+
+  const existing = source[head];
+  return {
+    ...source,
+    [head]: updateNestedObject(
+      !Array.isArray(existing) && existing && typeof existing === "object"
+        ? (existing as ReviewObject)
+        : {},
+      rest.join("."),
+      value,
+    ),
+  };
+}
+
+function getValueByPath(source: ReviewValue, path: string): ReviewValue | undefined {
+  let current: ReviewValue = source;
+  for (const segment of path.split(".")) {
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      current = Number.isInteger(index) ? current[index] : undefined;
+    } else if (current && typeof current === "object") {
+      current = (current as ReviewObject)[segment];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+function isBlankValue(value: ReviewValue | undefined): boolean {
+  if (value == null) {
+    return true;
+  }
+  if (typeof value === "string") {
+    return value.trim() === "";
+  }
+  return false;
 }
 
 export default function DocumentReviewPage() {
@@ -162,7 +370,11 @@ export default function DocumentReviewPage() {
 
   function getConfidence(path: string): number {
     const score = detail?.extraction?.field_confidences[path];
-    return typeof score === "number" ? score : 1;
+    if (typeof score === "number") {
+      return score;
+    }
+
+    return isBlankValue(getValueByPath(reviewedPayload, path)) ? 0 : 1;
   }
 
   function isLowConfidence(path: string): boolean {
@@ -172,10 +384,7 @@ export default function DocumentReviewPage() {
   function updateAgreementField(field: string, value: string) {
     setReviewedPayload((current) => ({
       ...current,
-      agreement: {
-        ...current.agreement,
-        [field]: value || null,
-      },
+      agreement: updateNestedObject(current.agreement, field, parseInputValue(value)),
     }));
     markEdited(`agreement.${field}`);
   }
@@ -191,6 +400,23 @@ export default function DocumentReviewPage() {
     markEdited(`security_deposit.${field}`);
   }
 
+  function updateObjectField(section: keyof ReviewPayload, field: string, value: string) {
+    setReviewedPayload((current) => {
+      const currentSection = current[section];
+      return {
+        ...current,
+        [section]: updateNestedObject(
+          !Array.isArray(currentSection) && currentSection && typeof currentSection === "object"
+            ? (currentSection as ReviewObject)
+            : {},
+          field,
+          parseInputValue(value),
+        ),
+      };
+    });
+    markEdited(`${String(section)}.${field}`);
+  }
+
   function updateLotField(index: number, field: string, value: string) {
     setReviewedPayload((current) => ({
       ...current,
@@ -204,6 +430,74 @@ export default function DocumentReviewPage() {
       ),
     }));
     markEdited(`lots.${index}.${field}`);
+  }
+
+  function updateArrayField(
+    section: "payment_schedule" | "upgrades" | "notable_clauses",
+    index: number,
+    field: string,
+    value: string,
+  ) {
+    setReviewedPayload((current) => {
+      const rows = Array.isArray(current[section]) ? current[section] : [];
+      return {
+        ...current,
+        [section]: rows.map((row, rowIndex) =>
+          rowIndex === index ? updateNestedObject(row, field, parseInputValue(value)) : row,
+        ),
+      };
+    });
+    markEdited(`${section}.${index}.${field}`);
+  }
+
+  function addArrayRow(section: "payment_schedule" | "upgrades" | "notable_clauses") {
+    const defaults: Record<typeof section, ReviewObject> = {
+      payment_schedule: {
+        stage: null,
+        amount: null,
+        due_date: null,
+        trigger: null,
+        payable_to: null,
+      },
+      upgrades: {
+        item_number: null,
+        description: null,
+      },
+      notable_clauses: {
+        label: null,
+        clause_ref: null,
+        category: null,
+        text: null,
+      },
+    };
+
+    setReviewedPayload((current) => ({
+      ...current,
+      [section]: [...current[section], defaults[section]],
+    }));
+    markEdited(section);
+  }
+
+  function addLotRow() {
+    const index = reviewedPayload.lots.length;
+    setReviewedPayload((current) => ({
+      ...current,
+      lots: [
+        ...current.lots,
+        {
+          civic_address: null,
+          block: null,
+          lot_number: null,
+          plan: null,
+          purchase_price: null,
+          deposit_1_amount: null,
+          deposit_2_amount: null,
+          deposit_2_due_date: null,
+        },
+      ],
+    }));
+    setOpenLots((current) => ({ ...current, [index]: true }));
+    markEdited("lots");
   }
 
   async function handleSubmit(decision: "approved" | "rejected" | "deferred") {
@@ -292,6 +586,8 @@ export default function DocumentReviewPage() {
 
   const filename = detail?.document.original_filename || "Untitled document";
   const pdfUrl = getDocumentPdfUrl(documentId);
+  const isSaleOtp = detail?.document.doc_type === "sale_otp";
+  const activeAgreementFields = isSaleOtp ? saleAgreementFieldLabels : agreementFieldLabels;
 
   return (
     <main className="h-screen bg-[linear-gradient(135deg,_#efe9df,_#dad0c1)] p-3 text-stone-900 sm:p-4">
@@ -348,7 +644,7 @@ export default function DocumentReviewPage() {
                   {detail?.document.status.replaceAll("_", " ")}
                 </span>
                 <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-stone-600">
-                  {detail?.document.doc_type.replaceAll("_", " ")}
+                  {formatDocType(detail?.document.doc_type || "")}
                 </span>
               </div>
               <div className="mt-4 grid gap-2 text-sm text-stone-600 sm:grid-cols-2">
@@ -398,7 +694,7 @@ export default function DocumentReviewPage() {
                   </div>
                 </div>
                 <div className="grid gap-4">
-                  {agreementFieldLabels.map(([field, label]) => {
+                  {activeAgreementFields.map(([field, label]) => {
                     const path = `agreement.${field}`;
                     const lowConfidence = isLowConfidence(path);
                     return (
@@ -419,7 +715,7 @@ export default function DocumentReviewPage() {
                           </span>
                         </div>
                         <input
-                          value={String(reviewedPayload.agreement[field] ?? "")}
+                          value={formatInputValue(getNestedValue(reviewedPayload.agreement, field))}
                           onChange={(event) =>
                             updateAgreementField(field, event.target.value)
                           }
@@ -431,6 +727,8 @@ export default function DocumentReviewPage() {
                 </div>
               </section>
 
+              {!isSaleOtp ? (
+                <>
               <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
                   2. Security Deposit
@@ -482,6 +780,13 @@ export default function DocumentReviewPage() {
                     {reviewedPayload.lots.length === 1 ? "" : "s"}
                   </span>
                 </div>
+                <button
+                  type="button"
+                  onClick={addLotRow}
+                  className="mt-4 rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-stone-700 transition hover:bg-stone-100"
+                >
+                  Add lot
+                </button>
                 <div className="mt-4 space-y-4">
                   {reviewedPayload.lots.map((lot, index) => {
                     const isOpen = openLots[index] ?? true;
@@ -568,8 +873,328 @@ export default function DocumentReviewPage() {
 
               <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
-                  4. Notable Clauses
+                  4. Development Guidelines
                 </p>
+                <h2 className="mt-1 text-lg font-semibold text-stone-950">
+                  Community-level requirements
+                </h2>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  {developmentGuidelineFields.map(([field, label]) => {
+                    const path = `development_guidelines.${field}`;
+                    const lowConfidence = isLowConfidence(path);
+                    const value = reviewedPayload.development_guidelines?.[field];
+                    const isLongField =
+                      Array.isArray(value) ||
+                      field === "architectural_controls" ||
+                      field === "developer_approval_requirements" ||
+                      field === "other_restrictions";
+                    return (
+                      <label
+                        key={field}
+                        className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"} ${isLongField ? "sm:col-span-2" : ""}`}
+                      >
+                        <div className="mb-2 flex items-center justify-between gap-4">
+                          <span className="text-sm font-semibold text-stone-800">
+                            {label}
+                          </span>
+                          <span
+                            className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                          >
+                            {Math.round(getConfidence(path) * 100)}%
+                          </span>
+                        </div>
+                        {isLongField ? (
+                          <textarea
+                            value={formatInputValue(value)}
+                            onChange={(event) =>
+                              updateObjectField("development_guidelines", field, event.target.value)
+                            }
+                            rows={3}
+                            className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                          />
+                        ) : (
+                          <input
+                            value={formatInputValue(value)}
+                            onChange={(event) =>
+                              updateObjectField("development_guidelines", field, event.target.value)
+                            }
+                            className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                          />
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </section>
+                </>
+              ) : null}
+
+              {isSaleOtp ? (
+                <>
+                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                        2. Payment Schedule
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => addArrayRow("payment_schedule")}
+                        className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-stone-700 transition hover:bg-stone-100"
+                      >
+                        Add payment
+                      </button>
+                    </div>
+                    <div className="mt-4 space-y-4">
+                      {(reviewedPayload.payment_schedule || []).map((payment, index) => (
+                        <article
+                          key={`payment-${index}`}
+                          className="grid gap-4 rounded-[1.2rem] border border-stone-200 bg-white p-4 sm:grid-cols-2"
+                        >
+                          {paymentScheduleFieldLabels.map(([field, label]) => {
+                            const path = `payment_schedule.${index}.${field}`;
+                            const lowConfidence = isLowConfidence(path);
+                            return (
+                              <label key={field}>
+                                <div className="mb-2 flex items-center justify-between gap-4">
+                                  <span className="text-sm font-semibold text-stone-800">
+                                    {label}
+                                  </span>
+                                  <span
+                                    className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                  >
+                                    {Math.round(getConfidence(path) * 100)}%
+                                  </span>
+                                </div>
+                                <input
+                                  value={formatInputValue(payment[field])}
+                                  onChange={(event) =>
+                                    updateArrayField("payment_schedule", index, field, event.target.value)
+                                  }
+                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                />
+                              </label>
+                            );
+                          })}
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                      3. Conditions
+                    </p>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      {conditionFields.map(([field, label]) => {
+                        const path = `conditions.${field}`;
+                        const lowConfidence = isLowConfidence(path);
+                        return (
+                          <label
+                            key={field}
+                            className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                          >
+                            <div className="mb-2 flex items-center justify-between gap-4">
+                              <span className="text-sm font-semibold text-stone-800">
+                                {label}
+                              </span>
+                              <span
+                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                              >
+                                {Math.round(getConfidence(path) * 100)}%
+                              </span>
+                            </div>
+                            <input
+                              value={formatInputValue(reviewedPayload.conditions?.[field])}
+                              onChange={(event) =>
+                                updateObjectField("conditions", field, event.target.value)
+                              }
+                              className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                      4. Build Summary
+                    </p>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      {constructionSummaryFields.map(([field, label]) => {
+                        const path = `construction_summary.${field}`;
+                        const lowConfidence = isLowConfidence(path);
+                        return (
+                          <label
+                            key={field}
+                            className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                          >
+                            <div className="mb-2 flex items-center justify-between gap-4">
+                              <span className="text-sm font-semibold text-stone-800">
+                                {label}
+                              </span>
+                              <span
+                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                              >
+                                {Math.round(getConfidence(path) * 100)}%
+                              </span>
+                            </div>
+                            <input
+                              value={formatInputValue(reviewedPayload.construction_summary?.[field])}
+                              onChange={(event) =>
+                                updateObjectField("construction_summary", field, event.target.value)
+                              }
+                              className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                      5. Standard Specs
+                    </p>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      {standardSpecFields.map(([field, label]) => {
+                        const path = `standard_specs.${field}`;
+                        const lowConfidence = isLowConfidence(path);
+                        return (
+                          <label
+                            key={field}
+                            className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                          >
+                            <div className="mb-2 flex items-center justify-between gap-4">
+                              <span className="text-sm font-semibold text-stone-800">
+                                {label}
+                              </span>
+                              <span
+                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                              >
+                                {Math.round(getConfidence(path) * 100)}%
+                              </span>
+                            </div>
+                            <input
+                              value={formatInputValue(reviewedPayload.standard_specs?.[field])}
+                              onChange={(event) =>
+                                updateObjectField("standard_specs", field, event.target.value)
+                              }
+                              className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+                    <div className="flex items-center justify-between gap-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                        6. Upgrades
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => addArrayRow("upgrades")}
+                        className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-stone-700 transition hover:bg-stone-100"
+                      >
+                        Add upgrade
+                      </button>
+                    </div>
+                    <div className="mt-4 space-y-4">
+                      {reviewedPayload.upgrades.map((upgrade, index) => (
+                        <article
+                          key={`upgrade-${index}`}
+                          className="grid gap-4 rounded-[1.2rem] border border-stone-200 bg-white p-4 sm:grid-cols-2"
+                        >
+                          {upgradeFieldLabels.map(([field, label]) => {
+                            const path = `upgrades.${index}.${field}`;
+                            const lowConfidence = isLowConfidence(path);
+                            return (
+                              <label key={field}>
+                                <div className="mb-2 flex items-center justify-between gap-4">
+                                  <span className="text-sm font-semibold text-stone-800">
+                                    {label}
+                                  </span>
+                                  <span
+                                    className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                  >
+                                    {Math.round(getConfidence(path) * 100)}%
+                                  </span>
+                                </div>
+                                <input
+                                  value={formatInputValue(upgrade[field])}
+                                  onChange={(event) =>
+                                    updateArrayField("upgrades", index, field, event.target.value)
+                                  }
+                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                />
+                              </label>
+                            );
+                          })}
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                      7. Financial and Landscaping
+                    </p>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      {[...financialFields.map((field) => ["financial", ...field] as const), ...landscapingFields.map((field) => ["landscaping", ...field] as const)].map(
+                        ([section, field, label]) => {
+                          const path = `${section}.${field}`;
+                          const lowConfidence = isLowConfidence(path);
+                          const sectionPayload = reviewedPayload[section];
+                          const sectionObject =
+                            !Array.isArray(sectionPayload) && typeof sectionPayload === "object"
+                              ? sectionPayload
+                              : {};
+                          return (
+                            <label
+                              key={path}
+                              className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                            >
+                              <div className="mb-2 flex items-center justify-between gap-4">
+                                <span className="text-sm font-semibold text-stone-800">
+                                  {label}
+                                </span>
+                                <span
+                                  className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                >
+                                  {Math.round(getConfidence(path) * 100)}%
+                                </span>
+                              </div>
+                              <input
+                                value={formatInputValue(sectionObject[field])}
+                                onChange={(event) =>
+                                  updateObjectField(section, field, event.target.value)
+                                }
+                                className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                              />
+                            </label>
+                          );
+                        },
+                      )}
+                    </div>
+                  </section>
+                </>
+              ) : null}
+
+              <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+                <div className="flex items-center justify-between gap-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                    {isSaleOtp ? "8. Notable Clauses" : "5. Notable Clauses"}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => addArrayRow("notable_clauses")}
+                    className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-stone-700 transition hover:bg-stone-100"
+                  >
+                    Add clause
+                  </button>
+                </div>
                 <div className="mt-4 space-y-3">
                   {reviewedPayload.notable_clauses.length === 0 ? (
                     <div className="rounded-[1.2rem] border border-dashed border-stone-300 bg-white px-4 py-6 text-sm text-stone-500">
@@ -579,22 +1204,48 @@ export default function DocumentReviewPage() {
                     reviewedPayload.notable_clauses.map((clause, index) => (
                       <article
                         key={`${clause.clause_ref || "clause"}-${index}`}
-                        className="rounded-[1.2rem] border border-stone-200 bg-white px-4 py-4"
+                        className="grid gap-4 rounded-[1.2rem] border border-stone-200 bg-white px-4 py-4 sm:grid-cols-2"
                       >
-                        <div className="flex flex-wrap items-center gap-3">
-                          <span className="rounded-full bg-stone-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-white">
-                            {String(clause.label || `Clause ${index + 1}`)}
-                          </span>
-                          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
-                            {String(clause.clause_ref || "No ref")}
-                          </span>
-                          <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-600">
-                            {String(clause.category || "uncategorized")}
-                          </span>
-                        </div>
-                        <p className="mt-3 text-sm leading-6 text-stone-700">
-                          {String(clause.text || "No clause text extracted.")}
-                        </p>
+                        {clauseFieldLabels.map(([field, label]) => {
+                          const path = `notable_clauses.${index}.${field}`;
+                          const lowConfidence = isLowConfidence(path);
+                          const isTextField = field === "text";
+                          return (
+                            <label
+                              key={field}
+                              className={isTextField ? "sm:col-span-2" : undefined}
+                            >
+                              <div className="mb-2 flex items-center justify-between gap-4">
+                                <span className="text-sm font-semibold text-stone-800">
+                                  {label}
+                                </span>
+                                <span
+                                  className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                >
+                                  {Math.round(getConfidence(path) * 100)}%
+                                </span>
+                              </div>
+                              {isTextField ? (
+                                <textarea
+                                  value={formatInputValue(clause[field])}
+                                  onChange={(event) =>
+                                    updateArrayField("notable_clauses", index, field, event.target.value)
+                                  }
+                                  rows={4}
+                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                />
+                              ) : (
+                                <input
+                                  value={formatInputValue(clause[field])}
+                                  onChange={(event) =>
+                                    updateArrayField("notable_clauses", index, field, event.target.value)
+                                  }
+                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                />
+                              )}
+                            </label>
+                          );
+                        })}
                       </article>
                     ))
                   )}

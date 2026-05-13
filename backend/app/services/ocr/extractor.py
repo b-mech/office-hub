@@ -159,7 +159,52 @@ class PDFExtractor:
         return "mixed"
 
     def _should_use_tesseract(self, plumber_result: PageResult) -> bool:
-        return plumber_result.confidence < 0.5 or not plumber_result.text.strip()
+        return (
+            plumber_result.confidence < 0.5
+            or not plumber_result.text.strip()
+            or self._is_low_signal_pdf_text(plumber_result.text)
+        )
+
+    def _is_low_signal_pdf_text(self, text: str) -> bool:
+        raw_text = text.strip()
+        if raw_text:
+            control_count = sum(
+                1
+                for character in raw_text
+                if ord(character) < 32 and character not in "\n\r\t"
+            )
+            if control_count / len(raw_text) > 0.05:
+                return True
+
+        cleaned = " ".join(text.lower().split())
+        if not cleaned:
+            return True
+
+        readable = re.sub(r"[^a-z0-9 $.,:/#()'\-]+", " ", cleaned)
+        readable = re.sub(r"\s+", " ", readable).strip()
+        without_authentisign = re.sub(
+            r"authentisign id:\s*[a-z0-9-]+",
+            "",
+            readable,
+            flags=re.IGNORECASE,
+        ).strip()
+        without_metadata = re.sub(
+            r"docusign envelope id:?\s*[a-z0-9 -]+",
+            "",
+            without_authentisign,
+            flags=re.IGNORECASE,
+        ).strip()
+        contract_signals = [
+            "standard offer to purchase",
+            "purchase price",
+            "estimated occupancy",
+            "legal description",
+            "builder",
+            "purchaser",
+            "schedule",
+        ]
+        has_contract_signal = any(signal in readable for signal in contract_signals)
+        return len(without_metadata) < 120 and not has_contract_signal
 
     def _render_page_image(self, page: pdfplumber.page.Page) -> Image:
         return page.to_image(resolution=400).original

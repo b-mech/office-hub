@@ -80,32 +80,50 @@ Rules:
    - civic_address = 214 Woodland Way
 4f. Do not leave block, lot_number, or civic_address null if a plausible row-level value is present in the lot schedule table text, even if OCR is noisy. Use a lower confidence instead.
 4g. Prefer values that stay internally consistent across the row. For example, if a row clearly contains a block, lot number, street number, street name, plan, and purchase price together, treat them as one lot row.
-5. Extract at most 6 notable clauses as an array of objects with:
+5. Extract community-level development guidelines into development_guidelines.
+   These are rules that apply to the whole development/community, not one buyer's
+   home upgrade selections. Preserve document wording where possible and use arrays
+   for lists of requirements. Extract:
+   - architectural_controls
+   - exterior_materials
+   - roof_requirements
+   - driveway_requirements
+   - landscaping_requirements
+   - fencing_requirements
+   - construction_start_deadline
+   - construction_completion_deadline
+   - deposit_return_conditions
+   - developer_approval_requirements
+   - municipal_or_utility_requirements
+   - other_restrictions
+6. Extract at most 6 notable clauses as an array of objects with:
    - clause_ref
    - label
    - text
    - category
-5a. Prefer clauses needed for review and promotion: deposits, balance due timing, interest,
+6a. Prefer clauses needed for review and promotion: deposits, balance due timing, interest,
     construction restrictions, security deposit, GST, assignment/default. Keep clause text concise.
-6. Return ONLY valid JSON. Do not include explanation, markdown, or code fences.
-7. Include confidence scores between 0.0 and 1.0 only for agreement-level fields and
+7. Return ONLY valid JSON. Do not include explanation, markdown, or code fences.
+8. Include confidence scores between 0.0 and 1.0 only for agreement-level fields and
    security_deposit fields. Do not emit confidence entries for every lot row or every
    notable clause; the response must stay complete valid JSON.
-8. If a field cannot be found, return null for the value and 0.0 for confidence.
-9. The top-level JSON keys must be exactly:
+9. If a field cannot be found, return null for scalar guideline values, [] for guideline arrays,
+   and 0.0 for agreement/security confidence fields.
+10. The top-level JSON keys must be exactly:
    - agreement
    - security_deposit
+   - development_guidelines
    - lots
    - notable_clauses
    - field_confidences
-10. field_confidences must be a compact object using dotted key paths for agreement and
+11. field_confidences must be a compact object using dotted key paths for agreement and
     security_deposit only. Examples:
    - "agreement.agreement_date"
    - "agreement.vendor_name"
    - "security_deposit.rate_per_lot"
-11. Do not invent auto-calculated fields such as legal_description_normalized, balance_due_date, calculated_amount, deposit triggers beyond due_trigger, or lot status.
-12. Preserve exact document wording where helpful, especially for interest_terms_text and notable clause text.
-13. If the OCR is ambiguous or the chart total appears inconsistent, lower the relevant confidence scores.
+12. Do not invent auto-calculated fields such as legal_description_normalized, balance_due_date, calculated_amount, deposit triggers beyond due_trigger, or lot status.
+13. Preserve exact document wording where helpful, especially for interest_terms_text, guideline requirements, and notable clause text.
+14. If the OCR is ambiguous or the chart total appears inconsistent, lower the relevant confidence scores.
 
 Output shape:
 {
@@ -130,6 +148,20 @@ Output shape:
     "rate_per_lot": null,
     "maximum_amount": null,
     "due_trigger": null
+  },
+  "development_guidelines": {
+    "architectural_controls": [],
+    "exterior_materials": [],
+    "roof_requirements": [],
+    "driveway_requirements": [],
+    "landscaping_requirements": [],
+    "fencing_requirements": [],
+    "construction_start_deadline": null,
+    "construction_completion_deadline": null,
+    "deposit_return_conditions": [],
+    "developer_approval_requirements": [],
+    "municipal_or_utility_requirements": [],
+    "other_restrictions": []
   },
   "lots": [
     {
@@ -162,7 +194,9 @@ Output shape:
 
 SALE_OTP_PROMPT = """You are an expert document extraction system for Office Hub, a real estate development operating system.
 
-Your task is to read the full OCR text of a home sale offer to purchase / builder agreement and extract structured data from it with explicit confidence scores.
+Your task is to read the full OCR text of a standardized OTP (Sale) / offer to purchase
+used by realtors to close new home build deals and extract structured data from it with
+explicit confidence scores.
 
 Rules:
 1. Read the full OCR text carefully before extracting anything.
@@ -177,11 +211,16 @@ Rules:
    - block
    - lot
    - plan
+   Also extract civic_address when present. The civic address is display text only; the
+   legal description is the durable lot matching key.
 10. For payment_schedule, return an array of objects with:
    - stage
    - amount
+   - due_date
    - trigger
    - payable_to
+   Include deposits, balance due, upgrades, GST, holdbacks, or other scheduled payments
+   when the document states them.
 11. For standard_specs, return an object with arrays for:
    - foundation
    - exterior_finishes
@@ -210,8 +249,13 @@ Rules:
    - builders_lien_holdback_percent
    - interest_rate_on_late_payments
    - materials_escalation_cap
-20. Do not invent values. If a value is only partially legible, use the best supported reading and lower confidence.
-21. The top-level JSON keys must be exactly:
+20. If realtor or brokerage names are present, extract them into:
+   - buyers_realtor_name
+   - buyers_brokerage
+   - sellers_realtor_name
+   - sellers_brokerage
+21. Do not invent values. If a value is only partially legible, use the best supported reading and lower confidence.
+22. The top-level JSON keys must be exactly:
    - agreement
    - payment_schedule
    - construction_summary
@@ -231,6 +275,10 @@ Output shape:
     "purchaser_address": null,
     "builder_name": null,
     "builder_address": null,
+    "buyers_realtor_name": null,
+    "buyers_brokerage": null,
+    "sellers_realtor_name": null,
+    "sellers_brokerage": null,
     "civic_address": null,
     "legal_description": {
       "block": null,
@@ -245,6 +293,7 @@ Output shape:
     {
       "stage": null,
       "amount": null,
+      "due_date": null,
       "trigger": null,
       "payable_to": null
     }

@@ -21,6 +21,16 @@ function getStatusBadge(status: string): string {
   return "bg-slate-100 text-slate-700 ring-slate-200";
 }
 
+function formatDocType(docType: string): string {
+  if (docType === "sale_otp") {
+    return "OTP SALE";
+  }
+  if (docType === "land_otp") {
+    return "OTP LAND";
+  }
+  return docType.replaceAll("_", " ");
+}
+
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [status, setStatus] = useState("");
@@ -166,7 +176,7 @@ export default function DocumentsPage() {
                             </Link>
                           </td>
                           <td className="px-5 py-4 text-sm capitalize text-stone-700">
-                            {document.doc_type.replaceAll("_", " ")}
+                            {formatDocType(document.doc_type)}
                           </td>
                           <td className="px-5 py-4">
                             <span
