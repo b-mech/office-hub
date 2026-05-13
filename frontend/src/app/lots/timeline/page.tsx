@@ -252,7 +252,7 @@ export default function OtpTimelinePage() {
           <SkeletonMonth />
           <SkeletonMonth />
         </div>
-      ) : Object.keys(groupedEvents).length === 0 ? (
+      ) : error ? null : Object.keys(groupedEvents).length === 0 ? (
         <div className="flex min-h-[360px] items-center justify-center text-sm text-white/35">
           No upcoming dates match your filters.
         </div>

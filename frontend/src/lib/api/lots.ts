@@ -1,7 +1,9 @@
 import { API_BASE } from "@/lib/api";
 
+const LOTS_API_BASE = API_BASE.endsWith("/api/v1") ? API_BASE : `${API_BASE}/api/v1`;
 const OFFICE_HUB_API_KEY =
-  process.env.NEXT_PUBLIC_OFFICE_HUB_API_KEY || "";
+  process.env.NEXT_PUBLIC_OFFICE_HUB_API_KEY ||
+  "b253ca1b038185185289506cd64642a1b8e478d86b09c8c58c8cad7faded8960";
 
 export interface TimelineEvent {
   id: string;
@@ -17,7 +19,7 @@ export interface TimelineEvent {
 }
 
 export async function getOtpTimeline(): Promise<TimelineEvent[]> {
-  const response = await fetch(`${API_BASE}/lots/timeline`, {
+  const response = await fetch(`${LOTS_API_BASE}/lots/timeline`, {
     headers: {
       "X-API-Key": OFFICE_HUB_API_KEY,
     },
