@@ -44,6 +44,12 @@ export default function RootLayout({
                 Lots
               </Link>
               <Link
+                href="/lots/timeline"
+                className="ml-3 rounded-lg border-l border-white/10 px-3 py-1.5 text-xs text-white/45 transition hover:bg-white/5 hover:text-white"
+              >
+                OTP Timeline
+              </Link>
+              <Link
                 href="/projects"
                 className="rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/5 hover:text-white"
               >
