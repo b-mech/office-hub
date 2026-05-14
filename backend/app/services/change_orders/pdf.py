@@ -40,51 +40,105 @@ def _build_lines(change_order: ChangeOrder) -> list[PdfLine]:
     y = PAGE_HEIGHT - MARGIN
     lines: list[PdfLine] = []
 
-    def add(text: str = "", *, size: int = 10, bold: bool = False, gap: Decimal = LINE_HEIGHT) -> None:
+    def add(
+        text: str = "",
+        *,
+        size: int = 10,
+        bold: bool = False,
+        gap: Decimal = LINE_HEIGHT,
+        x: Decimal = MARGIN,
+    ) -> None:
         nonlocal y
         if text:
-            lines.append(PdfLine(text=text, size=size, y=y, bold=bold))
+            lines.append(PdfLine(text=text, size=size, x=x, y=y, bold=bold))
         y -= gap
 
-    co_number = change_order.co_number or "Draft"
-    add("CHANGE ORDER", size=18, bold=True, gap=Decimal("22"))
-    add(f"Change Order: {co_number}", size=11, bold=True)
-    add(f"Date: {_format_date(change_order.date)}")
-    add(f"Project / Address: {change_order.address}", bold=True)
-    add(f"Client: {change_order.client_name}")
-    add(f"Payment Method: {_format_payment_method(change_order.payment_method)}")
-    add(gap=Decimal("10"))
+    charges = [item for item in change_order.line_items if not item.is_credit]
+    credits = [item for item in change_order.line_items if item.is_credit]
 
-    add("Scope / Line Items", size=12, bold=True, gap=Decimal("18"))
-    add("Description                                                        Amount", bold=True)
-    add("-" * 86, gap=Decimal("12"))
+    add(_format_change_order_title(change_order), size=16, bold=True, gap=Decimal("24"))
+    lines.append(
+        PdfLine(
+            text=_format_date(change_order.date),
+            size=10,
+            x=Decimal("444"),
+            y=PAGE_HEIGHT - MARGIN,
+            bold=True,
+        )
+    )
 
-    for item in change_order.line_items:
-        amount = -abs(item.amount) if item.is_credit else abs(item.amount)
-        description_lines = _wrap_text(item.description or "", width=68)
-        for index, description in enumerate(description_lines or [""]):
-            if index == 0:
-                add(f"{description:<68} {_money(amount):>12}")
-            else:
-                add(description)
+    add("Address:", bold=True)
+    add(change_order.address)
+    add("Client Information:", bold=True, gap=Decimal("14"))
+    add(change_order.client_name, gap=Decimal("26"))
 
-    add(gap=Decimal("10"))
-    add(f"{'Subtotal:':>68} {_money(change_order.subtotal):>12}", bold=True)
-    add(f"{'GST:':>68} {_money(change_order.gst):>12}")
-    add(f"{'Total:':>68} {_money(change_order.total):>12}", size=12, bold=True)
-    add(gap=Decimal("18"))
+    add("SUMMARY OF CHANGES", size=12, bold=True, gap=Decimal("20"))
+    for item in charges:
+        _add_line_item(add, item.description, abs(item.amount))
 
-    if change_order.notes:
-        add("Notes", size=12, bold=True)
-        for line in _wrap_text(change_order.notes, width=90):
-            add(line)
-        add(gap=Decimal("12"))
+    if credits:
+        add(gap=Decimal("8"))
+        add("CREDITS", size=12, bold=True, gap=Decimal("20"))
+        for item in credits:
+            _add_line_item(add, item.description, abs(item.amount), credit=True)
 
-    add("Approval", size=12, bold=True, gap=Decimal("22"))
-    add("Client Signature: ____________________________________    Date: __________________")
-    add("Connection Homes: ___________________________________    Date: __________________")
+    y = min(y, Decimal("238"))
+    add(_format_payment_method(change_order.payment_method), bold=True, gap=Decimal("28"))
+
+    total_label_x = Decimal("332")
+    total_value_x = Decimal("430")
+    add("SUB TOTAL :", bold=True, x=total_label_x)
+    lines.append(
+        PdfLine(
+            text=_money(change_order.subtotal),
+            size=10,
+            x=total_value_x,
+            y=y + LINE_HEIGHT,
+            bold=True,
+        )
+    )
+    add("GST (5%) :", bold=True, x=total_label_x)
+    lines.append(
+        PdfLine(
+            text=_money(change_order.gst),
+            size=10,
+            x=total_value_x,
+            y=y + LINE_HEIGHT,
+            bold=True,
+        )
+    )
+    add("GRAND TOTAL :", size=11, bold=True, x=total_label_x)
+    lines.append(
+        PdfLine(
+            text=_money(change_order.total),
+            size=11,
+            x=total_value_x,
+            y=y + LINE_HEIGHT,
+            bold=True,
+        )
+    )
+
+    y = Decimal("96")
+    add("________________________________________", x=Decimal("80"))
+    add("Purchaser Signature", size=9, x=Decimal("80"), gap=Decimal("26"))
+    lines.append(PdfLine(text="____________________________", size=10, x=Decimal("392"), y=Decimal("96")))
+    lines.append(PdfLine(text="Date", size=9, x=Decimal("392"), y=Decimal("76")))
 
     return lines
+
+
+def _add_line_item(
+    add,
+    description: str,
+    amount: Decimal,
+    credit: bool = False,
+) -> None:
+    amount_text = f"({_money(amount)})" if credit else _money(amount)
+    wrapped_description = _wrap_text(description, width=70)
+    first_line = wrapped_description[0] if wrapped_description else ""
+    add(f"- {amount_text:>12} - {first_line}", gap=Decimal("14"))
+    for continuation in wrapped_description[1:]:
+        add(f"                 {continuation}", gap=Decimal("14"))
 
 
 def _render_pdf(lines: Iterable[PdfLine]) -> bytes:
@@ -144,10 +198,18 @@ def _money(value: Decimal) -> str:
 
 
 def _format_date(value: date | None) -> str:
-    return value.isoformat() if value is not None else "Not set"
+    if value is None:
+        return "Not set"
+    return value.strftime("%B %-d, %Y")
 
 
 def _format_payment_method(value: str) -> str:
     if value == "add_to_mortgage":
-        return "Add to mortgage"
+        return "Add to Mortgage"
     return "Due upon receipt"
+
+
+def _format_change_order_title(change_order: ChangeOrder) -> str:
+    if change_order.co_number:
+        return f"CHANGE ORDER {change_order.co_number}"
+    return "CHANGE ORDER"
