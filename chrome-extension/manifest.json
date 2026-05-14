@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Office Hub",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Send Gmail PDF attachments to Office Hub.",
   "permissions": ["activeTab", "storage", "scripting", "tabs", "downloads"],
   "host_permissions": [

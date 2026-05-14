@@ -154,6 +154,11 @@ async function extractChangeOrder({ emailBody }) {
 
   if (!response.ok) {
     const errorText = await response.text();
+    if (response.status === 401) {
+      throw new Error(
+        "Office Hub change order extract failed: API key rejected. Reload the Office Hub extension in Brave extensions and try again."
+      );
+    }
     throw new Error(`Office Hub change order extract failed: ${response.status} ${errorText}`);
   }
 
