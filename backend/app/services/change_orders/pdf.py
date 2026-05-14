@@ -1,200 +1,420 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from io import BytesIO
-from textwrap import wrap
-from typing import Iterable
+from typing import Any
+
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.enums import TA_RIGHT
+from reportlab.lib.pagesizes import LETTER
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.pdfgen.canvas import Canvas
+from reportlab.platypus import Paragraph
+from reportlab.platypus import SimpleDocTemplate
+from reportlab.platypus import Spacer
+from reportlab.platypus import Table
+from reportlab.platypus import TableStyle
 
 from app.models.sales import ChangeOrder
 
 
-PAGE_WIDTH = Decimal("612")
-PAGE_HEIGHT = Decimal("792")
-MARGIN = Decimal("54")
-LINE_HEIGHT = Decimal("15")
+COMPANY_NAME = "Connection Homes"
+COMPANY_PHONE = "Tel: 1-204-261-1717"
+COMPANY_EMAIL = "accounts@connectionhomes.ca"
+COMPANY_ADDRESS = "162-2025 Corydon Ave, Winnipeg, MB R3P 0N5"
 
-
-@dataclass(slots=True)
-class PdfLine:
-    text: str
-    size: int = 10
-    x: Decimal = MARGIN
-    y: Decimal = Decimal("0")
-    bold: bool = False
+PAGE_SIZE = LETTER
+PAGE_MARGIN = 0.72 * inch
+GREY_BORDER = colors.HexColor("#A8A8A8")
+LABEL_BACKGROUND = colors.HexColor("#F5F5F5")
+DUE_UPON_RECEIPT_TEXT = (
+    "Due upon receipt. We accept payment via e-transfers "
+    "(accounts@connectionhomes.ca) or by cheque. Thank You!"
+)
 
 
 def render_change_order_pdf(change_order: ChangeOrder) -> bytes:
-    """Render a simple one-page change order PDF.
-
-    This is intentionally self-contained until the final branded template asset
-    is added to the repo.
-    """
-
-    lines = _build_lines(change_order)
-    return _render_pdf(lines)
-
-
-def _build_lines(change_order: ChangeOrder) -> list[PdfLine]:
-    y = PAGE_HEIGHT - MARGIN
-    lines: list[PdfLine] = []
-
-    def add(
-        text: str = "",
-        *,
-        size: int = 10,
-        bold: bool = False,
-        gap: Decimal = LINE_HEIGHT,
-        x: Decimal = MARGIN,
-    ) -> None:
-        nonlocal y
-        if text:
-            lines.append(PdfLine(text=text, size=size, x=x, y=y, bold=bold))
-        y -= gap
-
-    charges = [item for item in change_order.line_items if not item.is_credit]
-    credits = [item for item in change_order.line_items if item.is_credit]
-
-    add(_format_change_order_title(change_order), size=16, bold=True, gap=Decimal("24"))
-    lines.append(
-        PdfLine(
-            text=_format_date(change_order.date),
-            size=10,
-            x=Decimal("444"),
-            y=PAGE_HEIGHT - MARGIN,
-            bold=True,
-        )
-    )
-
-    add("Address:", bold=True)
-    add(change_order.address)
-    add("Client Information:", bold=True, gap=Decimal("14"))
-    add(change_order.client_name, gap=Decimal("26"))
-
-    add("SUMMARY OF CHANGES", size=12, bold=True, gap=Decimal("20"))
-    for item in charges:
-        _add_line_item(add, item.description, abs(item.amount))
-
-    if credits:
-        add(gap=Decimal("8"))
-        add("CREDITS", size=12, bold=True, gap=Decimal("20"))
-        for item in credits:
-            _add_line_item(add, item.description, abs(item.amount), credit=True)
-
-    y = min(y, Decimal("238"))
-    add(_format_payment_method(change_order.payment_method), bold=True, gap=Decimal("28"))
-
-    total_label_x = Decimal("332")
-    total_value_x = Decimal("430")
-    add("SUB TOTAL :", bold=True, x=total_label_x)
-    lines.append(
-        PdfLine(
-            text=_money(change_order.subtotal),
-            size=10,
-            x=total_value_x,
-            y=y + LINE_HEIGHT,
-            bold=True,
-        )
-    )
-    add("GST (5%) :", bold=True, x=total_label_x)
-    lines.append(
-        PdfLine(
-            text=_money(change_order.gst),
-            size=10,
-            x=total_value_x,
-            y=y + LINE_HEIGHT,
-            bold=True,
-        )
-    )
-    add("GRAND TOTAL :", size=11, bold=True, x=total_label_x)
-    lines.append(
-        PdfLine(
-            text=_money(change_order.total),
-            size=11,
-            x=total_value_x,
-            y=y + LINE_HEIGHT,
-            bold=True,
-        )
-    )
-
-    y = Decimal("96")
-    add("________________________________________", x=Decimal("80"))
-    add("Purchaser Signature", size=9, x=Decimal("80"), gap=Decimal("26"))
-    lines.append(PdfLine(text="____________________________", size=10, x=Decimal("392"), y=Decimal("96")))
-    lines.append(PdfLine(text="Date", size=9, x=Decimal("392"), y=Decimal("76")))
-
-    return lines
-
-
-def _add_line_item(
-    add,
-    description: str,
-    amount: Decimal,
-    credit: bool = False,
-) -> None:
-    amount_text = f"({_money(amount)})" if credit else _money(amount)
-    wrapped_description = _wrap_text(description, width=70)
-    first_line = wrapped_description[0] if wrapped_description else ""
-    add(f"- {amount_text:>12} - {first_line}", gap=Decimal("14"))
-    for continuation in wrapped_description[1:]:
-        add(f"                 {continuation}", gap=Decimal("14"))
-
-
-def _render_pdf(lines: Iterable[PdfLine]) -> bytes:
-    stream = "\n".join(_line_operator(line) for line in lines)
-    stream_bytes = stream.encode("latin-1", errors="replace")
-
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        (
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-            b"/Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>"
-        ),
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
-        b"<< /Length " + str(len(stream_bytes)).encode("ascii") + b" >>\nstream\n" + stream_bytes + b"\nendstream",
-    ]
-
     buffer = BytesIO()
-    buffer.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-    offsets: list[int] = [0]
-    for index, obj in enumerate(objects, start=1):
-        offsets.append(buffer.tell())
-        buffer.write(f"{index} 0 obj\n".encode("ascii"))
-        buffer.write(obj)
-        buffer.write(b"\nendobj\n")
-
-    xref_offset = buffer.tell()
-    buffer.write(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
-    buffer.write(b"0000000000 65535 f \n")
-    for offset in offsets[1:]:
-        buffer.write(f"{offset:010d} 00000 n \n".encode("ascii"))
-    buffer.write(
-        (
-            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
-            f"startxref\n{xref_offset}\n%%EOF\n"
-        ).encode("ascii")
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=PAGE_SIZE,
+        leftMargin=PAGE_MARGIN,
+        rightMargin=PAGE_MARGIN,
+        topMargin=PAGE_MARGIN,
+        bottomMargin=PAGE_MARGIN,
     )
+    story = _build_story(change_order, document.width)
+    document.build(story, canvasmaker=NumberedCanvas)
     return buffer.getvalue()
 
 
-def _line_operator(line: PdfLine) -> str:
-    font = "F2" if line.bold else "F1"
-    return f"BT /{font} {line.size} Tf {line.x} {line.y} Td ({_escape_pdf_text(line.text)}) Tj ET"
+def _build_story(change_order: ChangeOrder, content_width: float) -> list[Any]:
+    styles = _styles()
+    charges = [item for item in change_order.line_items if not item.is_credit]
+    credits = [item for item in change_order.line_items if item.is_credit]
+
+    story: list[Any] = [
+        Paragraph(COMPANY_NAME, styles["company_name"]),
+        Paragraph(COMPANY_PHONE, styles["company_line"]),
+        Paragraph(COMPANY_EMAIL, styles["company_line"]),
+        Paragraph(COMPANY_ADDRESS, styles["company_line"]),
+        Spacer(1, 12),
+        _title_table(change_order, content_width, styles),
+        Spacer(1, 10),
+        _address_client_table(change_order, content_width, styles),
+        Spacer(1, 14),
+        Paragraph("SUMMARY OF CHANGES", styles["section_heading"]),
+        Spacer(1, 6),
+    ]
+
+    story.extend(_line_item_rows(charges, credit=False, styles=styles))
+
+    if credits:
+        story.extend(
+            [
+                Spacer(1, 8),
+                Paragraph("CREDITS", styles["section_heading"]),
+                Spacer(1, 6),
+                *_line_item_rows(credits, credit=True, styles=styles),
+            ]
+        )
+
+    story.extend(
+        [
+            Spacer(1, 10),
+            _payment_method_flowable(change_order.payment_method, styles),
+            Spacer(1, 12),
+            _totals_table(change_order, content_width, styles),
+            Spacer(1, 30),
+            _signature_table(content_width, styles),
+        ]
+    )
+    return story
 
 
-def _escape_pdf_text(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+def _title_table(change_order: ChangeOrder, content_width: float, styles: dict[str, ParagraphStyle]) -> Table:
+    table = Table(
+        [
+            [
+                Paragraph(_format_change_order_title(change_order), styles["title"]),
+                Paragraph(_format_date(change_order.date), styles["title_date"]),
+            ]
+        ],
+        colWidths=[content_width * 0.65, content_width * 0.35],
+        hAlign="LEFT",
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+    return table
 
 
-def _wrap_text(value: str, width: int) -> list[str]:
-    return wrap(" ".join(value.split()), width=width) or [""]
+def _address_client_table(
+    change_order: ChangeOrder,
+    content_width: float,
+    styles: dict[str, ParagraphStyle],
+) -> Table:
+    table = Table(
+        [
+            [
+                Paragraph("Address:", styles["label"]),
+                Paragraph(_escape(change_order.address), styles["body"]),
+            ],
+            [
+                Paragraph("Client Information:", styles["label"]),
+                Paragraph(_escape(change_order.client_name), styles["body"]),
+            ],
+        ],
+        colWidths=[content_width * 0.28, content_width * 0.72],
+        hAlign="LEFT",
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), LABEL_BACKGROUND),
+                ("BOX", (0, 0), (-1, -1), 0.5, GREY_BORDER),
+                ("INNERGRID", (0, 0), (-1, -1), 0.5, GREY_BORDER),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    return table
 
 
-def _money(value: Decimal) -> str:
-    return f"${value:,.2f}"
+def _line_item_rows(items: list[Any], credit: bool, styles: dict[str, ParagraphStyle]) -> list[Table]:
+    rows: list[Table] = []
+    for item in items:
+        amount = abs(item.amount)
+        table = Table(
+            [
+                [
+                    Paragraph("-", styles["item_dash"]),
+                    Paragraph(_format_amount(amount, credit=credit), styles["item_amount"]),
+                    Paragraph("–", styles["item_dash"]),
+                    Paragraph(_escape(item.description or ""), styles["item_description"]),
+                ]
+            ],
+            colWidths=[12, 78, 12, 360],
+            hAlign="LEFT",
+        )
+        table.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                    ("TOPPADDING", (0, 0), (-1, -1), 1),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]
+            )
+        )
+        rows.append(table)
+    return rows
+
+
+def _payment_method_flowable(payment_method: str, styles: dict[str, ParagraphStyle]) -> Paragraph:
+    if payment_method == "add_to_mortgage":
+        return Paragraph("Add to Mortgage", styles["payment_mortgage"])
+    return Paragraph(DUE_UPON_RECEIPT_TEXT, styles["payment_due"])
+
+
+def _totals_table(
+    change_order: ChangeOrder,
+    content_width: float,
+    styles: dict[str, ParagraphStyle],
+) -> Table:
+    table_width = content_width * 0.5
+    table = Table(
+        [
+            [
+                Paragraph("SUB TOTAL :", styles["total_label"]),
+                Paragraph(_format_total(change_order.subtotal), styles["total_value_bold"]),
+            ],
+            [
+                Paragraph("GST (5%) :", styles["total_label"]),
+                Paragraph(_format_total(change_order.gst), styles["total_value"]),
+            ],
+            [
+                Paragraph("GRAND TOTAL :", styles["grand_total_label"]),
+                Paragraph(_format_total(change_order.total), styles["grand_total_value"]),
+            ],
+        ],
+        colWidths=[table_width * 0.52, table_width * 0.48],
+        hAlign="RIGHT",
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BOX", (0, 0), (-1, -1), 0.5, GREY_BORDER),
+                ("INNERGRID", (0, 0), (-1, -1), 0.5, GREY_BORDER),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    return table
+
+
+def _signature_table(content_width: float, styles: dict[str, ParagraphStyle]) -> Table:
+    table = Table(
+        [
+            [
+                Paragraph("____________________________", styles["signature_line"]),
+                Paragraph("____________________________", styles["signature_line"]),
+            ],
+            [
+                Paragraph("Purchaser Signature", styles["signature_label"]),
+                Paragraph("Date", styles["signature_label"]),
+            ],
+        ],
+        colWidths=[content_width * 0.55, content_width * 0.45],
+        hAlign="LEFT",
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]
+        )
+    )
+    return table
+
+
+def _styles() -> dict[str, ParagraphStyle]:
+    return {
+        "company_name": ParagraphStyle(
+            "CompanyName",
+            fontName="Helvetica-Bold",
+            fontSize=13,
+            leading=16,
+            alignment=TA_LEFT,
+        ),
+        "company_line": ParagraphStyle(
+            "CompanyLine",
+            fontName="Helvetica",
+            fontSize=9,
+            leading=11,
+            alignment=TA_LEFT,
+        ),
+        "title": ParagraphStyle(
+            "Title",
+            fontName="Helvetica-Bold",
+            fontSize=14,
+            leading=17,
+            alignment=TA_LEFT,
+        ),
+        "title_date": ParagraphStyle(
+            "TitleDate",
+            fontName="Helvetica",
+            fontSize=10,
+            leading=13,
+            alignment=TA_RIGHT,
+        ),
+        "label": ParagraphStyle("Label", fontName="Helvetica-Bold", fontSize=10, leading=12),
+        "body": ParagraphStyle("Body", fontName="Helvetica", fontSize=10, leading=12),
+        "section_heading": ParagraphStyle(
+            "SectionHeading",
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            leading=14,
+        ),
+        "item_dash": ParagraphStyle("ItemDash", fontName="Helvetica", fontSize=10, leading=12),
+        "item_amount": ParagraphStyle(
+            "ItemAmount",
+            fontName="Courier",
+            fontSize=10,
+            leading=12,
+            alignment=TA_RIGHT,
+        ),
+        "item_description": ParagraphStyle(
+            "ItemDescription",
+            fontName="Helvetica",
+            fontSize=10,
+            leading=12,
+            alignment=TA_LEFT,
+        ),
+        "payment_mortgage": ParagraphStyle(
+            "PaymentMortgage",
+            fontName="Helvetica-BoldOblique",
+            fontSize=11,
+            leading=14,
+        ),
+        "payment_due": ParagraphStyle("PaymentDue", fontName="Helvetica", fontSize=10, leading=13),
+        "total_label": ParagraphStyle(
+            "TotalLabel",
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=12,
+            alignment=TA_RIGHT,
+        ),
+        "total_value": ParagraphStyle(
+            "TotalValue",
+            fontName="Helvetica",
+            fontSize=10,
+            leading=12,
+            alignment=TA_RIGHT,
+        ),
+        "total_value_bold": ParagraphStyle(
+            "TotalValueBold",
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=12,
+            alignment=TA_RIGHT,
+        ),
+        "grand_total_label": ParagraphStyle(
+            "GrandTotalLabel",
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            leading=13,
+            alignment=TA_RIGHT,
+        ),
+        "grand_total_value": ParagraphStyle(
+            "GrandTotalValue",
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            leading=13,
+            alignment=TA_RIGHT,
+        ),
+        "signature_line": ParagraphStyle(
+            "SignatureLine",
+            fontName="Helvetica",
+            fontSize=10,
+            leading=12,
+        ),
+        "signature_label": ParagraphStyle(
+            "SignatureLabel",
+            fontName="Helvetica",
+            fontSize=9,
+            leading=11,
+        ),
+        "footer": ParagraphStyle(
+            "Footer",
+            fontName="Helvetica",
+            fontSize=8,
+            leading=10,
+            alignment=TA_CENTER,
+        ),
+    }
+
+
+class NumberedCanvas(Canvas):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._saved_page_states: list[dict[str, Any]] = []
+
+    def showPage(self) -> None:
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self) -> None:
+        page_count = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self._draw_page_number(page_count)
+            super().showPage()
+        super().save()
+
+    def _draw_page_number(self, page_count: int) -> None:
+        self.setFont("Helvetica", 8)
+        self.drawCentredString(PAGE_SIZE[0] / 2, 0.38 * inch, f"Page {self._pageNumber} of {page_count}")
+
+
+def _format_change_order_title(change_order: ChangeOrder) -> str:
+    if change_order.co_number:
+        return f"CHANGE ORDER #{_co_number(change_order.co_number)}".upper()
+    return "CHANGE ORDER DRAFT"
+
+
+def _co_number(value: str) -> str:
+    cleaned = value.strip()
+    if cleaned.lower().startswith("co-"):
+        return cleaned
+    if cleaned.startswith("#"):
+        return cleaned[1:]
+    return cleaned
 
 
 def _format_date(value: date | None) -> str:
@@ -203,13 +423,19 @@ def _format_date(value: date | None) -> str:
     return value.strftime("%B %-d, %Y")
 
 
-def _format_payment_method(value: str) -> str:
-    if value == "add_to_mortgage":
-        return "Add to Mortgage"
-    return "Due upon receipt"
+def _format_amount(value: Decimal, credit: bool = False) -> str:
+    amount = f"$ {value:,.2f}"
+    return f"({amount:>10})" if credit else f"{amount:>12}"
 
 
-def _format_change_order_title(change_order: ChangeOrder) -> str:
-    if change_order.co_number:
-        return f"CHANGE ORDER {change_order.co_number}"
-    return "CHANGE ORDER"
+def _format_total(value: Decimal) -> str:
+    return f"$ {value:,.2f}"
+
+
+def _escape(value: str) -> str:
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\n", "<br/>")
+    )
