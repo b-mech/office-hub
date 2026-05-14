@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-import { getChangeOrders, type ChangeOrder } from "@/lib/api/change-orders";
+import {
+  downloadChangeOrderPdf,
+  getChangeOrders,
+  sendChangeOrderForSignature,
+  type ChangeOrder,
+} from "@/lib/api/change-orders";
 
 function formatDate(value?: string) {
   if (!value) return "No date";
@@ -34,6 +39,8 @@ export default function ProjectChangeOrdersPage() {
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -64,6 +71,44 @@ export default function ProjectChangeOrdersPage() {
       return searchable.includes(query);
     });
   }, [changeOrders, search]);
+
+  async function handleDownloadPdf(order: ChangeOrder) {
+    setBusyOrderId(order.id);
+    setError(null);
+    setActionMessage(null);
+    try {
+      const blob = await downloadChangeOrderPdf(order.id);
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+      setActionMessage(`PDF generated for ${order.address}.`);
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : "Could not generate PDF.");
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
+
+  async function handleSendSignature(order: ChangeOrder) {
+    setBusyOrderId(order.id);
+    setError(null);
+    setActionMessage(null);
+    try {
+      const result = await sendChangeOrderForSignature(order.id);
+      setActionMessage(result.message || "Change order sent for signature.");
+      setChangeOrders((current) =>
+        current.map((item) =>
+          item.id === order.id
+            ? { ...item, status: result.status as ChangeOrder["status"] }
+            : item,
+        ),
+      );
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Could not send for signature.");
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#0f1117] text-white">
@@ -105,6 +150,12 @@ export default function ProjectChangeOrdersPage() {
           </section>
         )}
 
+        {actionMessage && (
+          <section className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            {actionMessage}
+          </section>
+        )}
+
         <section className="overflow-hidden rounded-xl border border-white/10 bg-white/5">
           {loading ? (
             <div className="p-8 text-center text-sm text-white/35">Loading change orders...</div>
@@ -117,7 +168,7 @@ export default function ProjectChangeOrdersPage() {
               {filtered.map((order) => (
                 <article
                   key={order.id}
-                  className="grid gap-4 px-4 py-4 md:grid-cols-[1.2fr_1fr_160px_130px] md:items-center"
+                  className="grid gap-4 px-4 py-4 md:grid-cols-[1.2fr_1fr_150px_110px_220px] md:items-center"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-white">{order.address}</p>
@@ -139,6 +190,24 @@ export default function ProjectChangeOrdersPage() {
                     <span className="rounded-full border border-amber-400/30 bg-amber-400/15 px-2.5 py-1 text-xs font-semibold text-amber-300">
                       {order.status || "draft"}
                     </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void handleDownloadPdf(order)}
+                      disabled={busyOrderId === order.id}
+                      className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSendSignature(order)}
+                      disabled={busyOrderId === order.id}
+                      className="rounded-lg bg-[#FAC775] px-3 py-2 text-xs font-bold text-[#0f1117] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {busyOrderId === order.id ? "Working..." : "Send for Signature"}
+                    </button>
                   </div>
                 </article>
               ))}

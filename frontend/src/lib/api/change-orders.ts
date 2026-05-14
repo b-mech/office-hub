@@ -65,3 +65,27 @@ export async function getChangeOrders(): Promise<ChangeOrder[]> {
 export async function getChangeOrder(id: string): Promise<ChangeOrder> {
   return apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}`);
 }
+
+export async function downloadChangeOrderPdf(id: string): Promise<Blob> {
+  const res = await fetch(`${BASE}/api/v1/change-orders/${id}/pdf`, {
+    headers: {
+      "X-API-Key": OFFICE_HUB_API_KEY,
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `API error ${res.status}`);
+  }
+  return res.blob();
+}
+
+export async function sendChangeOrderForSignature(id: string): Promise<{
+  id: string;
+  status: string;
+  docusign_envelope_id?: string | null;
+  message: string;
+}> {
+  return apiFetch(`/api/v1/change-orders/${id}/send-signature`, {
+    method: "POST",
+  });
+}

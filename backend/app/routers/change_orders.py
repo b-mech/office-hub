@@ -13,6 +13,7 @@ from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -23,6 +24,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.sales import ChangeOrder as ChangeOrderModel
 from app.models.sales import ChangeOrderLineItem as ChangeOrderLineItemModel
+from app.services.change_orders.pdf import render_change_order_pdf
 from app.services.extraction.claude_provider import ClaudeProvider
 
 
@@ -73,6 +75,13 @@ class ChangeOrderOut(ChangeOrderDraft):
     box_file_id: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ChangeOrderSignatureResponse(BaseModel):
+    id: UUID
+    status: str
+    docusign_envelope_id: str | None = None
+    message: str
 
 
 @router.post("/extract", response_model=ChangeOrderDraft)
@@ -147,6 +156,52 @@ async def get_change_order(
     if not change_order:
         raise HTTPException(status_code=404, detail="Change order not found")
     return _change_order_out(change_order)
+
+
+@router.get("/{change_order_id}/pdf")
+async def get_change_order_pdf(
+    change_order_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
+    pdf_bytes = render_change_order_pdf(change_order)
+    filename = _change_order_filename(change_order)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.post("/{change_order_id}/send-signature", response_model=ChangeOrderSignatureResponse)
+async def send_change_order_for_signature(
+    change_order_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ChangeOrderSignatureResponse:
+    change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
+    render_change_order_pdf(change_order)
+    raise HTTPException(
+        status_code=501,
+        detail=(
+            "Change order PDF generation is ready, but DocuSign is not configured. "
+            "Add the DocuSign account credentials and final PDF template before sending envelopes."
+        ),
+    )
+
+
+async def _get_change_order_model(change_order_id: UUID, db: AsyncSession) -> ChangeOrderModel:
+    result = await db.execute(
+        select(ChangeOrderModel)
+        .where(
+            ChangeOrderModel.id == change_order_id,
+            ChangeOrderModel.org_id == settings.default_org_id,
+        )
+        .options(selectinload(ChangeOrderModel.line_items))
+    )
+    change_order = result.scalar_one_or_none()
+    if not change_order:
+        raise HTTPException(status_code=404, detail="Change order not found")
+    return change_order
 
 
 def _request_change_order_extract(provider: ClaudeProvider, email_body: str) -> str:
@@ -277,3 +332,12 @@ def _as_text(value: object) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _change_order_filename(change_order: ChangeOrderModel) -> str:
+    label = change_order.co_number or str(change_order.id)
+    address = "".join(
+        character if character.isalnum() or character in (" ", "-", "_") else "-"
+        for character in change_order.address
+    ).strip()
+    return f"{address or 'change-order'}-{label}.pdf"
