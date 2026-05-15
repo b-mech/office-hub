@@ -1,17 +1,20 @@
 @import "../../node_modules/tailwindcss/index.css";
 
 :root {
-  --background: #f4ecdc;
-  --foreground: #17130f;
-  --monocle-ink: #17130f;
-  --monocle-coal: #211b15;
-  --monocle-paper: #f7f0e2;
-  --monocle-newsprint: #fffaf0;
-  --monocle-rule: #d8c7aa;
-  --monocle-muted: #706454;
-  --monocle-gold: #c89332;
-  --monocle-rust: #a84d2a;
-  --monocle-sage: #68765b;
+  --background: #fbf3d6;
+  --foreground: #0d0d0d;
+  --connection-blue: #17698c;
+  --connection-blue-dark: #0f4f6d;
+  --connection-blue-soft: #d9ecf3;
+  --monocle-ink: #0d0d0d;
+  --monocle-coal: #111111;
+  --monocle-paper: #fbf3d6;
+  --monocle-newsprint: #fff9df;
+  --monocle-rule: #d8cda9;
+  --monocle-muted: #5f5a4a;
+  --monocle-gold: var(--connection-blue);
+  --monocle-rust: var(--connection-blue-dark);
+  --monocle-sage: #556b60;
   --font-sans-app: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
   --font-mono-app: "SFMono-Regular", "Menlo", "Consolas", monospace;
 }
@@ -48,20 +51,20 @@ textarea {
 }
 
 ::selection {
-  background: rgba(200, 147, 50, 0.28);
+  background: rgba(23, 105, 140, 0.24);
   color: var(--monocle-ink);
 }
 
 .theme-monocle {
   background:
-    linear-gradient(180deg, rgba(255, 250, 240, 0.82), rgba(244, 236, 220, 0.96)),
+    linear-gradient(180deg, rgba(255, 249, 223, 0.92), rgba(251, 243, 214, 0.98)),
     var(--monocle-paper);
   color: var(--monocle-ink);
 }
 
 .theme-monocle [class~="bg-[#0f1117]"] {
   background:
-    radial-gradient(circle at top left, rgba(255, 250, 240, 0.9), rgba(244, 236, 220, 0.95) 48%, rgba(231, 218, 194, 0.9)),
+    radial-gradient(circle at top left, rgba(255, 249, 223, 0.98), rgba(251, 243, 214, 0.96) 48%, rgba(235, 224, 187, 0.92)),
     var(--monocle-paper);
 }
 
@@ -127,7 +130,7 @@ textarea {
 .theme-monocle [class~="hover:bg-white/10"]:hover,
 .theme-monocle [class~="hover:bg-white/5"]:hover,
 .theme-monocle [class~="hover:bg-white/3"]:hover {
-  background-color: rgba(225, 209, 181, 0.62);
+  background-color: rgba(23, 105, 140, 0.09);
 }
 
 .theme-monocle [class~="hover:text-white"]:hover,
@@ -139,28 +142,51 @@ textarea {
 .theme-monocle [class~="text-amber-300"],
 .theme-monocle [class~="text-amber-400"],
 .theme-monocle [class~="text-amber-700"],
-.theme-monocle [class~="text-amber-800"] {
-  color: var(--monocle-rust);
+.theme-monocle [class~="text-amber-800"],
+.theme-monocle [class~="text-[#FAC775]"] {
+  color: var(--connection-blue);
 }
 
 .theme-monocle [class~="bg-amber-400/20"],
 .theme-monocle [class~="bg-amber-500/15"],
 .theme-monocle [class~="bg-amber-500/10"],
 .theme-monocle [class~="bg-amber-100"],
-.theme-monocle [class~="bg-amber-50"] {
-  background-color: rgba(200, 147, 50, 0.16);
+.theme-monocle [class~="bg-amber-50"],
+.theme-monocle [class~="bg-[#FAC775]/15"],
+.theme-monocle [class~="bg-[#FAC775]/10"] {
+  background-color: rgba(23, 105, 140, 0.12);
 }
 
 .theme-monocle [class~="border-amber-400/30"],
 .theme-monocle [class~="border-amber-400/50"],
 .theme-monocle [class~="border-amber-500/30"],
-.theme-monocle [class~="border-amber-300"] {
-  border-color: rgba(168, 77, 42, 0.46);
+.theme-monocle [class~="border-amber-300"],
+.theme-monocle [class~="border-[#FAC775]/50"],
+.theme-monocle [class~="border-[#FAC775]/30"] {
+  border-color: rgba(23, 105, 140, 0.46);
 }
 
 .theme-monocle [class~="bg-amber-400"],
+.theme-monocle [class~="bg-amber-500"],
+.theme-monocle [class~="bg-[#FAC775]"] {
+  background-color: var(--connection-blue);
+}
+
+.theme-monocle [class~="bg-[#FAC775]"],
+.theme-monocle [class~="bg-amber-400"],
 .theme-monocle [class~="bg-amber-500"] {
-  background-color: var(--monocle-gold);
+  color: var(--monocle-newsprint);
+}
+
+.theme-monocle [class~="focus:border-[#FAC775]"]:focus,
+.theme-monocle [class~="focus:border-[#FAC775]/50"]:focus,
+.theme-monocle [class~="focus:border-[#FAC775]/60"]:focus,
+.theme-monocle [class~="focus:border-amber-400/50"]:focus {
+  border-color: var(--connection-blue);
+}
+
+.theme-monocle [class~="focus:ring-[rgba(250,199,117,0.16)]"]:focus {
+  --tw-ring-color: rgba(23, 105, 140, 0.18);
 }
 
 .theme-monocle [class~="text-emerald-300"],

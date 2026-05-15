@@ -73,7 +73,7 @@ export default function RootLayout({
                 href="/settings"
                 className="flex items-center gap-3 rounded-lg px-2 py-2 text-white/65 transition hover:bg-white/5 hover:text-white"
               >
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#FAC775] text-xs font-bold text-[#0f1117]">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#17698c] text-xs font-bold text-white">
                   {USER_NAME.slice(0, 1).toUpperCase()}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{USER_NAME}</span>
