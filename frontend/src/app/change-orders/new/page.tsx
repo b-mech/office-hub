@@ -18,6 +18,10 @@ const emptyLineItem: ChangeOrderLineItem = {
 };
 
 const today = new Date().toISOString().slice(0, 10);
+const panelClass = "rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5";
+const labelClass = "flex flex-col gap-2 text-sm text-[var(--ch-text-secondary)]";
+const inputClass = "rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2.5 text-[var(--ch-text-primary)] outline-none placeholder:text-[var(--ch-text-muted)] focus:border-[var(--ch-accent)] focus:ring-2 focus:ring-[var(--ch-focus-ring)]";
+const secondaryButtonClass = "rounded-lg border border-[var(--ch-border-strong)] bg-[var(--ch-surface)] px-4 py-2 text-sm font-semibold text-[var(--ch-text-secondary)] hover:bg-[var(--ch-page-bg)]";
 
 function suggestCoNumber() {
   const compactDate = today.replaceAll("-", "");
@@ -160,60 +164,57 @@ function NewChangeOrderForm() {
   }
 
   return (
-    <main
-      className="min-h-screen pb-28 text-[#fffaf0]"
-      style={{ backgroundColor: "#0f1117" }}
-    >
+    <main className="min-h-screen bg-[var(--ch-page-bg)] pb-28 text-[var(--ch-text-primary)]">
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 lg:px-10">
-        <header className="flex flex-col gap-2 border-b border-[rgba(255,255,255,0.08)] pb-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[rgba(255,255,255,0.45)]">
+        <header className="flex flex-col gap-2 border-b border-[var(--ch-border)] pb-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--ch-text-muted)]">
             Office Hub
           </p>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-[#fffaf0]">
+              <h1 className="text-3xl font-semibold tracking-tight text-[var(--ch-text-primary)]">
                 New Change Order
               </h1>
-              <p className="mt-2 text-sm text-[rgba(255,255,255,0.48)]">
+              <p className="mt-2 text-sm text-[var(--ch-text-secondary)]">
                 Review the extracted email details before saving this change order draft.
               </p>
             </div>
-            <div className="rounded-full border border-[rgba(250,199,117,0.35)] bg-[rgba(250,199,117,0.12)] px-4 py-2 text-sm text-[#FAC775]">
+            <div className="rounded-full border border-[var(--ch-amber)] bg-[var(--ch-amber-bg)] px-4 py-2 text-sm font-semibold text-[var(--ch-amber-text)]">
               Draft
             </div>
           </div>
         </header>
 
         {parsedDraft && (
-          <section className="rounded-xl border border-[rgba(250,199,117,0.38)] bg-[rgba(250,199,117,0.1)] px-4 py-3 text-sm text-[#FAC775]">
+          <section className="rounded-xl border border-[var(--ch-amber)] bg-[var(--ch-amber-bg)] px-4 py-3 text-sm text-[var(--ch-amber-text)]">
             Pre-filled from Kristy&apos;s email — please review before saving
           </section>
         )}
 
         {error && (
-          <section className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <section className="rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-4 py-3 text-sm text-[var(--ch-error-text)]">
             {error}
           </section>
         )}
 
         {savedDraftId && (
-          <section className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          <section className="rounded-xl border border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] px-4 py-3 text-sm text-[var(--ch-success-text)]">
             Draft saved. Reference: {savedDraftId}
           </section>
         )}
 
-        <section className="rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.04)] p-5">
+        <section className={panelClass}>
           <div className="mb-5 flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[rgba(255,255,255,0.38)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ch-text-muted)]">
                 Header
               </p>
-              <h2 className="mt-1 text-lg font-semibold text-[#fffaf0]">Change order details</h2>
+              <h2 className="mt-1 text-lg font-semibold text-[var(--ch-text-primary)]">Change order details</h2>
             </div>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm text-[rgba(255,255,255,0.7)]">
+            <label className={labelClass}>
               Address
               <input
                 required
@@ -221,7 +222,7 @@ function NewChangeOrderForm() {
                 value={draft.address}
                 onChange={(event) => updateField("address", event.target.value)}
                 placeholder="Search lots or enter an address"
-                className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5 text-[#fffaf0] outline-none placeholder:text-[rgba(255,255,255,0.28)] focus:border-[#FAC775] focus:ring-2 focus:ring-[rgba(250,199,117,0.16)]"
+                className={inputClass}
               />
               <datalist id="change-order-lot-options">
                 {lots.map((lot) => (
@@ -232,39 +233,39 @@ function NewChangeOrderForm() {
               </datalist>
             </label>
 
-            <label className="flex flex-col gap-2 text-sm text-[rgba(255,255,255,0.7)]">
+            <label className={labelClass}>
               Client Name
               <input
                 required
                 value={draft.client_name}
                 onChange={(event) => updateField("client_name", event.target.value)}
-                className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5 text-[#fffaf0] outline-none placeholder:text-[rgba(255,255,255,0.28)] focus:border-[#FAC775] focus:ring-2 focus:ring-[rgba(250,199,117,0.16)]"
+                className={inputClass}
               />
             </label>
 
-            <label className="flex flex-col gap-2 text-sm text-[rgba(255,255,255,0.7)]">
+            <label className={labelClass}>
               CO Number
               <input
                 value={draft.co_number || ""}
                 onChange={(event) => updateField("co_number", event.target.value)}
-                className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5 text-[#fffaf0] outline-none focus:border-[#FAC775] focus:ring-2 focus:ring-[rgba(250,199,117,0.16)]"
+                className={inputClass}
               />
             </label>
 
-            <label className="flex flex-col gap-2 text-sm text-[rgba(255,255,255,0.7)]">
+            <label className={labelClass}>
               Date
               <input
                 type="date"
                 value={draft.date || today}
                 onChange={(event) => updateField("date", event.target.value)}
-                className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5 text-[#fffaf0] outline-none focus:border-[#FAC775] focus:ring-2 focus:ring-[rgba(250,199,117,0.16)]"
+                className={inputClass}
               />
             </label>
           </div>
 
           <div className="mt-5">
-            <p className="mb-2 text-sm text-[rgba(255,255,255,0.7)]">Payment Method</p>
-            <div className="inline-flex rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] p-1">
+            <p className="mb-2 text-sm text-[var(--ch-text-secondary)]">Payment Method</p>
+            <div className="inline-flex rounded-lg border border-[var(--ch-border)] bg-[var(--ch-page-bg)] p-1">
               {[
                 ["add_to_mortgage", "Add to Mortgage"],
                 ["due_upon_receipt", "Due upon receipt"],
@@ -275,8 +276,8 @@ function NewChangeOrderForm() {
                   onClick={() => updateField("payment_method", value as PaymentMethod)}
                   className={`rounded-md px-4 py-2 text-sm font-medium ${
                     draft.payment_method === value
-                      ? "bg-[#FAC775] text-[#0f1117]"
-                      : "text-[rgba(255,255,255,0.58)] hover:text-[#fffaf0]"
+                      ? "bg-[var(--ch-accent)] text-[var(--ch-accent-text)]"
+                      : "text-[var(--ch-text-secondary)] hover:text-[var(--ch-text-primary)]"
                   }`}
                 >
                   {label}
@@ -286,18 +287,18 @@ function NewChangeOrderForm() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.04)] p-5">
+        <section className={panelClass}>
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[rgba(255,255,255,0.38)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ch-text-muted)]">
                 Line Items
               </p>
-              <h2 className="mt-1 text-lg font-semibold text-[#fffaf0]">Charges and credits</h2>
+              <h2 className="mt-1 text-lg font-semibold text-[var(--ch-text-primary)]">Charges and credits</h2>
             </div>
             <button
               type="button"
               onClick={addLineItem}
-              className="rounded-lg border border-[rgba(250,199,117,0.38)] bg-[rgba(250,199,117,0.12)] px-4 py-2 text-sm font-semibold text-[#FAC775] hover:bg-[rgba(250,199,117,0.18)]"
+              className={secondaryButtonClass}
             >
               Add row
             </button>
@@ -308,13 +309,13 @@ function NewChangeOrderForm() {
               {draft.line_items.map((item, index) => (
                 <div
                   key={index}
-                  className="grid grid-cols-[1fr_150px_180px_44px] gap-3 rounded-xl border border-[rgba(255,255,255,0.07)] bg-[rgba(0,0,0,0.18)] p-3"
+                  className="grid grid-cols-[1fr_150px_180px_44px] gap-3 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-page-bg)] p-3"
                 >
                   <input
                     value={item.description}
                     onChange={(event) => updateLineItem(index, { description: event.target.value })}
                     placeholder="Description"
-                    className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5 text-[#fffaf0] outline-none placeholder:text-[rgba(255,255,255,0.28)] focus:border-[#FAC775] focus:ring-2 focus:ring-[rgba(250,199,117,0.16)]"
+                    className={inputClass}
                   />
                   <input
                     type="number"
@@ -323,14 +324,14 @@ function NewChangeOrderForm() {
                     value={item.amount || ""}
                     onChange={(event) => updateLineItem(index, { amount: Number(event.target.value) || 0 })}
                     placeholder="0.00"
-                    className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5 text-right text-[#fffaf0] outline-none placeholder:text-[rgba(255,255,255,0.28)] focus:border-[#FAC775] focus:ring-2 focus:ring-[rgba(250,199,117,0.16)]"
+                    className={`${inputClass} text-right`}
                   />
-                  <div className="flex rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] p-1">
+                  <div className="flex rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-1">
                     <button
                       type="button"
                       onClick={() => updateLineItem(index, { is_credit: false })}
                       className={`flex-1 rounded-md px-3 py-2 text-xs font-semibold ${
-                        !item.is_credit ? "bg-[#FAC775] text-[#0f1117]" : "text-[rgba(255,255,255,0.55)]"
+                        !item.is_credit ? "bg-[var(--ch-accent)] text-[var(--ch-accent-text)]" : "text-[var(--ch-text-secondary)]"
                       }`}
                     >
                       Charge
@@ -339,7 +340,7 @@ function NewChangeOrderForm() {
                       type="button"
                       onClick={() => updateLineItem(index, { is_credit: true })}
                       className={`flex-1 rounded-md px-3 py-2 text-xs font-semibold ${
-                        item.is_credit ? "bg-[#FAC775] text-[#0f1117]" : "text-[rgba(255,255,255,0.55)]"
+                        item.is_credit ? "bg-[var(--ch-accent)] text-[var(--ch-accent-text)]" : "text-[var(--ch-text-secondary)]"
                       }`}
                     >
                       Credit
@@ -349,7 +350,7 @@ function NewChangeOrderForm() {
                     type="button"
                     onClick={() => removeLineItem(index)}
                     aria-label="Remove line item"
-                    className="rounded-lg border border-[rgba(255,255,255,0.1)] text-xl leading-none text-[rgba(255,255,255,0.42)] hover:border-red-400/35 hover:text-red-200"
+                    className="rounded-lg border border-[var(--ch-border)] text-xl leading-none text-[var(--ch-text-muted)] hover:border-[var(--ch-error-border)] hover:text-[var(--ch-error-text)]"
                   >
                     ×
                   </button>
@@ -358,47 +359,47 @@ function NewChangeOrderForm() {
             </div>
           </div>
 
-          <div className="mt-5 ml-auto grid max-w-sm gap-2 rounded-xl border border-[rgba(255,255,255,0.07)] bg-[rgba(0,0,0,0.18)] p-4 text-sm">
-            <div className="flex justify-between text-[rgba(255,255,255,0.58)]">
+          <div className="mt-5 ml-auto grid max-w-sm gap-2 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-page-bg)] p-4 text-sm">
+            <div className="flex justify-between text-[var(--ch-text-secondary)]">
               <span>Subtotal</span>
               <span>{money(subtotal)}</span>
             </div>
-            <div className="flex justify-between text-[rgba(255,255,255,0.58)]">
+            <div className="flex justify-between text-[var(--ch-text-secondary)]">
               <span>GST (5%)</span>
               <span>{money(gst)}</span>
             </div>
-            <div className="flex justify-between border-t border-[rgba(255,255,255,0.08)] pt-2 text-base font-semibold text-[#fffaf0]">
+            <div className="flex justify-between border-t border-[var(--ch-border)] pt-2 text-base font-semibold text-[var(--ch-text-primary)]">
               <span>Grand Total</span>
               <span>{money(grandTotal)}</span>
             </div>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.04)] p-5">
-          <label className="flex flex-col gap-2 text-sm text-[rgba(255,255,255,0.7)]">
+        <section className={panelClass}>
+          <label className={labelClass}>
             Notes
             <textarea
               value={draft.notes}
               onChange={(event) => updateField("notes", event.target.value)}
               rows={6}
-              className="resize-y rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5 text-[#fffaf0] outline-none placeholder:text-[rgba(255,255,255,0.28)] focus:border-[#FAC775] focus:ring-2 focus:ring-[rgba(250,199,117,0.16)]"
+              className={`${inputClass} resize-y`}
             />
           </label>
         </section>
       </div>
 
-      <footer className="fixed inset-x-0 bottom-0 border-t border-[rgba(255,255,255,0.08)] bg-[#0f1117]/95 px-6 py-4 backdrop-blur">
+      <footer className="fixed inset-x-0 bottom-0 border-t border-[var(--ch-border)] bg-[var(--ch-surface)]/95 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => router.back()}
-            className="rounded-lg border border-[rgba(255,255,255,0.12)] px-4 py-2 text-sm font-semibold text-[rgba(255,255,255,0.62)] hover:text-[#fffaf0]"
+            className={secondaryButtonClass}
           >
             Cancel
           </button>
           <div className="flex items-center gap-3">
             {savedDraftId && (
-              <p className="text-sm font-medium text-emerald-200" role="status">
+              <p className="text-sm font-medium text-[var(--ch-success-text)]" role="status">
                 Draft saved: {savedDraftId}
               </p>
             )}
@@ -406,7 +407,7 @@ function NewChangeOrderForm() {
               type="button"
               disabled={!canSave}
               onClick={handleSave}
-              className="rounded-lg bg-[#FAC775] px-5 py-2.5 text-sm font-bold text-[#0f1117] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
+              className="rounded-lg bg-[var(--ch-accent)] px-5 py-2.5 text-sm font-bold text-[var(--ch-accent-text)] hover:bg-[var(--ch-accent-hover)] disabled:cursor-not-allowed disabled:opacity-45"
             >
               {saving ? "Saving..." : savedDraftId ? "Saved" : "Save Draft"}
             </button>
@@ -421,8 +422,8 @@ export default function NewChangeOrderPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-[#0f1117] px-6 py-8 text-[#fffaf0]">
-          <div className="mx-auto max-w-6xl text-sm text-[rgba(255,255,255,0.48)]">
+        <main className="min-h-screen bg-[var(--ch-page-bg)] px-6 py-8 text-[var(--ch-text-primary)]">
+          <div className="mx-auto max-w-6xl text-sm text-[var(--ch-text-secondary)]">
             Loading change order...
           </div>
         </main>

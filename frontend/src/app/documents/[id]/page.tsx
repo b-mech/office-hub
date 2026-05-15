@@ -553,8 +553,8 @@ export default function DocumentReviewPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,_#f2ede6,_#e4ddd0)]">
-        <div className="flex items-center gap-3 rounded-full border border-stone-300 bg-white/80 px-5 py-3 text-sm font-medium text-stone-700 shadow-lg backdrop-blur">
+      <main className="flex min-h-screen items-center justify-center bg-[var(--ch-page-bg)]">
+        <div className="flex items-center gap-3 rounded-full border border-[var(--ch-border)] bg-[var(--ch-surface)] px-5 py-3 text-sm font-medium text-[var(--ch-text-secondary)] shadow-lg backdrop-blur">
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-stone-300 border-t-stone-700" />
           Loading review workspace
         </div>
@@ -564,18 +564,18 @@ export default function DocumentReviewPage() {
 
   if (error && !detail) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,_#f2ede6,_#e4ddd0)] px-6">
-        <div className="max-w-xl rounded-[2rem] border border-rose-200 bg-white px-6 py-8 shadow-xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-rose-500">
+      <main className="flex min-h-screen items-center justify-center bg-[var(--ch-page-bg)] px-6">
+        <div className="max-w-xl rounded-[2rem] border border-[var(--ch-error-border)] bg-[var(--ch-surface)] px-6 py-8 shadow-xl">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--ch-error-text)]">
             Review Error
           </p>
-          <h1 className="mt-3 text-2xl font-semibold text-stone-950">
+          <h1 className="mt-3 text-2xl font-semibold text-[var(--ch-text-primary)]">
             Could not open this document.
           </h1>
-          <p className="mt-3 text-sm leading-6 text-stone-600">{error}</p>
+          <p className="mt-3 text-sm leading-6 text-[var(--ch-text-secondary)]">{error}</p>
           <Link
             href="/documents"
-            className="mt-6 inline-flex rounded-full bg-stone-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-stone-700"
+            className="mt-6 inline-flex rounded-full bg-[var(--ch-accent)] px-5 py-3 text-sm font-semibold text-[var(--ch-accent-text)] transition hover:bg-[var(--ch-accent-hover)]"
           >
             Back to documents
           </Link>
@@ -590,20 +590,20 @@ export default function DocumentReviewPage() {
   const activeAgreementFields = isSaleOtp ? saleAgreementFieldLabels : agreementFieldLabels;
 
   return (
-    <main className="h-screen bg-[linear-gradient(135deg,_#efe9df,_#dad0c1)] p-3 text-stone-900 sm:p-4">
+    <main className="h-screen bg-[var(--ch-page-bg)] p-3 text-[var(--ch-text-primary)] sm:p-4">
       <div className="grid h-full gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="min-h-[42vh] min-w-0 overflow-hidden rounded-[2rem] border border-stone-300/70 bg-stone-950 shadow-[0_30px_80px_rgba(44,28,15,0.35)]">
+        <section className="min-h-[42vh] min-w-0 overflow-hidden rounded-[2rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] shadow-[0_30px_80px_var(--ch-border)]">
           <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 text-white">
+            <div className="flex items-center justify-between border-b border-[var(--ch-border)] px-5 py-4 text-[var(--ch-text-primary)]">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                   Source PDF
                 </p>
                 <h2 className="mt-1 text-lg font-semibold">{filename}</h2>
               </div>
               <Link
                 href="/documents"
-                className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-stone-200 transition hover:border-white/40 hover:bg-white/10"
+                className="rounded-full border border-[var(--ch-border-strong)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-page-bg)]"
               >
                 Back
               </Link>
@@ -619,7 +619,7 @@ export default function DocumentReviewPage() {
           </div>
         </section>
 
-        <section className="flex h-full min-h-[52vh] flex-col overflow-hidden rounded-[2rem] border border-stone-300/70 bg-white/92 shadow-[0_30px_80px_rgba(73,56,36,0.16)] backdrop-blur">
+        <section className="flex h-full min-h-[52vh] flex-col overflow-hidden rounded-[2rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] shadow-xl backdrop-blur">
           <div
             ref={panelRef}
             onScroll={(event) => {
@@ -668,7 +668,7 @@ export default function DocumentReviewPage() {
                   </p>
                   <Link
                     href="/documents"
-                    className="mt-4 inline-flex rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-emerald-600"
+                    className="mt-4 inline-flex rounded-full bg-[var(--ch-accent)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-accent-text)] transition hover:bg-[var(--ch-accent-hover)]"
                   >
                     Return to queue
                   </Link>
@@ -1254,7 +1254,7 @@ export default function DocumentReviewPage() {
             </div>
           </div>
 
-          <div className="border-t border-stone-200 bg-white/96 px-4 py-4 shadow-[0_-18px_35px_rgba(45,32,18,0.08)] sm:px-5">
+          <div className="border-t border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-4 shadow-lg sm:px-5">
             <div className="flex flex-col gap-4">
               {!hasScrolledToEnd ? (
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
@@ -1283,7 +1283,7 @@ export default function DocumentReviewPage() {
                       type="button"
                       onClick={() => void handleSubmit("rejected")}
                       disabled={submitting}
-                      className="rounded-full bg-rose-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-full bg-[var(--ch-error-text)] px-5 py-3 text-sm font-semibold text-[var(--ch-accent-text)] transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {submitting ? "Submitting..." : "Submit rejection"}
                     </button>
@@ -1310,7 +1310,7 @@ export default function DocumentReviewPage() {
                       setError(null);
                     }}
                     disabled={submitting}
-                    className="rounded-full bg-rose-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-full bg-[var(--ch-error-text)] px-5 py-3 text-sm font-semibold text-[var(--ch-accent-text)] transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Reject
                   </button>
@@ -1318,7 +1318,7 @@ export default function DocumentReviewPage() {
                     type="button"
                     onClick={() => void handleSubmit("approved")}
                     disabled={submitting || !hasScrolledToEnd || !!success?.promotion}
-                    className="rounded-full bg-emerald-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-full bg-[var(--ch-accent)] px-5 py-3 text-sm font-semibold text-[var(--ch-accent-text)] transition hover:bg-[var(--ch-accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {submitting ? "Submitting..." : "Approve and promote to database"}
                   </button>

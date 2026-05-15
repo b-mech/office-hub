@@ -1,20 +1,56 @@
 @import "../../node_modules/tailwindcss/index.css";
 
 :root {
-  --background: #fbf3d6;
-  --foreground: #0d0d0d;
-  --connection-blue: #17698c;
-  --connection-blue-dark: #0f4f6d;
-  --connection-blue-soft: #d9ecf3;
-  --monocle-ink: #0d0d0d;
-  --monocle-coal: #111111;
-  --monocle-paper: #fbf3d6;
-  --monocle-newsprint: #fff9df;
-  --monocle-rule: #d8cda9;
-  --monocle-muted: #5f5a4a;
-  --monocle-gold: var(--connection-blue);
-  --monocle-rust: var(--connection-blue-dark);
-  --monocle-sage: #556b60;
+  --ch-sidebar-bg: #1A527A;
+  --ch-sidebar-text: #FFFFFF;
+  --ch-sidebar-muted: rgba(255, 255, 255, 0.50);
+  --ch-sidebar-hover: rgba(255, 255, 255, 0.08);
+  --ch-sidebar-active: rgba(255, 255, 255, 0.13);
+  --ch-sidebar-border: rgba(255, 255, 255, 0.10);
+
+  --ch-page-bg: #F8F9FB;
+  --ch-surface: #FFFFFF;
+  --ch-border: #E5E7EB;
+  --ch-border-strong: #D1D5DB;
+
+  --ch-text-primary: #111827;
+  --ch-text-secondary: #6B7280;
+  --ch-text-muted: #9CA3AF;
+
+  --ch-accent: #1A527A;
+  --ch-accent-hover: #164668;
+  --ch-accent-text: #FFFFFF;
+
+  --ch-amber: #E8A020;
+  --ch-amber-bg: #FEF3C7;
+  --ch-amber-text: #854F0B;
+
+  --ch-overdue-border: #E24B4A;
+  --ch-overdue-bg: #FEF2F2;
+  --ch-overdue-badge-bg: #FEE2E2;
+  --ch-overdue-badge-text: #A32D2D;
+
+  --ch-soon-border: #E8A020;
+  --ch-soon-bg: #FFFBEB;
+  --ch-soon-badge-bg: #FEF3C7;
+  --ch-soon-badge-text: #854F0B;
+
+  --ch-upcoming-border: #E5E7EB;
+  --ch-upcoming-bg: #FFFFFF;
+  --ch-upcoming-badge-bg: #EEF2FF;
+  --ch-upcoming-badge-text: #3730A3;
+
+  --ch-success-bg: #F0FDF4;
+  --ch-success-border: #86EFAC;
+  --ch-success-text: #166534;
+
+  --ch-error-bg: #FEF2F2;
+  --ch-error-border: #FCA5A5;
+  --ch-error-text: #991B1B;
+
+  --ch-focus-ring: rgba(26, 82, 122, 0.16);
+  --background: var(--ch-page-bg);
+  --foreground: var(--ch-text-primary);
   --font-sans-app: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
   --font-mono-app: "SFMono-Regular", "Menlo", "Consolas", monospace;
 }
@@ -30,9 +66,13 @@
   box-sizing: border-box;
 }
 
+html {
+  background: var(--ch-page-bg);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--ch-page-bg);
+  color: var(--ch-text-primary);
   font-family: var(--font-sans-app);
   text-rendering: optimizeLegibility;
 }
@@ -50,180 +90,25 @@ textarea {
     transform 160ms ease;
 }
 
+input,
+select,
+textarea {
+  color: var(--ch-text-primary);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: color-mix(in srgb, var(--ch-accent) 55%, transparent);
+  box-shadow: 0 0 0 3px var(--ch-focus-ring);
+}
+
 ::selection {
-  background: rgba(23, 105, 140, 0.24);
-  color: var(--monocle-ink);
+  background: var(--ch-focus-ring);
+  color: var(--ch-text-primary);
 }
 
 .theme-monocle {
-  background:
-    linear-gradient(180deg, rgba(255, 249, 223, 0.92), rgba(251, 243, 214, 0.98)),
-    var(--monocle-paper);
-  color: var(--monocle-ink);
-}
-
-.theme-monocle [class~="bg-[#0f1117]"] {
-  background:
-    radial-gradient(circle at top left, rgba(255, 249, 223, 0.98), rgba(251, 243, 214, 0.96) 48%, rgba(235, 224, 187, 0.92)),
-    var(--monocle-paper);
-}
-
-.theme-monocle [class~="bg-[#11141b]"],
-.theme-monocle [class~="bg-[#161921]"] {
-  background: var(--monocle-coal);
-}
-
-.theme-monocle [class~="text-white"] {
-  color: var(--monocle-ink);
-}
-
-.theme-monocle [class~="bg-[#11141b]"] [class~="text-white"],
-.theme-monocle [class~="bg-[#161921]"] [class~="text-white"],
-.theme-monocle [class~="bg-stone-950"] [class~="text-white"],
-.theme-monocle [class~="bg-stone-900"] [class~="text-white"] {
-  color: var(--monocle-newsprint);
-}
-
-.theme-monocle [class~="text-white/80"],
-.theme-monocle [class~="text-white/70"],
-.theme-monocle [class~="text-white/60"] {
-  color: #4d4438;
-}
-
-.theme-monocle [class~="text-white/50"],
-.theme-monocle [class~="text-white/40"],
-.theme-monocle [class~="text-white/30"],
-.theme-monocle [class~="text-white/20"] {
-  color: var(--monocle-muted);
-}
-
-.theme-monocle [class~="bg-[#11141b]"] [class~="text-white/60"],
-.theme-monocle [class~="bg-[#11141b]"] [class~="text-white/50"],
-.theme-monocle [class~="bg-[#11141b]"] [class~="text-white/40"],
-.theme-monocle [class~="bg-[#11141b]"] [class~="text-white/30"],
-.theme-monocle [class~="bg-[#161921]"] [class~="text-white/60"],
-.theme-monocle [class~="bg-[#161921]"] [class~="text-white/50"],
-.theme-monocle [class~="bg-[#161921]"] [class~="text-white/40"],
-.theme-monocle [class~="bg-[#161921]"] [class~="text-white/30"] {
-  color: rgba(255, 250, 240, 0.68);
-}
-
-.theme-monocle [class~="border-white/20"],
-.theme-monocle [class~="border-white/10"],
-.theme-monocle [class~="border-white/5"],
-.theme-monocle [class~="border-stone-300/70"],
-.theme-monocle [class~="border-stone-200"] {
-  border-color: var(--monocle-rule);
-}
-
-.theme-monocle [class~="bg-white/10"],
-.theme-monocle [class~="bg-white/5"],
-.theme-monocle [class~="bg-white/3"],
-.theme-monocle [class~="bg-white/2"],
-.theme-monocle [class~="bg-white/80"],
-.theme-monocle [class~="bg-white/92"],
-.theme-monocle [class~="bg-white/96"],
-.theme-monocle [class~="bg-white"] {
-  background-color: rgba(255, 250, 240, 0.86);
-}
-
-.theme-monocle [class~="hover:bg-white/10"]:hover,
-.theme-monocle [class~="hover:bg-white/5"]:hover,
-.theme-monocle [class~="hover:bg-white/3"]:hover {
-  background-color: rgba(23, 105, 140, 0.09);
-}
-
-.theme-monocle [class~="hover:text-white"]:hover,
-.theme-monocle [class~="hover:text-white/70"]:hover,
-.theme-monocle [class~="hover:text-white/60"]:hover {
-  color: var(--monocle-ink);
-}
-
-.theme-monocle [class~="text-amber-300"],
-.theme-monocle [class~="text-amber-400"],
-.theme-monocle [class~="text-amber-700"],
-.theme-monocle [class~="text-amber-800"],
-.theme-monocle [class~="text-[#FAC775]"] {
-  color: var(--connection-blue);
-}
-
-.theme-monocle [class~="bg-amber-400/20"],
-.theme-monocle [class~="bg-amber-500/15"],
-.theme-monocle [class~="bg-amber-500/10"],
-.theme-monocle [class~="bg-amber-100"],
-.theme-monocle [class~="bg-amber-50"],
-.theme-monocle [class~="bg-[#FAC775]/15"],
-.theme-monocle [class~="bg-[#FAC775]/10"] {
-  background-color: rgba(23, 105, 140, 0.12);
-}
-
-.theme-monocle [class~="border-amber-400/30"],
-.theme-monocle [class~="border-amber-400/50"],
-.theme-monocle [class~="border-amber-500/30"],
-.theme-monocle [class~="border-amber-300"],
-.theme-monocle [class~="border-[#FAC775]/50"],
-.theme-monocle [class~="border-[#FAC775]/30"] {
-  border-color: rgba(23, 105, 140, 0.46);
-}
-
-.theme-monocle [class~="bg-amber-400"],
-.theme-monocle [class~="bg-amber-500"],
-.theme-monocle [class~="bg-[#FAC775]"] {
-  background-color: var(--connection-blue);
-}
-
-.theme-monocle [class~="bg-[#FAC775]"],
-.theme-monocle [class~="bg-amber-400"],
-.theme-monocle [class~="bg-amber-500"] {
-  color: var(--monocle-newsprint);
-}
-
-.theme-monocle [class~="focus:border-[#FAC775]"]:focus,
-.theme-monocle [class~="focus:border-[#FAC775]/50"]:focus,
-.theme-monocle [class~="focus:border-[#FAC775]/60"]:focus,
-.theme-monocle [class~="focus:border-amber-400/50"]:focus {
-  border-color: var(--connection-blue);
-}
-
-.theme-monocle [class~="focus:ring-[rgba(250,199,117,0.16)]"]:focus {
-  --tw-ring-color: rgba(23, 105, 140, 0.18);
-}
-
-.theme-monocle [class~="text-emerald-300"],
-.theme-monocle [class~="text-emerald-400"],
-.theme-monocle [class~="text-emerald-700"],
-.theme-monocle [class~="text-emerald-800"] {
-  color: var(--monocle-sage);
-}
-
-.theme-monocle [class~="bg-emerald-500/15"],
-.theme-monocle [class~="bg-emerald-500/20"],
-.theme-monocle [class~="bg-emerald-100"],
-.theme-monocle [class~="bg-emerald-50"] {
-  background-color: rgba(104, 118, 91, 0.16);
-}
-
-.theme-monocle [class~="border-emerald-500/30"],
-.theme-monocle [class~="border-emerald-200"] {
-  border-color: rgba(104, 118, 91, 0.38);
-}
-
-.theme-monocle [class~="bg-emerald-700"] {
-  background-color: var(--monocle-sage);
-}
-
-.theme-monocle [class~="text-red-300"],
-.theme-monocle [class~="text-red-400"],
-.theme-monocle [class~="text-rose-600"],
-.theme-monocle [class~="text-rose-700"] {
-  color: var(--monocle-rust);
-}
-
-.theme-monocle [class~="bg-red-500/15"],
-.theme-monocle [class~="bg-red-500/20"] {
-  background-color: rgba(168, 77, 42, 0.14);
-}
-
-.theme-monocle [class~="bg-rose-700"] {
-  background-color: var(--monocle-rust);
+  background: var(--ch-page-bg);
+  color: var(--ch-text-primary);
 }

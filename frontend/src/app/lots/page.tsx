@@ -13,9 +13,9 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  active: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  possession: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  complete: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  active: "bg-[var(--ch-upcoming-badge-bg)] text-[var(--ch-upcoming-badge-text)] border-[var(--ch-upcoming-border)]",
+  possession: "bg-[var(--ch-amber-bg)] text-[var(--ch-amber-text)] border-[var(--ch-amber)]",
+  complete: "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)] border-[var(--ch-success-border)]",
 };
 
 function formatDate(d?: string) {
@@ -51,17 +51,17 @@ function LotCard({
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-4 py-3 border-b border-white/5 transition-all duration-150
+      className={`w-full text-left px-4 py-3 border-b border-[var(--ch-border)] transition-all duration-150
         ${selected
-          ? "bg-white/10 border-l-2 border-l-amber-400"
-          : "hover:bg-white/5 border-l-2 border-l-transparent"
+          ? "bg-[var(--ch-page-bg)] border-l-2 border-l-[var(--ch-accent)]"
+          : "hover:bg-[var(--ch-surface)] border-l-2 border-l-transparent"
         }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-white truncate">{lot.address}</p>
+          <p className="text-sm font-medium text-[var(--ch-text-primary)] truncate">{lot.address}</p>
           {lot.buyer_name && (
-            <p className="text-xs text-white/50 truncate mt-0.5">{lot.buyer_name}</p>
+            <p className="text-xs text-[var(--ch-text-secondary)] truncate mt-0.5">{lot.buyer_name}</p>
           )}
         </div>
         <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${STATUS_COLOR[lot.status]}`}>
@@ -69,7 +69,7 @@ function LotCard({
         </span>
       </div>
       {lot.possession_date && (
-        <p className={`text-xs mt-1.5 ${days !== null && days <= 30 ? "text-amber-400" : "text-white/40"}`}>
+        <p className={`text-xs mt-1.5 ${days !== null && days <= 30 ? "text-[var(--ch-amber-text)]" : "text-[var(--ch-text-muted)]"}`}>
           Possession {formatDate(lot.possession_date)}
           {days !== null && days > 0 && ` · ${days}d`}
           {days !== null && days <= 0 && " · Past due"}
@@ -94,7 +94,7 @@ function LotDetail({ lot }: { lot: Lot }) {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-1">
           {lot.lot_number && (
-            <span className="text-xs font-mono text-white/40 bg-white/5 px-2 py-0.5 rounded">
+            <span className="text-xs font-mono text-[var(--ch-text-muted)] bg-[var(--ch-surface)] px-2 py-0.5 rounded">
               Lot {lot.lot_number}
             </span>
           )}
@@ -102,16 +102,16 @@ function LotDetail({ lot }: { lot: Lot }) {
             {STATUS_LABEL[lot.status]}
           </span>
         </div>
-        <h1 className="text-2xl font-semibold text-white tracking-tight">{lot.address}</h1>
+        <h1 className="text-2xl font-semibold text-[var(--ch-text-primary)] tracking-tight">{lot.address}</h1>
         {lot.buyer_name && (
-          <p className="text-white/50 mt-1">{lot.buyer_name}</p>
+          <p className="text-[var(--ch-text-secondary)] mt-1">{lot.buyer_name}</p>
         )}
-        <p className="text-sm text-white/30 mt-1">{lot.community}</p>
+        <p className="text-sm text-[var(--ch-text-muted)] mt-1">{lot.community}</p>
       </div>
 
       {/* Key Dates */}
       <div className="mb-8">
-        <h2 className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-3">Key Dates</h2>
+        <h2 className="text-xs font-semibold text-[var(--ch-text-muted)] uppercase tracking-widest mb-3">Key Dates</h2>
         <div className="grid grid-cols-3 gap-3">
           {dates.map(({ label, value }) => {
             const days = daysUntil(value);
@@ -121,16 +121,16 @@ function LotDetail({ lot }: { lot: Lot }) {
                 key={label}
                 className={`rounded-xl p-4 border ${
                   urgent
-                    ? "bg-amber-500/10 border-amber-500/30"
-                    : "bg-white/5 border-white/10"
+                    ? "bg-[var(--ch-amber-bg)] border-[var(--ch-amber)]"
+                    : "bg-[var(--ch-surface)] border-[var(--ch-border)]"
                 }`}
               >
-                <p className="text-xs text-white/40 mb-1">{label}</p>
-                <p className={`text-sm font-medium ${urgent ? "text-amber-300" : "text-white"}`}>
+                <p className="text-xs text-[var(--ch-text-muted)] mb-1">{label}</p>
+                <p className={`text-sm font-medium ${urgent ? "text-[var(--ch-amber-text)]" : "text-[var(--ch-text-primary)]"}`}>
                   {formatDate(value)}
                 </p>
                 {days !== null && days >= 0 && (
-                  <p className="text-xs text-white/30 mt-0.5">{days}d away</p>
+                  <p className="text-xs text-[var(--ch-text-muted)] mt-0.5">{days}d away</p>
                 )}
               </div>
             );
@@ -140,40 +140,40 @@ function LotDetail({ lot }: { lot: Lot }) {
 
       {/* Actions */}
       <div className="mb-8">
-        <h2 className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-3">Quick Actions</h2>
+        <h2 className="text-xs font-semibold text-[var(--ch-text-muted)] uppercase tracking-widest mb-3">Quick Actions</h2>
         <div className="grid grid-cols-2 gap-3">
           <Link
             href={`/lots/${lot.id}/costbook`}
-            className="flex items-center gap-3 rounded-xl p-4 bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all group"
+            className="flex items-center gap-3 rounded-xl p-4 bg-[var(--ch-surface)] border border-[var(--ch-border)] hover:bg-[var(--ch-page-bg)] hover:border-[var(--ch-border-strong)] transition-all group"
           >
             <span className="text-xl">📒</span>
             <div>
-              <p className="text-sm font-medium text-white group-hover:text-amber-300 transition-colors">Costbook</p>
-              <p className="text-xs text-white/40">Budget & POs</p>
+              <p className="text-sm font-medium text-[var(--ch-text-primary)] group-hover:text-[var(--ch-amber-text)] transition-colors">Costbook</p>
+              <p className="text-xs text-[var(--ch-text-muted)]">Budget & POs</p>
             </div>
           </Link>
           <Link
             href={`/lots/${lot.id}/costbook?tab=invoices`}
-            className="flex items-center gap-3 rounded-xl p-4 bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all group"
+            className="flex items-center gap-3 rounded-xl p-4 bg-[var(--ch-surface)] border border-[var(--ch-border)] hover:bg-[var(--ch-page-bg)] hover:border-[var(--ch-border-strong)] transition-all group"
           >
             <span className="text-xl">🧾</span>
             <div>
-              <p className="text-sm font-medium text-white group-hover:text-amber-300 transition-colors">Invoices</p>
-              <p className="text-xs text-white/40">Review & approve</p>
+              <p className="text-sm font-medium text-[var(--ch-text-primary)] group-hover:text-[var(--ch-amber-text)] transition-colors">Invoices</p>
+              <p className="text-xs text-[var(--ch-text-muted)]">Review & approve</p>
             </div>
           </Link>
         </div>
       </div>
 
       {/* Agreement IDs for debugging */}
-      <div className="rounded-xl bg-white/3 border border-white/5 p-4">
-        <h2 className="text-xs font-semibold text-white/20 uppercase tracking-widest mb-2">Agreement IDs</h2>
+      <div className="rounded-xl bg-[var(--ch-surface)] border border-[var(--ch-border)] p-4">
+        <h2 className="text-xs font-semibold text-[var(--ch-text-muted)] uppercase tracking-widest mb-2">Agreement IDs</h2>
         <div className="space-y-1">
           {lot.land_agreement_id && (
-            <p className="text-xs font-mono text-white/30">Land: {lot.land_agreement_id}</p>
+            <p className="text-xs font-mono text-[var(--ch-text-muted)]">Land: {lot.land_agreement_id}</p>
           )}
           {lot.sale_agreement_id && (
-            <p className="text-xs font-mono text-white/30">Sale: {lot.sale_agreement_id}</p>
+            <p className="text-xs font-mono text-[var(--ch-text-muted)]">Sale: {lot.sale_agreement_id}</p>
           )}
         </div>
       </div>
@@ -246,12 +246,12 @@ export function LotWorkspace({
   }, [filtered, sortKey]);
 
   return (
-    <div className="flex h-screen bg-[#0f1117] text-white overflow-hidden">
+    <div className="flex h-screen bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)] overflow-hidden">
       {/* Left panel */}
-      <div className="w-80 shrink-0 flex flex-col border-r border-white/10">
+      <div className="w-80 shrink-0 flex flex-col border-r border-[var(--ch-border)]">
         {/* Panel header */}
-        <div className="p-4 border-b border-white/10">
-          <h1 className="text-base font-semibold text-white mb-3">{title}</h1>
+        <div className="p-4 border-b border-[var(--ch-border)]">
+          <h1 className="text-base font-semibold text-[var(--ch-text-primary)] mb-3">{title}</h1>
 
           {/* Search */}
           <input
@@ -259,7 +259,7 @@ export function LotWorkspace({
             placeholder="Search address, buyer…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-amber-400/50 mb-3"
+            className="w-full bg-[var(--ch-surface)] border border-[var(--ch-border)] rounded-lg px-3 py-2 text-sm text-[var(--ch-text-primary)] placeholder:text-[var(--ch-text-muted)] focus:outline-none focus:border-[var(--ch-accent)] mb-3"
           />
 
           {/* Sort toggles */}
@@ -270,8 +270,8 @@ export function LotWorkspace({
                 onClick={() => setSortKey(key)}
                 className={`flex-1 text-[10px] font-medium py-1.5 rounded-md transition-all ${
                   sortKey === key
-                    ? "bg-amber-400/20 text-amber-300 border border-amber-400/30"
-                    : "bg-white/5 text-white/40 border border-transparent hover:text-white/60"
+                    ? "bg-[var(--ch-amber-bg)] text-[var(--ch-amber-text)] border border-[var(--ch-amber)]"
+                    : "bg-[var(--ch-surface)] text-[var(--ch-text-muted)] border border-transparent hover:text-[var(--ch-text-secondary)]"
                 }`}
               >
                 {key === "community" ? "Community" : key === "status" ? "Status" : "Possession"}
@@ -283,15 +283,15 @@ export function LotWorkspace({
         {/* List */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="p-8 text-center text-white/30 text-sm">{loadingText}</div>
+            <div className="p-8 text-center text-[var(--ch-text-muted)] text-sm">{loadingText}</div>
           ) : Object.keys(grouped).length === 0 ? (
-            <div className="p-8 text-center text-white/30 text-sm">{emptyText}</div>
+            <div className="p-8 text-center text-[var(--ch-text-muted)] text-sm">{emptyText}</div>
           ) : (
             Object.entries(grouped).map(([group, groupLots]) => (
               <div key={group}>
-                <div className="px-4 py-2 text-[10px] font-semibold text-white/30 uppercase tracking-widest bg-white/2 border-b border-white/5 sticky top-0">
+                <div className="px-4 py-2 text-[10px] font-semibold text-[var(--ch-text-muted)] uppercase tracking-widest bg-[var(--ch-surface)] border-b border-[var(--ch-border)] sticky top-0">
                   {group}
-                  <span className="ml-2 text-white/20">{groupLots.length}</span>
+                  <span className="ml-2 text-[var(--ch-text-muted)]">{groupLots.length}</span>
                 </div>
                 {groupLots.map((lot) => (
                   <LotCard
@@ -312,7 +312,7 @@ export function LotWorkspace({
         {selected ? (
           <LotDetail lot={selected} />
         ) : (
-          <div className="h-full flex items-center justify-center text-white/20 text-sm">
+          <div className="h-full flex items-center justify-center text-[var(--ch-text-muted)] text-sm">
             Select a lot to view details
           </div>
         )}

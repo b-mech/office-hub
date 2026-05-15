@@ -17,16 +17,16 @@ const FILTERS: Array<{ id: TimelineFilter; label: string; types: string[] }> = [
 
 const urgencyStyles = {
   overdue: {
-    card: "border border-red-400/20 border-l-4 border-l-red-400 bg-red-500/[0.08]",
-    badge: "bg-red-500/20 text-red-200 border-red-400/30",
+    card: "border border-[var(--ch-overdue-border)]/20 border-l-4 border-l-[var(--ch-overdue-border)] bg-[var(--ch-overdue-bg)]",
+    badge: "border-[var(--ch-overdue-border)]/30 bg-[var(--ch-overdue-badge-bg)] text-[var(--ch-overdue-badge-text)]",
   },
   soon: {
-    card: "border border-amber-400/20 border-l-4 border-l-amber-400 bg-amber-500/[0.08]",
-    badge: "bg-amber-500/20 text-amber-100 border-amber-400/30",
+    card: "border border-[var(--ch-soon-border)]/20 border-l-4 border-l-[var(--ch-soon-border)] bg-[var(--ch-soon-bg)]",
+    badge: "border-[var(--ch-soon-border)]/30 bg-[var(--ch-soon-badge-bg)] text-[var(--ch-soon-badge-text)]",
   },
   upcoming: {
-    card: "border border-white/[0.08] border-l-4 border-l-white/10 bg-white/[0.04]",
-    badge: "bg-white/5 text-white/45 border-white/10",
+    card: "border border-[var(--ch-upcoming-border)] border-l-4 border-l-[var(--ch-upcoming-border)] bg-[var(--ch-upcoming-bg)]",
+    badge: "border-[var(--ch-upcoming-border)] bg-[var(--ch-upcoming-badge-bg)] text-[var(--ch-upcoming-badge-text)]",
   },
 } satisfies Record<TimelineEvent["urgency"], { card: string; badge: string }>;
 
@@ -86,12 +86,12 @@ function SkeletonMonth() {
   return (
     <section>
       <div className="mb-3 flex items-center gap-4">
-        <div className="h-3 w-24 rounded bg-white/10" />
-        <div className="h-px flex-1 bg-white/10" />
+        <div className="h-3 w-24 rounded bg-[var(--ch-border)]" />
+        <div className="h-px flex-1 bg-[var(--ch-border)]" />
       </div>
       <div className="space-y-3">
         {Array.from({ length: 3 }).map((_, index) => (
-          <div key={index} className="h-24 animate-pulse rounded-xl border border-white/[0.08] bg-white/[0.04]" />
+          <div key={index} className="h-24 animate-pulse rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)]" />
         ))}
       </div>
     </section>
@@ -106,26 +106,26 @@ function TimelineCard({ event }: { event: TimelineEvent }) {
     <button
       type="button"
       onClick={() => router.push(`/lots/${event.lot_id}`)}
-      className={`w-full rounded-xl p-4 text-left transition hover:brightness-110 ${urgencyStyles[event.urgency].card}`}
+      className={`w-full rounded-xl p-4 text-left transition hover:brightness-[0.98] ${urgencyStyles[event.urgency].card}`}
     >
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
         <span className={`rounded-full border px-2.5 py-1 font-bold tracking-wider ${urgencyStyles[event.urgency].badge}`}>
           {badgeText(event)}
         </span>
-        {relative && <span className="font-semibold tracking-wider text-white/45">{relative}</span>}
-        <span className="text-white/25">·</span>
-        <span className="text-white/45">{formatDate(event.event_date)}</span>
+        {relative && <span className="font-semibold tracking-wider text-[var(--ch-text-secondary)]">{relative}</span>}
+        <span className="text-[var(--ch-text-muted)]">·</span>
+        <span className="text-[var(--ch-text-secondary)]">{formatDate(event.event_date)}</span>
       </div>
 
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="truncate text-base font-semibold text-white">
-            {event.address} <span className="text-white/35">—</span> {event.event_label}
+          <p className="truncate text-base font-semibold text-[var(--ch-text-primary)]">
+            {event.address} <span className="text-[var(--ch-text-muted)]">—</span> {event.event_label}
           </p>
-          <p className="mt-2 truncate text-sm text-white/45">{event.client_name || "No client recorded"}</p>
+          <p className="mt-2 truncate text-sm text-[var(--ch-text-secondary)]">{event.client_name || "No client recorded"}</p>
         </div>
         {event.amount != null && (
-          <p className="shrink-0 text-right text-sm font-bold text-[#FAC775]">
+          <p className="shrink-0 text-right text-sm font-bold text-[var(--ch-amber-text)]">
             {formatCurrency(event.amount)}
           </p>
         )}
@@ -189,16 +189,16 @@ export default function OtpTimelinePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f1117] px-8 py-8 text-white">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] px-8 py-8 text-[var(--ch-text-primary)]">
       <header className="mb-8 flex flex-wrap items-start justify-between gap-6">
         <div>
-          <div className="mb-3 flex items-center gap-2 text-sm text-white/35">
-            <Link href="/lots" className="hover:text-white">Lots</Link>
+          <div className="mb-3 flex items-center gap-2 text-sm uppercase tracking-[0.18em] text-[var(--ch-text-muted)]">
+            <Link href="/lots" className="hover:text-[var(--ch-text-primary)]">Lots</Link>
             <span>&gt;</span>
             <span>OTP Timeline</span>
           </div>
           <h1 className="text-3xl font-semibold tracking-tight">OTP Timeline</h1>
-          <p className="mt-2 text-sm text-white/50">
+          <p className="mt-2 text-sm text-[var(--ch-text-secondary)]">
             All upcoming and overdue key dates across active lots
           </p>
         </div>
@@ -210,8 +210,8 @@ export default function OtpTimelinePage() {
               onClick={() => setActiveFilters([])}
               className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                 activeFilters.length === 0
-                  ? "border-[#FAC775]/50 bg-[#FAC775]/15 text-[#FAC775]"
-                  : "border-white/10 bg-white/5 text-white/45 hover:text-white"
+                  ? "border-[var(--ch-accent)] bg-[var(--ch-accent)] text-[var(--ch-accent-text)]"
+                  : "border-[var(--ch-border)] bg-[var(--ch-surface)] text-[var(--ch-text-secondary)] hover:bg-[var(--ch-page-bg)]"
               }`}
             >
               All
@@ -223,8 +223,8 @@ export default function OtpTimelinePage() {
                 onClick={() => toggleFilter(filter.id)}
                 className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                   activeFilters.includes(filter.id)
-                    ? "border-[#FAC775]/50 bg-[#FAC775]/15 text-[#FAC775]"
-                    : "border-white/10 bg-white/5 text-white/45 hover:text-white"
+                    ? "border-[var(--ch-accent)] bg-[var(--ch-accent)] text-[var(--ch-accent-text)]"
+                    : "border-[var(--ch-border)] bg-[var(--ch-surface)] text-[var(--ch-text-secondary)] hover:bg-[var(--ch-page-bg)]"
                 }`}
               >
                 {filter.label}
@@ -236,13 +236,13 @@ export default function OtpTimelinePage() {
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             placeholder="Search address or client"
-            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#FAC775]/60 lg:w-80"
+            className="w-full rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none placeholder:text-[var(--ch-text-muted)] focus:border-[var(--ch-accent)] focus:ring-2 focus:ring-[var(--ch-focus-ring)] lg:w-80"
           />
         </div>
       </header>
 
       {error && (
-        <div className="mb-6 rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200">
+        <div className="mb-6 rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] p-4 text-sm text-[var(--ch-error-text)]">
           {error}
         </div>
       )}
@@ -253,7 +253,7 @@ export default function OtpTimelinePage() {
           <SkeletonMonth />
         </div>
       ) : error ? null : Object.keys(groupedEvents).length === 0 ? (
-        <div className="flex min-h-[360px] items-center justify-center text-sm text-white/35">
+        <div className="flex min-h-[360px] items-center justify-center text-sm text-[var(--ch-text-muted)]">
           No upcoming dates match your filters.
         </div>
       ) : (
@@ -261,8 +261,8 @@ export default function OtpTimelinePage() {
           {Object.entries(groupedEvents).map(([month, monthEvents]) => (
             <section key={month}>
               <div className="mb-3 flex items-center gap-4">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-white/35">{month}</h2>
-                <div className="h-px flex-1 bg-white/10" />
+                <h2 className="text-xs font-bold uppercase tracking-widest text-[var(--ch-text-muted)]">{month}</h2>
+                <div className="h-px flex-1 bg-[var(--ch-border)]" />
               </div>
               <div className="space-y-3">
                 {monthEvents.map((event) => (

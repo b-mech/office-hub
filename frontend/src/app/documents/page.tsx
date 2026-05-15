@@ -69,30 +69,30 @@ export default function DocumentsPage() {
   }, [docType, status]);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.82),_rgba(242,238,229,0.72)_40%,_rgba(219,210,195,0.92))] px-5 py-6 text-stone-900 sm:px-8 lg:px-10">
+    <main className="min-h-screen bg-[var(--ch-page-bg)] px-5 py-6 text-[var(--ch-text-primary)] sm:px-8 lg:px-10">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <section className="overflow-hidden rounded-[2rem] border border-stone-300/70 bg-white/80 shadow-[0_25px_80px_rgba(84,61,38,0.12)] backdrop-blur">
-          <div className="border-b border-stone-200/80 px-6 py-6 sm:px-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-stone-500">
+        <section className="overflow-hidden rounded-[2rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] shadow-xl backdrop-blur">
+          <div className="border-b border-[var(--ch-border)] px-6 py-6 sm:px-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--ch-text-muted)]">
               Office Hub
             </p>
             <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h1 className="text-3xl font-semibold tracking-tight text-stone-950">
+                <h1 className="text-3xl font-semibold tracking-tight text-[var(--ch-text-primary)]">
                   Document Review Queue
                 </h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ch-text-secondary)]">
                   Review staged land and sale agreement documents before they cross the
                   promotion boundary into operational tables.
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex min-w-44 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
+                <label className="flex min-w-44 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ch-text-muted)]">
                   Status
                   <select
                     value={status}
                     onChange={(event) => setStatus(event.target.value)}
-                    className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 text-sm font-medium normal-case tracking-normal text-stone-900 outline-none transition focus:border-stone-500 focus:bg-white"
+                    className="rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-3 text-sm font-medium normal-case tracking-normal text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                   >
                     <option value="">All statuses</option>
                     {statusOptions
@@ -104,12 +104,12 @@ export default function DocumentsPage() {
                       ))}
                   </select>
                 </label>
-                <label className="flex min-w-44 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
+                <label className="flex min-w-44 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ch-text-muted)]">
                   Document Type
                   <select
                     value={docType}
                     onChange={(event) => setDocType(event.target.value)}
-                    className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 text-sm font-medium normal-case tracking-normal text-stone-900 outline-none transition focus:border-stone-500 focus:bg-white"
+                    className="rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-3 text-sm font-medium normal-case tracking-normal text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                   >
                     <option value="">All types</option>
                     {docTypeOptions
