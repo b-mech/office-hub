@@ -67,11 +67,11 @@
 }
 
 html {
-  background: var(--ch-page-bg);
+  background-color: #F8F9FB;
 }
 
 body {
-  background: var(--ch-page-bg);
+  background-color: #F8F9FB;
   color: var(--ch-text-primary);
   font-family: var(--font-sans-app);
   text-rendering: optimizeLegibility;

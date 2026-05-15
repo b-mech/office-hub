@@ -10,15 +10,15 @@ const docTypeOptions = ["", "land_otp", "sale_otp", "invoice", "legal", "other"]
 
 function getStatusBadge(status: string): string {
   if (status === "approved") {
-    return "bg-emerald-100 text-emerald-800 ring-emerald-200";
+    return "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)] ring-[var(--ch-success-border)]";
   }
   if (status === "rejected") {
-    return "bg-rose-100 text-rose-800 ring-rose-200";
+    return "bg-[var(--ch-error-bg)] text-[var(--ch-error-text)] ring-[var(--ch-error-border)]";
   }
   if (status === "in_review") {
-    return "bg-amber-100 text-amber-800 ring-amber-200";
+    return "bg-[var(--ch-amber-bg)] text-[var(--ch-amber-text)] ring-[var(--ch-amber)]";
   }
-  return "bg-slate-100 text-slate-700 ring-slate-200";
+  return "bg-[var(--ch-page-bg)] text-[var(--ch-text-secondary)] ring-[var(--ch-border)]";
 }
 
 function formatDocType(docType: string): string {
@@ -127,29 +127,29 @@ export default function DocumentsPage() {
 
           <div className="px-3 pb-3 pt-2 sm:px-4">
             {loading ? (
-              <div className="flex min-h-72 items-center justify-center rounded-[1.5rem] border border-dashed border-stone-300 bg-stone-50/70">
-                <div className="flex items-center gap-3 text-sm font-medium text-stone-600">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-stone-300 border-t-stone-700" />
+              <div className="flex min-h-72 items-center justify-center rounded-[1.5rem] border border-dashed border-[var(--ch-border-strong)] bg-[var(--ch-page-bg)]">
+                <div className="flex items-center gap-3 text-sm font-medium text-[var(--ch-text-secondary)]">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--ch-border-strong)] border-t-[var(--ch-accent)]" />
                   Loading documents
                 </div>
               </div>
             ) : error ? (
-              <div className="rounded-[1.5rem] border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">
+              <div className="rounded-[1.5rem] border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-5 py-4 text-sm text-[var(--ch-error-text)]">
                 {error}
               </div>
             ) : documents.length === 0 ? (
-              <div className="flex min-h-72 flex-col items-center justify-center rounded-[1.5rem] border border-dashed border-stone-300 bg-stone-50/70 px-6 text-center">
-                <p className="text-lg font-semibold text-stone-900">No documents found.</p>
-                <p className="mt-2 max-w-md text-sm text-stone-600">
+              <div className="flex min-h-72 flex-col items-center justify-center rounded-[1.5rem] border border-dashed border-[var(--ch-border-strong)] bg-[var(--ch-page-bg)] px-6 text-center">
+                <p className="text-lg font-semibold text-[var(--ch-text-primary)]">No documents found.</p>
+                <p className="mt-2 max-w-md text-sm text-[var(--ch-text-secondary)]">
                   Adjust the filters or wait for the ingestion pipeline to deliver new
                   documents into the review queue.
                 </p>
               </div>
             ) : (
-              <div className="overflow-hidden rounded-[1.5rem] border border-stone-200">
+              <div className="overflow-hidden rounded-[1.5rem] border border-[var(--ch-border)]">
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-stone-200">
-                    <thead className="bg-stone-100/80 text-left text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                  <table className="min-w-full divide-y divide-[var(--ch-border)]">
+                    <thead className="bg-[var(--ch-page-bg)]/80 text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-text-muted)]">
                       <tr>
                         <th className="px-5 py-4">Filename</th>
                         <th className="px-5 py-4">Type</th>
@@ -158,24 +158,24 @@ export default function DocumentsPage() {
                         <th className="px-5 py-4">Received At</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-stone-200 bg-white">
+                    <tbody className="divide-y divide-[var(--ch-border)] bg-[var(--ch-surface)]">
                       {documents.map((document) => (
                         <tr
                           key={document.id}
-                          className="transition hover:bg-stone-50/80"
+                          className="transition hover:bg-[var(--ch-page-bg)]"
                         >
                           <td className="px-5 py-4">
                             <Link
                               href={`/documents/${document.id}`}
                               className="group flex flex-col gap-1"
                             >
-                              <span className="font-medium text-stone-900 transition group-hover:text-stone-700">
+                              <span className="font-medium text-[var(--ch-text-primary)] transition group-hover:text-[var(--ch-text-secondary)]">
                                 {document.original_filename || "Untitled document"}
                               </span>
-                              <span className="text-xs text-stone-500">{document.id}</span>
+                              <span className="text-xs text-[var(--ch-text-muted)]">{document.id}</span>
                             </Link>
                           </td>
-                          <td className="px-5 py-4 text-sm capitalize text-stone-700">
+                          <td className="px-5 py-4 text-sm capitalize text-[var(--ch-text-secondary)]">
                             {formatDocType(document.doc_type)}
                           </td>
                           <td className="px-5 py-4">
@@ -185,10 +185,10 @@ export default function DocumentsPage() {
                               {document.status.replaceAll("_", " ")}
                             </span>
                           </td>
-                          <td className="px-5 py-4 text-sm text-stone-700">
+                          <td className="px-5 py-4 text-sm text-[var(--ch-text-secondary)]">
                             {document.received_from_email || "Unknown"}
                           </td>
-                          <td className="px-5 py-4 text-sm text-stone-600">
+                          <td className="px-5 py-4 text-sm text-[var(--ch-text-secondary)]">
                             {new Date(document.received_at).toLocaleString()}
                           </td>
                         </tr>
