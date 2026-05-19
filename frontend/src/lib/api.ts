@@ -48,6 +48,7 @@ export interface ReviewResponse {
   decision: string;
   promotion?: {
     agreement_id: string;
+    lot_ids?: string[];
     lots_created: number;
     lots_matched: number;
     promoted_at: string;

@@ -168,7 +168,7 @@ export default function ProjectChangeOrdersPage() {
               {filtered.map((order) => (
                 <article
                   key={order.id}
-                  className="grid gap-4 px-4 py-4 transition hover:bg-[var(--ch-page-bg)] md:grid-cols-[1.2fr_1fr_150px_110px_220px] md:items-center"
+                  className="grid gap-4 px-4 py-4 transition hover:bg-[var(--ch-page-bg)] md:grid-cols-[1.2fr_1fr_150px_110px_280px] md:items-center"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-[var(--ch-text-primary)]">{order.address}</p>
@@ -200,6 +200,15 @@ export default function ProjectChangeOrdersPage() {
                     >
                       PDF
                     </button>
+                    {order.box_file_url && (
+                      <button
+                        type="button"
+                        onClick={() => window.open(order.box_file_url || "", "_blank", "noopener,noreferrer")}
+                        className="rounded-lg border border-[var(--ch-border-strong)] bg-[var(--ch-surface)] px-3 py-2 text-xs font-semibold text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-page-bg)]"
+                      >
+                        Box
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => void handleSendSignature(order)}

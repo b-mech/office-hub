@@ -11,6 +11,8 @@ venv/
 .env
 .env.*
 !.env.example
+.box_token.json
+backend/.box_token.json
 
 # Node
 node_modules/

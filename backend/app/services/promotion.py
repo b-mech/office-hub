@@ -47,6 +47,7 @@ class PromotionResult:
     lots_created: int
     lots_matched: int
     agreement_id: UUID
+    lot_ids: list[UUID]
     promoted_at: datetime
 
 
@@ -60,6 +61,7 @@ class PromotionService:
         self._agreement_date: date | None = None
         self._lots_created = 0
         self._lots_matched = 0
+        self._promoted_lot_ids: list[UUID] = []
 
     async def promote(self, review_id: UUID) -> PromotionResult:
         row = await self.db.execute(
@@ -80,6 +82,7 @@ class PromotionService:
         self._reviewed_by = review.reviewed_by
         self._lots_created = 0
         self._lots_matched = 0
+        self._promoted_lot_ids = []
 
         try:
             payload = review.reviewed_payload
@@ -125,6 +128,7 @@ class PromotionService:
                 lots_created=self._lots_created,
                 lots_matched=self._lots_matched,
                 agreement_id=agreement_id,
+                lot_ids=self._promoted_lot_ids,
                 promoted_at=promoted_at,
             )
         except Exception:
@@ -178,6 +182,7 @@ class PromotionService:
 
         for lot_payload in lots_payload:
             lot_id = await self._upsert_lot(lot=lot_payload, development_id=development_id)
+            self._promoted_lot_ids.append(lot_id)
             lot_terms_id = await self._insert_lot_terms(
                 lot=lot_payload,
                 lot_id=lot_id,
@@ -212,6 +217,7 @@ class PromotionService:
         notable_clauses = payload.get("notable_clauses", [])
 
         lot_id = await self._match_sale_lot(agreement_payload)
+        self._promoted_lot_ids.append(lot_id)
         agreement_id = await self._insert_sales_agreement(
             agreement=agreement_payload,
             conditions=self._build_sales_conditions_payload(payload),
@@ -653,6 +659,7 @@ class PromotionService:
             agreement_date=self._coerce_date(agreement.get("agreement_date")),
             possession_date=self._coerce_date(agreement.get("estimated_occupancy_date")),
             condition_removal_date=condition_removal_date,
+            buyer_lawyer_name=self._as_text(agreement.get("buyer_lawyer_name")) or None,
             status=SalesAgreementStatus.RECEIVED,
             conditions=conditions or {},
             notable_clauses=notable_clauses or [],
@@ -664,7 +671,11 @@ class PromotionService:
             table_name="agreements",
             record_id=sales_agreement.id,
             action="INSERT",
-            new_data={"document_id": str(document_id), "review_id": str(review_id)},
+            new_data={
+                "document_id": str(document_id),
+                "review_id": str(review_id),
+                "buyer_lawyer_name": sales_agreement.buyer_lawyer_name,
+            },
         )
         return sales_agreement.id
 

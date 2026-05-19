@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -58,6 +59,7 @@ const saleAgreementFieldLabels: Array<[string, string]> = [
   ["builder_address", "Builder Address"],
   ["buyers_realtor_name", "Buyer's Realtor"],
   ["buyers_brokerage", "Buyer's Brokerage"],
+  ["buyer_lawyer_name", "Buyer's Lawyer"],
   ["sellers_realtor_name", "Seller's Realtor"],
   ["sellers_brokerage", "Seller's Brokerage"],
   ["civic_address", "Civic Address"],
@@ -292,6 +294,7 @@ function isBlankValue(value: ReviewValue | undefined): boolean {
 
 export default function DocumentReviewPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const documentId = params.id;
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -541,6 +544,13 @@ export default function DocumentReviewPage() {
       );
       if (decision === "rejected") {
         setShowRejectForm(false);
+      }
+      if (
+        decision === "approved" &&
+        detail.document.doc_type === "land_otp" &&
+        response.promotion?.lot_ids?.[0]
+      ) {
+        router.push(`/lots/${response.promotion.lot_ids[0]}`);
       }
     } catch (submitError) {
       setError(

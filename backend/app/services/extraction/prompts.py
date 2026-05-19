@@ -254,8 +254,9 @@ Rules:
    - buyers_brokerage
    - sellers_realtor_name
    - sellers_brokerage
-21. Do not invent values. If a value is only partially legible, use the best supported reading and lower confidence.
-22. The top-level JSON keys must be exactly:
+21. If the buyer's lawyer, buyer solicitor, or purchaser lawyer is present, extract the name into buyer_lawyer_name.
+22. Do not invent values. If a value is only partially legible, use the best supported reading and lower confidence.
+23. The top-level JSON keys must be exactly:
    - agreement
    - payment_schedule
    - construction_summary
@@ -277,6 +278,7 @@ Output shape:
     "builder_address": null,
     "buyers_realtor_name": null,
     "buyers_brokerage": null,
+    "buyer_lawyer_name": null,
     "sellers_realtor_name": null,
     "sellers_brokerage": null,
     "civic_address": null,

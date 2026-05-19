@@ -220,6 +220,7 @@ async def create_document_review(
             "decision": review_request.decision,
             "promotion": {
                 "agreement_id": promotion_result.agreement_id,
+                "lot_ids": promotion_result.lot_ids,
                 "lots_created": promotion_result.lots_created,
                 "lots_matched": promotion_result.lots_matched,
                 "promoted_at": promotion_result.promoted_at,

@@ -1,5 +1,9 @@
 import { API_BASE } from "@/lib/api";
 
+const OFFICE_HUB_API_KEY =
+  process.env.NEXT_PUBLIC_OFFICE_HUB_API_KEY ||
+  "b253ca1b038185185289506cd64642a1b8e478d86b09c8c58c8cad7faded8960";
+
 export type ImportDocType = "budget" | "sale_otp" | "land_otp" | "change_order";
 
 export interface ImportResult {
@@ -48,6 +52,11 @@ export interface ImportHistoryItem {
   received_at?: string;
 }
 
+export interface BoxStatus {
+  configured: boolean;
+  authenticated: boolean;
+}
+
 export async function processImport(
   file: File,
   docType: ImportDocType,
@@ -87,4 +96,29 @@ export async function getImportHistory(): Promise<ImportHistoryItem[]> {
   }
 
   return await response.json() as ImportHistoryItem[];
+}
+
+export async function getBoxStatus(): Promise<BoxStatus> {
+  const response = await fetch(`${API_BASE}/box/status`, {
+    headers: { "X-API-Key": OFFICE_HUB_API_KEY },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({})) as { detail?: string };
+    throw new Error(errorBody.detail || `Box status failed with status ${response.status}`);
+  }
+  return await response.json() as BoxStatus;
+}
+
+export async function getBoxConnectUrl(): Promise<string> {
+  const response = await fetch(`${API_BASE}/box/connect`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({})) as { detail?: string };
+    throw new Error(errorBody.detail || `Box connect failed with status ${response.status}`);
+  }
+  const data = await response.json() as { auth_url?: string };
+  if (!data.auth_url) throw new Error("Box connect did not return an auth URL.");
+  return data.auth_url;
 }

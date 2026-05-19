@@ -1,12 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { getProjects, type Lot } from "@/lib/api/costbook";
 import {
   ImportApiError,
+  getBoxConnectUrl,
+  getBoxStatus,
   processImport,
+  type BoxStatus,
   type ImportDocType,
   type ImportErrorDetail,
   type ImportResult,
@@ -53,6 +56,85 @@ function fileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function BoxConnectionCard() {
+  const [status, setStatus] = useState<BoxStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getBoxStatus()
+      .then((result) => {
+        if (!cancelled) setStatus(result);
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load Box status.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleConnect() {
+    setConnecting(true);
+    setError(null);
+    try {
+      window.location.href = await getBoxConnectUrl();
+    } catch (connectError) {
+      setError(connectError instanceof Error ? connectError.message : "Could not start Box connection.");
+      setConnecting(false);
+    }
+  }
+
+  const connected = Boolean(status?.authenticated);
+
+  return (
+    <article className="rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--ch-text-primary)]">Box.com</h2>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--ch-text-secondary)]">
+            Connect your Box account to automatically file documents after generation and signing.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-[var(--ch-text-secondary)]">Status:</span>
+            <span
+              className={`h-2.5 w-2.5 rounded-full ${
+                connected ? "bg-[var(--ch-success-text)]" : "bg-[var(--ch-text-muted)]"
+              }`}
+            />
+            <span className="font-medium text-[var(--ch-text-primary)]">
+              {loading ? "Checking..." : connected ? "Connected" : "Not connected"}
+            </span>
+            {connected && !status?.configured && (
+              <span className="text-xs text-[var(--ch-amber-text)]">
+                Folder IDs still need to be added to .env
+              </span>
+            )}
+          </div>
+          {error && (
+            <p className="mt-3 rounded-lg border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-3 py-2 text-sm text-[var(--ch-error-text)]">
+              {error}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => void handleConnect()}
+          disabled={connecting}
+          className="w-fit rounded-lg bg-[var(--ch-accent)] px-4 py-2 text-sm font-bold text-[var(--ch-accent-text)] hover:bg-[var(--ch-accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {connecting ? "Connecting..." : connected ? "Reconnect" : "Connect Box"}
+        </button>
+      </div>
+    </article>
+  );
 }
 
 function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
@@ -261,6 +343,15 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
 }
 
 export default function ImportsPage() {
+  const [boxCallback] = useState(() => {
+    if (typeof window === "undefined") return { connected: false, error: false };
+    const params = new URLSearchParams(window.location.search);
+    return {
+      connected: params.get("box_connected") === "true",
+      error: params.get("box_error") === "true",
+    };
+  });
+
   return (
     <div className="px-8 py-8">
       <header className="mb-6">
@@ -269,6 +360,22 @@ export default function ImportsPage() {
           Upload source files and route them through Office Hub ingestion.
         </p>
       </header>
+
+      {boxCallback.connected && (
+        <div className="mb-4 rounded-xl border border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] px-4 py-3 text-sm text-[var(--ch-success-text)]">
+          Box connected successfully.
+        </div>
+      )}
+
+      {boxCallback.error && (
+        <div className="mb-4 rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-4 py-3 text-sm text-[var(--ch-error-text)]">
+          Box connection failed. Try reconnecting.
+        </div>
+      )}
+
+      <div className="mb-4">
+        <BoxConnectionCard />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {IMPORT_TYPES.map((config) => (
