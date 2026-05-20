@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+import re
 from typing import Any
 
 from reportlab.lib import colors
@@ -528,10 +529,15 @@ def _format_change_order_title(change_order: ChangeOrder) -> str:
 
 def _co_number(value: str) -> str:
     cleaned = value.strip()
-    if cleaned.lower().startswith("co-"):
-        return cleaned
     if cleaned.startswith("#"):
-        return cleaned[1:]
+        cleaned = cleaned[1:].strip()
+
+    generated_match = re.fullmatch(r"CO-\d{8}-(\d+)", cleaned, flags=re.IGNORECASE)
+    if generated_match:
+        return str(int(generated_match.group(1)))
+
+    if cleaned.lower().startswith("co-"):
+        return cleaned[3:]
     return cleaned
 
 
