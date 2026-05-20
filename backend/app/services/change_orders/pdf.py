@@ -44,6 +44,11 @@ DUE_UPON_RECEIPT_TEXT = (
     "Due upon receipt. We accept payment via e-transfers "
     "(accounts@connectionhomes.ca) or by cheque. Thank You!"
 )
+PAYMENT_PREFERENCE_OPTIONS = (
+    "Pay via Etransfer",
+    "Mail cheque",
+    "Connection Homes send a payment request (for larger amounts)",
+)
 
 
 def render_change_order_pdf(change_order: ChangeOrder) -> bytes:
@@ -94,7 +99,11 @@ def _build_story(change_order: ChangeOrder, content_width: float) -> list[Any]:
     story.extend(
         [
             Spacer(1, 14),
-            _payment_method_flowable(change_order.payment_method, styles),
+        ]
+    )
+    story.extend(_payment_method_flowables(change_order.payment_method, content_width, styles))
+    story.extend(
+        [
             Spacer(1, 14),
             _totals_table(change_order, content_width, styles),
             Spacer(1, 36),
@@ -231,10 +240,62 @@ def _line_item_rows(
     return rows
 
 
-def _payment_method_flowable(payment_method: str, styles: dict[str, ParagraphStyle]) -> Paragraph:
+def _payment_method_flowables(
+    payment_method: str,
+    content_width: float,
+    styles: dict[str, ParagraphStyle],
+) -> list[Any]:
     if payment_method == "add_to_mortgage":
-        return Paragraph("Add to Mortgage", styles["payment_mortgage"])
-    return Paragraph(DUE_UPON_RECEIPT_TEXT, styles["payment_due"])
+        return [Paragraph("Add to Mortgage", styles["payment_mortgage"])]
+    return [
+        Paragraph(DUE_UPON_RECEIPT_TEXT, styles["payment_due"]),
+        Spacer(1, 10),
+        Paragraph("Payment Preference:", styles["payment_preference_label"]),
+        Spacer(1, 4),
+        _payment_preference_table(content_width, styles),
+    ]
+
+
+def _payment_preference_table(content_width: float, styles: dict[str, ParagraphStyle]) -> Table:
+    table = Table(
+        [
+            [
+                _checkbox_table(),
+                Paragraph(_escape(option), styles["payment_preference_option"]),
+            ]
+            for option in PAYMENT_PREFERENCE_OPTIONS
+        ],
+        colWidths=[18, content_width - 18],
+        hAlign="LEFT",
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]
+        )
+    )
+    return table
+
+
+def _checkbox_table() -> Table:
+    table = Table([[""]], colWidths=[9], rowHeights=[9], hAlign="LEFT")
+    table.setStyle(
+        TableStyle(
+            [
+                ("BOX", (0, 0), (-1, -1), 0.75, BODY_GREY),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+    return table
 
 
 def _totals_table(
@@ -413,6 +474,20 @@ def _styles() -> dict[str, ParagraphStyle]:
             fontName="Helvetica",
             fontSize=10,
             leading=13,
+            textColor=BODY_GREY,
+        ),
+        "payment_preference_label": ParagraphStyle(
+            "PaymentPreferenceLabel",
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=12,
+            textColor=BODY_GREY,
+        ),
+        "payment_preference_option": ParagraphStyle(
+            "PaymentPreferenceOption",
+            fontName="Helvetica",
+            fontSize=10,
+            leading=12,
             textColor=BODY_GREY,
         ),
         "total_label": ParagraphStyle(

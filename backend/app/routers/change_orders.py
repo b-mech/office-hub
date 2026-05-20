@@ -215,7 +215,8 @@ def _request_change_order_extract(provider: ClaudeProvider, email_body: str) -> 
             '"line_items": [{"description": string, "amount": number, "is_credit": boolean}], '
             '"payment_method": "add_to_mortgage" | "due_upon_receipt", "notes": string}. '
             "Amounts are positive numbers. Mark is_credit true for credits, deductions, "
-            "allowances, or amounts that reduce the contract price. If a field is unknown, "
+            "allowances, or amounts that reduce the contract price. Treat Due on Receipt, "
+            "Due upon Receipt, and Due upon receipt as due_upon_receipt. If a field is unknown, "
             "use an empty string, empty array, or due_upon_receipt."
         ),
         messages=[
@@ -311,8 +312,8 @@ def _normalize_line_items(value: object) -> list[ChangeOrderLineItem]:
 
 
 def _normalize_payment_method(value: object) -> Literal["add_to_mortgage", "due_upon_receipt"]:
-    text = _as_text(value).lower()
-    if text == "add_to_mortgage":
+    text = _as_text(value).lower().replace("-", " ").replace("_", " ")
+    if "mortgage" in text:
         return "add_to_mortgage"
     return "due_upon_receipt"
 
