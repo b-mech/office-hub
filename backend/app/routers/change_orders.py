@@ -24,6 +24,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.sales import ChangeOrder as ChangeOrderModel
 from app.models.sales import ChangeOrderLineItem as ChangeOrderLineItemModel
+from app.services.box import file_change_order_pdf
 from app.services.change_orders.pdf import render_change_order_pdf
 from app.services.extraction.claude_provider import ClaudeProvider
 
@@ -73,6 +74,7 @@ class ChangeOrderOut(ChangeOrderDraft):
     total: Decimal = Decimal("0")
     docusign_envelope_id: str | None = None
     box_file_id: str | None = None
+    box_file_url: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -165,6 +167,15 @@ async def get_change_order_pdf(
 ) -> Response:
     change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
     pdf_bytes = render_change_order_pdf(change_order)
+    box_file_id, box_file_url = file_change_order_pdf(
+        address=change_order.address,
+        pdf_bytes=pdf_bytes,
+        signed=False,
+    )
+    if box_file_id:
+        change_order.box_file_id = box_file_id
+        change_order.box_file_url = box_file_url
+        await db.commit()
     filename = _change_order_filename(change_order)
     return Response(
         content=pdf_bytes,
@@ -265,6 +276,7 @@ def _change_order_out(change_order: ChangeOrderModel) -> ChangeOrderOut:
         total=change_order.total,
         docusign_envelope_id=change_order.docusign_envelope_id,
         box_file_id=change_order.box_file_id,
+        box_file_url=change_order.box_file_url,
         created_at=change_order.created_at,
         updated_at=change_order.updated_at,
     )

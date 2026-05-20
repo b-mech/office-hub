@@ -228,6 +228,7 @@ class ChangeOrder(Base):
     )
     docusign_envelope_id: Mapped[str | None] = mapped_column(Text)
     box_file_id: Mapped[str | None] = mapped_column(Text)
+    box_file_url: Mapped[str | None] = mapped_column(Text)
     org_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("core.orgs.id"),

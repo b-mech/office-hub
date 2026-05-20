@@ -40,6 +40,8 @@ export interface ChangeOrderDraft {
 export interface ChangeOrder extends ChangeOrderDraft {
   id: string;
   status?: "draft" | "approved" | "sent";
+  box_file_id?: string | null;
+  box_file_url?: string | null;
   created_at?: string;
   updated_at?: string;
 }
