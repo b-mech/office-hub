@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     box_not_finalized_folder_id: str = Field(default="", alias="BOX_NOT_FINALIZED_FOLDER_ID")
     box_finalized_folder_id: str = Field(default="", alias="BOX_FINALIZED_FOLDER_ID")
     box_token_file: str = Field(default=".box_token.json", alias="BOX_TOKEN_FILE")
+    docusign_integration_key: str = Field(default="", alias="DOCUSIGN_INTEGRATION_KEY")
+    docusign_user_id: str = Field(default="", alias="DOCUSIGN_USER_ID")
+    docusign_account_id: str = Field(default="", alias="DOCUSIGN_ACCOUNT_ID")
+    docusign_private_key: str = Field(default="", alias="DOCUSIGN_PRIVATE_KEY")
+    docusign_auth_server: str = Field(default="account-d.docusign.com", alias="DOCUSIGN_AUTH_SERVER")
+    docusign_base_path: str = Field(default="https://demo.docusign.net/restapi", alias="DOCUSIGN_BASE_PATH")
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -57,6 +63,17 @@ class Settings(BaseSettings):
     @property
     def box_authenticated(self) -> bool:
         return os.path.exists(self.box_token_file)
+
+    @property
+    def docusign_configured(self) -> bool:
+        return bool(
+            self.docusign_integration_key
+            and self.docusign_user_id
+            and self.docusign_account_id
+            and self.docusign_private_key
+            and self.docusign_auth_server
+            and self.docusign_base_path
+        )
 
 
 settings = Settings()

@@ -26,6 +26,11 @@ from app.models.sales import ChangeOrder as ChangeOrderModel
 from app.models.sales import ChangeOrderLineItem as ChangeOrderLineItemModel
 from app.services.box import file_change_order_pdf
 from app.services.change_orders.pdf import render_change_order_pdf
+from app.services.docusign import DocuSignConfigurationError
+from app.services.docusign import DocuSignEnvelopeError
+from app.services.docusign import download_completed_document
+from app.services.docusign import get_envelope_status
+from app.services.docusign import send_change_order_envelope
 from app.services.extraction.claude_provider import ClaudeProvider
 
 
@@ -83,7 +88,14 @@ class ChangeOrderSignatureResponse(BaseModel):
     id: UUID
     status: str
     docusign_envelope_id: str | None = None
+    box_file_id: str | None = None
+    box_file_url: str | None = None
     message: str
+
+
+class ChangeOrderSignatureRequest(BaseModel):
+    signer_email: str = Field(min_length=3)
+    signer_name: str = ""
 
 
 @router.post("/extract", response_model=ChangeOrderDraft)
@@ -187,16 +199,82 @@ async def get_change_order_pdf(
 @router.post("/{change_order_id}/send-signature", response_model=ChangeOrderSignatureResponse)
 async def send_change_order_for_signature(
     change_order_id: UUID,
+    request: ChangeOrderSignatureRequest,
     db: AsyncSession = Depends(get_db),
 ) -> ChangeOrderSignatureResponse:
     change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
-    render_change_order_pdf(change_order)
-    raise HTTPException(
-        status_code=501,
-        detail=(
-            "Change order PDF generation is ready, but DocuSign is not configured. "
-            "Add the DocuSign account credentials and final PDF template before sending envelopes."
-        ),
+    pdf_bytes = render_change_order_pdf(change_order)
+    signer_name = request.signer_name.strip() or change_order.client_name
+    try:
+        result = await send_change_order_envelope(
+            pdf_bytes=pdf_bytes,
+            filename=_change_order_filename(change_order),
+            email_subject=f"{change_order.address} - Change Order Signature",
+            signer_name=signer_name,
+            signer_email=request.signer_email.strip(),
+        )
+    except DocuSignConfigurationError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except DocuSignEnvelopeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    change_order.docusign_envelope_id = result.envelope_id
+    change_order.status = "sent"
+    await db.commit()
+    return ChangeOrderSignatureResponse(
+        id=change_order.id,
+        status=change_order.status,
+        docusign_envelope_id=change_order.docusign_envelope_id,
+        box_file_id=change_order.box_file_id,
+        box_file_url=change_order.box_file_url,
+        message=f"Change order sent to {request.signer_email.strip()} for signature.",
+    )
+
+
+@router.post("/{change_order_id}/sync-signed", response_model=ChangeOrderSignatureResponse)
+async def sync_signed_change_order(
+    change_order_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ChangeOrderSignatureResponse:
+    change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
+    if not change_order.docusign_envelope_id:
+        raise HTTPException(status_code=400, detail="Change order has not been sent to DocuSign.")
+
+    try:
+        signed_pdf = await download_completed_document(change_order.docusign_envelope_id)
+        envelope_status = await get_envelope_status(change_order.docusign_envelope_id)
+    except DocuSignConfigurationError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except DocuSignEnvelopeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if signed_pdf is None:
+        return ChangeOrderSignatureResponse(
+            id=change_order.id,
+            status=change_order.status,
+            docusign_envelope_id=change_order.docusign_envelope_id,
+            box_file_id=change_order.box_file_id,
+            box_file_url=change_order.box_file_url,
+            message=f"DocuSign envelope is {envelope_status}; signed PDF is not ready yet.",
+        )
+
+    box_file_id, box_file_url = file_change_order_pdf(
+        address=change_order.address,
+        pdf_bytes=signed_pdf,
+        signed=True,
+    )
+    if box_file_id:
+        change_order.box_file_id = box_file_id
+        change_order.box_file_url = box_file_url
+    change_order.status = "signed"
+    await db.commit()
+    return ChangeOrderSignatureResponse(
+        id=change_order.id,
+        status=change_order.status,
+        docusign_envelope_id=change_order.docusign_envelope_id,
+        box_file_id=change_order.box_file_id,
+        box_file_url=change_order.box_file_url,
+        message="Signed change order synced from DocuSign and filed in Box FINALIZED.",
     )
 
 

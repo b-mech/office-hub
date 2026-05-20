@@ -39,7 +39,8 @@ export interface ChangeOrderDraft {
 
 export interface ChangeOrder extends ChangeOrderDraft {
   id: string;
-  status?: "draft" | "approved" | "sent";
+  status?: "draft" | "approved" | "sent" | "signed";
+  docusign_envelope_id?: string | null;
   box_file_id?: string | null;
   box_file_url?: string | null;
   created_at?: string;
@@ -81,13 +82,32 @@ export async function downloadChangeOrderPdf(id: string): Promise<Blob> {
   return res.blob();
 }
 
-export async function sendChangeOrderForSignature(id: string): Promise<{
+export async function sendChangeOrderForSignature(
+  id: string,
+  signer: { signer_email: string; signer_name?: string },
+): Promise<{
   id: string;
   status: string;
   docusign_envelope_id?: string | null;
+  box_file_id?: string | null;
+  box_file_url?: string | null;
   message: string;
 }> {
   return apiFetch(`/api/v1/change-orders/${id}/send-signature`, {
+    method: "POST",
+    body: JSON.stringify(signer),
+  });
+}
+
+export async function syncSignedChangeOrder(id: string): Promise<{
+  id: string;
+  status: string;
+  docusign_envelope_id?: string | null;
+  box_file_id?: string | null;
+  box_file_url?: string | null;
+  message: string;
+}> {
+  return apiFetch(`/api/v1/change-orders/${id}/sync-signed`, {
     method: "POST",
   });
 }
