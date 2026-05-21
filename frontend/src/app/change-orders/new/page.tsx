@@ -28,6 +28,7 @@ function emptyDraft(): ChangeOrderDraft {
   return {
     address: "",
     client_name: "",
+    customer_email: "",
     co_number: suggestCoNumber(),
     date: today,
     line_items: [{ ...emptyLineItem }],
@@ -43,6 +44,7 @@ function parseDraftParam(value: string | null): ChangeOrderDraft | null {
     return {
       address: parsed.address || "",
       client_name: parsed.client_name || "",
+      customer_email: parsed.customer_email || "",
       co_number: parsed.co_number || suggestCoNumber(),
       date: parsed.date || today,
       line_items: Array.isArray(parsed.line_items) && parsed.line_items.length > 0
@@ -238,6 +240,17 @@ function NewChangeOrderForm() {
                 required
                 value={draft.client_name}
                 onChange={(event) => updateField("client_name", event.target.value)}
+                className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5 text-[#fffaf0] outline-none placeholder:text-[rgba(255,255,255,0.28)] focus:border-[#FAC775] focus:ring-2 focus:ring-[rgba(250,199,117,0.16)]"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm text-[rgba(255,255,255,0.7)]">
+              Customer Email
+              <input
+                type="email"
+                value={draft.customer_email || ""}
+                onChange={(event) => updateField("customer_email", event.target.value)}
+                placeholder="customer@example.com"
                 className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-[rgba(0,0,0,0.25)] px-3 py-2.5 text-[#fffaf0] outline-none placeholder:text-[rgba(255,255,255,0.28)] focus:border-[#FAC775] focus:ring-2 focus:ring-[rgba(250,199,117,0.16)]"
               />
             </label>

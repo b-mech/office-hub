@@ -94,7 +94,7 @@ export default function ProjectChangeOrdersPage() {
   }
 
   async function handleSendSignature(order: ChangeOrder) {
-    const signerEmail = window.prompt("Signer email address");
+    const signerEmail = window.prompt("Signer email address", order.customer_email || "");
     if (!signerEmail) return;
     const signerName = window.prompt("Signer name", order.client_name) || order.client_name;
     setBusyOrderId(order.id);

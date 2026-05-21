@@ -30,6 +30,7 @@ export interface ChangeOrderLineItem {
 export interface ChangeOrderDraft {
   address: string;
   client_name: string;
+  customer_email?: string;
   co_number?: string;
   date?: string;
   line_items: ChangeOrderLineItem[];

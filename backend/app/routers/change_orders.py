@@ -60,6 +60,7 @@ class ChangeOrderDraft(BaseModel):
     lot_id: UUID | None = None
     address: str = ""
     client_name: str = ""
+    customer_email: str = ""
     co_number: str = ""
     date: str = ""
     line_items: list[ChangeOrderLineItem] = Field(default_factory=list)
@@ -94,7 +95,7 @@ class ChangeOrderSignatureResponse(BaseModel):
 
 
 class ChangeOrderSignatureRequest(BaseModel):
-    signer_email: str = Field(min_length=3)
+    signer_email: str = ""
     signer_name: str = ""
 
 
@@ -116,6 +117,7 @@ async def save_change_order_draft(
         lot_id=draft.lot_id,
         address=draft.address.strip(),
         client_name=draft.client_name.strip(),
+        customer_email=draft.customer_email.strip() or None,
         co_number=draft.co_number.strip() or None,
         date=_parse_date(draft.date),
         payment_method=draft.payment_method,
@@ -204,6 +206,9 @@ async def send_change_order_for_signature(
 ) -> ChangeOrderSignatureResponse:
     change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
     pdf_bytes = render_change_order_pdf(change_order)
+    signer_email = request.signer_email.strip() or (change_order.customer_email or "").strip()
+    if not signer_email:
+        raise HTTPException(status_code=400, detail="Signer email is required.")
     signer_name = request.signer_name.strip() or change_order.client_name
     try:
         result = await send_change_order_envelope(
@@ -211,7 +216,7 @@ async def send_change_order_for_signature(
             filename=_change_order_filename(change_order),
             email_subject=f"{change_order.address} - Change Order Signature",
             signer_name=signer_name,
-            signer_email=request.signer_email.strip(),
+            signer_email=signer_email,
         )
     except DocuSignConfigurationError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
@@ -227,7 +232,7 @@ async def send_change_order_for_signature(
         docusign_envelope_id=change_order.docusign_envelope_id,
         box_file_id=change_order.box_file_id,
         box_file_url=change_order.box_file_url,
-        message=f"Change order sent to {request.signer_email.strip()} for signature.",
+        message=f"Change order sent to {signer_email} for signature.",
     )
 
 
@@ -300,9 +305,11 @@ def _request_change_order_extract(provider: ClaudeProvider, email_body: str) -> 
         system=(
             "Return ONLY valid JSON. Extract a residential home-build change order draft "
             "from the email body. Use this exact schema: "
-            '{"address": string, "client_name": string, '
+            '{"address": string, "client_name": string, "customer_email": string, '
             '"line_items": [{"description": string, "amount": number, "is_credit": boolean}], '
             '"payment_method": "add_to_mortgage" | "due_upon_receipt", "notes": string}. '
+            "Use the Email line from the body as customer_email; this is the customer contact "
+            "and default DocuSign signer email. "
             "Amounts are positive numbers. Mark is_credit true for credits, deductions, "
             "allowances, or amounts that reduce the contract price. Treat Due on Receipt, "
             "Due upon Receipt, and Due upon receipt as due_upon_receipt. If a field is unknown, "
@@ -322,6 +329,7 @@ def _normalize_change_order_draft(parsed: dict[str, Any]) -> ChangeOrderDraft:
     return ChangeOrderDraft(
         address=_as_text(parsed.get("address")),
         client_name=_as_text(parsed.get("client_name")),
+        customer_email=_as_text(parsed.get("customer_email") or parsed.get("email")),
         co_number=_as_text(parsed.get("co_number")),
         date=_as_text(parsed.get("date")),
         line_items=_normalize_line_items(parsed.get("line_items")),
@@ -336,6 +344,7 @@ def _change_order_out(change_order: ChangeOrderModel) -> ChangeOrderOut:
         lot_id=change_order.lot_id,
         address=change_order.address,
         client_name=change_order.client_name,
+        customer_email=change_order.customer_email or "",
         co_number=change_order.co_number or "",
         date=change_order.date.isoformat() if change_order.date else "",
         line_items=[

@@ -193,6 +193,7 @@ class ChangeOrder(Base):
     )
     address: Mapped[str] = mapped_column(Text, nullable=False)
     client_name: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default=text("''"))
+    customer_email: Mapped[str | None] = mapped_column(Text)
     co_number: Mapped[str | None] = mapped_column(Text)
     date: Mapped[date | None] = mapped_column(Date)
     payment_method: Mapped[str] = mapped_column(
