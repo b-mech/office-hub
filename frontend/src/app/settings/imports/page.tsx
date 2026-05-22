@@ -98,11 +98,11 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
   }
 
   return (
-    <article className="rounded-xl border border-white/10 bg-white/[0.04] p-5">
+    <article className="rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-white">{config.title}</h2>
-          <p className="mt-1 text-sm text-white/50">{config.description}</p>
+          <h2 className="text-lg font-semibold text-[var(--ch-text-primary)]">{config.title}</h2>
+          <p className="mt-1 text-sm text-[var(--ch-text-muted)]">{config.description}</p>
         </div>
       </div>
 
@@ -110,7 +110,7 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
         {config.formats.map((format) => (
           <span
             key={format}
-            className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/45"
+            className="rounded-full border border-[var(--ch-border)] bg-[var(--ch-surface)] px-2 py-1 text-xs text-[var(--ch-text-muted)]"
           >
             {format}
           </span>
@@ -135,23 +135,23 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="w-fit rounded-lg border border-[#FAC775]/40 bg-[#FAC775]/10 px-4 py-2 text-sm font-semibold text-[#FAC775] hover:bg-[#FAC775]/15"
+          className="w-fit rounded-lg border border-[var(--ch-accent)] bg-[var(--ch-accent-soft)] px-4 py-2 text-sm font-semibold text-[var(--ch-accent)] hover:bg-[var(--ch-accent-soft)]"
         >
           Upload file
         </button>
 
         {file && (
-          <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-            <p className="truncate text-sm font-medium text-white">{file.name}</p>
-            <p className="mt-1 text-xs text-white/40">{fileSize(file.size)}</p>
+          <div className="rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-3">
+            <p className="truncate text-sm font-medium text-[var(--ch-text-primary)]">{file.name}</p>
+            <p className="mt-1 text-xs text-[var(--ch-text-muted)]">{fileSize(file.size)}</p>
             <button
               type="button"
               onClick={() => handleProcess()}
               disabled={processing}
-              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#FAC775] px-4 py-2 text-sm font-bold text-[#0f1117] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[var(--ch-accent)] px-4 py-2 text-sm font-bold text-[var(--ch-accent-text)] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
             >
               {processing && (
-                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#0f1117]/30 border-t-[#0f1117]" />
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[color:var(--ch-accent-text)]/30 border-t-[var(--ch-accent-text)]" />
               )}
               {processing ? "Processing..." : "Process"}
             </button>
@@ -159,16 +159,16 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
         )}
 
         {file && matchWarning && (
-          <div className="rounded-lg border border-[#FAC775]/35 bg-[#FAC775]/10 p-3 text-sm text-[#FFE0A0]">
+          <div className="rounded-lg border border-[var(--ch-accent)] bg-[var(--ch-accent-soft)] p-3 text-sm text-[var(--ch-accent)]">
             <p className="font-semibold">Project match required</p>
-            <p className="mt-1 text-[#FFE0A0]/80">{matchWarning.message}</p>
+            <p className="mt-1 text-[var(--ch-text-secondary)]">{matchWarning.message}</p>
             {matchWarning.search_text && (
-              <p className="mt-2 truncate text-xs text-[#FFE0A0]/55">Search: {matchWarning.search_text}</p>
+              <p className="mt-2 truncate text-xs text-[var(--ch-text-muted)]">Search: {matchWarning.search_text}</p>
             )}
 
             {matchWarning.candidates && matchWarning.candidates.length > 0 && (
               <div className="mt-3">
-                <p className="mb-2 text-xs uppercase tracking-widest text-[#FFE0A0]/55">Possible matches</p>
+                <p className="mb-2 text-xs uppercase tracking-widest text-[var(--ch-text-muted)]">Possible matches</p>
                 <div className="space-y-1">
                   {matchWarning.candidates.map((candidate) => (
                     <button
@@ -177,12 +177,12 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
                       onClick={() => setSelectedProjectId(candidate.id)}
                       className={`w-full rounded border px-3 py-2 text-left text-xs transition ${
                         selectedProjectId === candidate.id
-                          ? "border-[#FAC775] bg-[#FAC775]/15"
-                          : "border-white/10 bg-black/15 hover:border-[#FAC775]/40"
+                          ? "border-[var(--ch-accent)] bg-[var(--ch-accent-soft)]"
+                          : "border-[var(--ch-border)] bg-[var(--ch-surface)] hover:border-[var(--ch-accent)]"
                       }`}
                     >
-                      <span className="block font-semibold text-white">{candidate.address}</span>
-                      <span className="text-white/45">{candidate.community || "Unknown community"}</span>
+                      <span className="block font-semibold text-[var(--ch-text-primary)]">{candidate.address}</span>
+                      <span className="text-[var(--ch-text-muted)]">{candidate.community || "Unknown community"}</span>
                     </button>
                   ))}
                 </div>
@@ -190,13 +190,13 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
             )}
 
             <div className="mt-3">
-              <label className="mb-1.5 block text-xs uppercase tracking-widest text-[#FFE0A0]/55">
+              <label className="mb-1.5 block text-xs uppercase tracking-widest text-[var(--ch-text-muted)]">
                 Manual project match
               </label>
               <select
                 value={selectedProjectId}
                 onChange={(event) => setSelectedProjectId(event.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-[#0f1117] px-3 py-2 text-sm text-white outline-none focus:border-[#FAC775]/60"
+                className="w-full rounded-lg border border-[var(--ch-border)] bg-[var(--ch-page-bg)] px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none focus:border-[var(--ch-accent)]"
               >
                 <option value="">Select an existing project...</option>
                 {projects.map((project) => (
@@ -206,7 +206,7 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
                 ))}
               </select>
               {projects.length === 0 && (
-                <p className="mt-2 text-xs text-[#FFE0A0]/70">
+                <p className="mt-2 text-xs text-[var(--ch-text-secondary)]">
                   No projects are available. Import and approve the Land OTP and Sale OTP first.
                 </p>
               )}
@@ -216,7 +216,7 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
               type="button"
               onClick={() => handleProcess(selectedProjectId)}
               disabled={processing || !selectedProjectId}
-              className="mt-3 rounded-lg bg-[#FAC775] px-4 py-2 text-sm font-bold text-[#0f1117] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
+              className="mt-3 rounded-lg bg-[var(--ch-accent)] px-4 py-2 text-sm font-bold text-[var(--ch-accent-text)] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
             >
               Import into selected project
             </button>
@@ -231,7 +231,7 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
                 <p className="mt-1 text-emerald-100/80">Draft budget ID: {result.budget_id}</p>
                 <Link
                   href={`/costbook/budgets/${result.budget_id}`}
-                  className="mt-2 inline-block text-[#FAC775] hover:underline"
+                  className="mt-2 inline-block text-[var(--ch-accent)] hover:underline"
                 >
                   Open draft budget
                 </Link>
@@ -241,7 +241,7 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
                 <p className="mt-1 text-emerald-100/80">Document ID: {result.document_id}</p>
                 <Link
                   href={`/documents/${result.document_id}`}
-                  className="mt-2 inline-block text-[#FAC775] hover:underline"
+                  className="mt-2 inline-block text-[var(--ch-accent)] hover:underline"
                 >
                   Open review
                 </Link>
@@ -264,8 +264,8 @@ export default function ImportsPage() {
   return (
     <div className="px-8 py-8">
       <header className="mb-6">
-        <h1 className="text-3xl font-semibold tracking-tight text-white">Imports</h1>
-        <p className="mt-2 text-sm text-white/50">
+        <h1 className="text-3xl font-semibold tracking-tight text-[var(--ch-text-primary)]">Imports</h1>
+        <p className="mt-2 text-sm text-[var(--ch-text-muted)]">
           Upload source files and route them through Office Hub ingestion.
         </p>
       </header>

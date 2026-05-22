@@ -13,10 +13,10 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const current = SETTINGS_NAV.find((item) => pathname.startsWith(item.href));
 
   return (
-    <main className="min-h-screen bg-[#0f1117] text-white">
+    <main className="min-h-screen bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)]">
       <div className="flex min-h-screen">
-        <aside className="w-60 shrink-0 border-r border-white/10 bg-white/[0.03] px-4 py-6">
-          <p className="px-3 text-xs font-semibold uppercase tracking-[0.24em] text-white/35">
+        <aside className="w-60 shrink-0 border-r border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-6">
+          <p className="px-3 text-xs font-semibold uppercase tracking-[0.24em] text-[var(--ch-text-muted)]">
             Settings
           </p>
           <nav className="mt-5 flex flex-col gap-1">
@@ -28,8 +28,8 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                   href={item.href}
                   className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
                     active
-                      ? "border border-[#FAC775]/35 bg-[#FAC775]/15 text-[#FAC775]"
-                      : "border border-transparent text-white/55 hover:bg-white/5 hover:text-white"
+                      ? "border border-[var(--ch-accent)] bg-[var(--ch-accent-soft)] text-[var(--ch-accent)]"
+                      : "border border-transparent text-[var(--ch-text-secondary)] hover:bg-[var(--ch-surface-hover)] hover:text-[var(--ch-text-primary)]"
                   }`}
                 >
                   {item.label}
@@ -40,10 +40,10 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         </aside>
 
         <section className="min-w-0 flex-1">
-          <div className="border-b border-white/10 px-8 py-5 text-sm text-white/45">
+          <div className="border-b border-[var(--ch-border)] px-8 py-5 text-sm text-[var(--ch-text-muted)]">
             <span>Settings</span>
-            <span className="px-2 text-white/25">&gt;</span>
-            <span className="text-[#FAC775]">{current?.label || "Imports"}</span>
+            <span className="px-2 text-[var(--ch-text-muted)]">&gt;</span>
+            <span className="text-[var(--ch-accent)]">{current?.label || "Imports"}</span>
           </div>
           {children}
         </section>

@@ -107,7 +107,7 @@ export default function PipelineView({ changeOrders, onStatusChange }: PipelineV
         return (
           <div
             key={stage.status}
-            className="flex min-h-[360px] flex-col rounded-xl border border-[var(--ch-border)] bg-[rgba(255,255,255,0.03)]"
+            className="flex min-h-[360px] flex-col rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)]"
             style={{ borderTop: `3px solid ${stage.color}` }}
           >
             <div className="border-b border-[var(--ch-border)] px-4 py-3">
@@ -158,7 +158,7 @@ export default function PipelineView({ changeOrders, onStatusChange }: PipelineV
                           onClick={() => setOpenMenuId(openMenuId === order.id ? null : order.id)}
                           disabled={busyOrderId === order.id}
                           aria-label={`Actions for ${pdfFilename(order)}`}
-                          className="rounded-md px-2 py-1 text-lg leading-none text-[var(--ch-text-secondary)] hover:bg-white/5 hover:text-[var(--ch-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-md px-2 py-1 text-lg leading-none text-[var(--ch-text-secondary)] hover:bg-[var(--ch-surface)] hover:text-[var(--ch-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           ...
                         </button>
@@ -168,7 +168,7 @@ export default function PipelineView({ changeOrders, onStatusChange }: PipelineV
                               type="button"
                               onClick={() => void handleViewPdf(order)}
                               disabled={busyOrderId === order.id}
-                              className="block w-full rounded-md px-3 py-2 text-left text-sm text-[var(--ch-text-primary)] hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="block w-full rounded-md px-3 py-2 text-left text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-surface)] disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               View PDF
                             </button>
@@ -177,7 +177,7 @@ export default function PipelineView({ changeOrders, onStatusChange }: PipelineV
                                 type="button"
                                 onClick={() => void handleMove(order, nextStage.status)}
                                 disabled={busyOrderId === order.id}
-                                className="block w-full rounded-md px-3 py-2 text-left text-sm text-[var(--ch-text-primary)] hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="block w-full rounded-md px-3 py-2 text-left text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-surface)] disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Move to {nextStage.name}
                               </button>
@@ -187,7 +187,7 @@ export default function PipelineView({ changeOrders, onStatusChange }: PipelineV
                                 type="button"
                                 onClick={() => void handleMove(order, previousStage.status)}
                                 disabled={busyOrderId === order.id}
-                                className="block w-full rounded-md px-3 py-2 text-left text-sm text-[var(--ch-text-primary)] hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="block w-full rounded-md px-3 py-2 text-left text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-surface)] disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Move to {previousStage.name}
                               </button>

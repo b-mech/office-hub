@@ -108,13 +108,13 @@ export default function BudgetDraftPage() {
   }
 
   if (loading) {
-    return <div className="min-h-screen bg-[#0f1117] px-8 py-8 text-sm text-white/40">Loading budget...</div>;
+    return <div className="min-h-screen bg-[var(--ch-page-bg)] px-8 py-8 text-sm text-[var(--ch-text-muted)]">Loading budget...</div>;
   }
 
   if (error || !budget) {
     return (
-      <div className="min-h-screen bg-[#0f1117] px-8 py-8 text-white">
-        <Link href="/costbook" className="text-sm text-[#FAC775] hover:underline">
+      <div className="min-h-screen bg-[var(--ch-page-bg)] px-8 py-8 text-[var(--ch-text-primary)]">
+        <Link href="/costbook" className="text-sm text-[var(--ch-accent)] hover:underline">
           Back to Costbook
         </Link>
         <p className="mt-8 rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200">
@@ -125,19 +125,19 @@ export default function BudgetDraftPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f1117] px-8 py-8 text-white">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] px-8 py-8 text-[var(--ch-text-primary)]">
       <div className="mx-auto max-w-6xl">
         <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <Link href="/costbook" className="text-sm text-white/40 transition-colors hover:text-white">
+            <Link href="/costbook" className="text-sm text-[var(--ch-text-muted)] transition-colors hover:text-[var(--ch-text-primary)]">
               Back to Costbook
             </Link>
             <h1 className="mt-4 text-2xl font-semibold tracking-tight">{budget.label}</h1>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-widest text-white/60">
+              <span className="rounded-full bg-[var(--ch-surface)] px-2.5 py-1 text-xs font-semibold uppercase tracking-widest text-[var(--ch-text-secondary)]">
                 {budget.status}
               </span>
-              <span className="rounded-full border border-[#FAC775]/30 bg-[#FAC775]/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-widest text-[#FAC775]">
+              <span className="rounded-full border border-[var(--ch-accent)] bg-[var(--ch-accent-soft)] px-2.5 py-1 text-xs font-semibold uppercase tracking-widest text-[var(--ch-accent)]">
                 Draft budget
               </span>
             </div>
@@ -146,25 +146,25 @@ export default function BudgetDraftPage() {
 
         <section className="mb-6 grid gap-4 md:grid-cols-3">
           {[
-            { label: "Total Estimate", value: budget.total_estimate, color: "text-white" },
-            { label: "Total Actual", value: budget.total_actual, color: "text-white" },
+            { label: "Total Estimate", value: budget.total_estimate, color: "text-[var(--ch-text-primary)]" },
+            { label: "Total Actual", value: budget.total_actual, color: "text-[var(--ch-text-primary)]" },
             {
               label: "Variance",
               value: budget.total_variance,
-              color: budget.total_variance > 0 ? "text-red-400" : budget.total_variance < 0 ? "text-emerald-400" : "text-white",
+              color: budget.total_variance > 0 ? "text-red-400" : budget.total_variance < 0 ? "text-emerald-400" : "text-[var(--ch-text-primary)]",
             },
           ].map((item) => (
-            <div key={item.label} className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
-              <p className="mb-1 text-xs text-white/40">{item.label}</p>
+            <div key={item.label} className="rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
+              <p className="mb-1 text-xs text-[var(--ch-text-muted)]">{item.label}</p>
               <p className={`text-xl font-semibold ${item.color}`}>{fmt(item.value)}</p>
             </div>
           ))}
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
+        <section className="overflow-hidden rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)]">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-white/10 bg-white/[0.04] text-xs uppercase tracking-widest text-white/40">
+              <tr className="border-b border-[var(--ch-border)] bg-[var(--ch-surface)] text-xs uppercase tracking-widest text-[var(--ch-text-muted)]">
                 <th className="w-20 px-4 py-3 text-left">PO #</th>
                 <th className="px-4 py-3 text-left">Description</th>
                 <th className="w-36 px-4 py-3 text-right">Estimate</th>
@@ -224,8 +224,8 @@ function FragmentRows({
 }) {
   return (
     <>
-      <tr className="border-t border-white/10 bg-white/[0.03]">
-        <td colSpan={6} className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-white/30">
+      <tr className="border-t border-[var(--ch-border)] bg-[var(--ch-surface)]">
+        <td colSpan={6} className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-[var(--ch-text-muted)]">
           {section}
         </td>
       </tr>
@@ -235,9 +235,9 @@ function FragmentRows({
         const isUnder = variance < 0 && line.actual > 0;
 
         return (
-          <tr key={line.id} className="border-t border-white/5 hover:bg-white/[0.03]">
-            <td className="px-4 py-2.5 font-mono text-xs text-white/40">{line.po_number}</td>
-            <td className="px-4 py-2.5 text-white/80">{line.description}</td>
+          <tr key={line.id} className="border-t border-[var(--ch-border)] hover:bg-[var(--ch-surface)]">
+            <td className="px-4 py-2.5 font-mono text-xs text-[var(--ch-text-muted)]">{line.po_number}</td>
+            <td className="px-4 py-2.5 text-[var(--ch-text-secondary)]">{line.description}</td>
             {(["estimate", "actual"] as const).map((field) => (
               <td key={field} className="px-4 py-2.5 text-right">
                 {editingCell?.lineId === line.id && editingCell.field === field ? (
@@ -251,27 +251,27 @@ function FragmentRows({
                     onKeyDown={(event) => {
                       if (event.key === "Enter") commitEdit(line, field);
                     }}
-                    className="w-full rounded border border-[#FAC775]/50 bg-white/10 px-2 py-1 text-right text-white outline-none"
+                    className="w-full rounded border border-[var(--ch-accent)] bg-[var(--ch-surface)] px-2 py-1 text-right text-[var(--ch-text-primary)] outline-none"
                   />
                 ) : (
                   <button
                     type="button"
                     onClick={() => startEdit(line, field)}
-                    className="text-right text-white/70 transition-colors hover:text-[#FAC775]"
+                    className="text-right text-[var(--ch-text-secondary)] transition-colors hover:text-[var(--ch-accent)]"
                   >
-                    {line[field] > 0 ? fmt(line[field]) : <span className="text-white/20">-</span>}
+                    {line[field] > 0 ? fmt(line[field]) : <span className="text-[var(--ch-text-muted)]">-</span>}
                   </button>
                 )}
               </td>
             ))}
-            <td className={`px-4 py-2.5 text-right font-medium ${isOver ? "text-red-400" : isUnder ? "text-emerald-400" : "text-white/20"}`}>
+            <td className={`px-4 py-2.5 text-right font-medium ${isOver ? "text-red-400" : isUnder ? "text-emerald-400" : "text-[var(--ch-text-muted)]"}`}>
               {line.actual > 0 ? fmt(variance) : "-"}
             </td>
             <td className="px-4 py-2.5 text-center">
               <button
                 type="button"
                 onClick={() => onIssuePO(line)}
-                className="rounded border border-[#FAC775]/30 px-2 py-1 text-xs font-semibold text-[#FAC775] opacity-70 transition hover:bg-[#FAC775]/10 hover:opacity-100"
+                className="rounded border border-[var(--ch-accent)] px-2 py-1 text-xs font-semibold text-[var(--ch-accent)] opacity-70 transition hover:bg-[var(--ch-accent-soft)] hover:opacity-100"
               >
                 PO+
               </button>
@@ -337,30 +337,30 @@ function IssuePODrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-md flex-col gap-5 overflow-y-auto border-l border-white/10 bg-[#161921] p-6">
-        <div className="flex items-center justify-between">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative flex h-full w-full max-w-md flex-col overflow-y-auto rounded-l-2xl border-l border-[var(--ch-border)] bg-[var(--ch-surface)] shadow-xl">
+        <div className="flex items-center justify-between border-b border-[var(--ch-border)] px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold text-white">Issue Purchase Order</h2>
-            <p className="mt-0.5 font-mono text-xs text-white/40">
+            <h2 className="text-base font-semibold text-[var(--ch-text-primary)]">Issue Purchase Order</h2>
+            <p className="mt-0.5 font-mono text-xs text-[var(--ch-text-muted)]">
               {line.po_number} - {line.description}
             </p>
           </div>
-          <button type="button" onClick={onClose} className="text-xl text-white/30 hover:text-white">
+          <button type="button" onClick={onClose} className="text-xl text-[var(--ch-text-muted)] hover:text-[var(--ch-text-primary)]">
             x
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div className="flex-1 space-y-4 px-5 py-4">
           <div>
-            <label className="mb-1.5 block text-xs text-white/40">Vendor</label>
+            <label className="mb-1.5 block text-xs text-[var(--ch-text-muted)]">Vendor</label>
             <select
               value={vendorId}
               onChange={(event) => {
                 setVendorId(event.target.value);
                 if (event.target.value) setVendorName("");
               }}
-              className="mb-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-[#FAC775]/50 focus:outline-none"
+              className="mb-2 w-full rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-sm text-[var(--ch-text-primary)] focus:border-[var(--ch-accent)] focus:outline-none"
             >
               <option value="">Type a new vendor name below...</option>
               {vendors.map((vendor) => (
@@ -375,56 +375,56 @@ function IssuePODrawer({
                 placeholder="New vendor name"
                 value={vendorName}
                 onChange={(event) => setVendorName(event.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-[#FAC775]/50 focus:outline-none"
+                className="w-full rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-sm text-[var(--ch-text-primary)] placeholder:text-[var(--ch-text-muted)] focus:border-[var(--ch-accent)] focus:outline-none"
               />
             )}
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs text-white/40">Description</label>
+            <label className="mb-1.5 block text-xs text-[var(--ch-text-muted)]">Description</label>
             <input
               type="text"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-[#FAC775]/50 focus:outline-none"
+              className="w-full rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-sm text-[var(--ch-text-primary)] focus:border-[var(--ch-accent)] focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs text-white/40">Amount (CAD)</label>
+            <label className="mb-1.5 block text-xs text-[var(--ch-text-muted)]">Amount (CAD)</label>
             <input
               type="text"
               inputMode="decimal"
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-[#FAC775]/50 focus:outline-none"
+              className="w-full rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-sm text-[var(--ch-text-primary)] focus:border-[var(--ch-accent)] focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="mb-1.5 block text-xs text-white/40">Notes (optional)</label>
+            <label className="mb-1.5 block text-xs text-[var(--ch-text-muted)]">Notes (optional)</label>
             <textarea
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               rows={3}
-              className="w-full resize-none rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-[#FAC775]/50 focus:outline-none"
+              className="w-full resize-none rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-sm text-[var(--ch-text-primary)] placeholder:text-[var(--ch-text-muted)] focus:border-[var(--ch-accent)] focus:outline-none"
             />
           </div>
         </div>
 
-        <div className="mt-auto flex gap-3 border-t border-white/10 pt-4">
+        <div className="mt-auto flex justify-end gap-3 border-t border-[var(--ch-border)] px-5 py-4">
           <button
             type="button"
             onClick={submit}
             disabled={saving}
-            className="flex-1 rounded-lg border border-[#FAC775]/30 bg-[#FAC775]/20 py-2.5 text-sm font-medium text-[#FAC775] transition-colors hover:bg-[#FAC775]/30 disabled:opacity-40"
+            className="rounded-lg bg-[var(--ch-accent)] px-5 py-2.5 text-sm font-medium text-[var(--ch-accent-text)] transition-colors hover:bg-[var(--ch-accent-hover)] disabled:opacity-40"
           >
             {saving ? "Issuing..." : "Issue PO"}
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg bg-white/5 px-4 py-2.5 text-sm text-white/40 transition-colors hover:bg-white/10"
+            className="rounded-lg border border-[var(--ch-border-strong)] bg-[var(--ch-surface)] px-4 py-2.5 text-sm text-[var(--ch-text-secondary)] transition-colors hover:bg-[var(--ch-surface-hover)]"
           >
             Cancel
           </button>

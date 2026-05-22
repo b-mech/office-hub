@@ -65,26 +65,26 @@ function BudgetTab({
       {/* Totals bar */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
-          { label: "Total Estimate", value: budget.total_estimate, color: "text-white" },
-          { label: "Total Actual", value: budget.total_actual, color: "text-white" },
+          { label: "Total Estimate", value: budget.total_estimate, color: "text-[var(--ch-text-primary)]" },
+          { label: "Total Actual", value: budget.total_actual, color: "text-[var(--ch-text-primary)]" },
           {
             label: "Variance",
             value: budget.total_variance,
-            color: budget.total_variance > 0 ? "text-red-400" : budget.total_variance < 0 ? "text-emerald-400" : "text-white",
+            color: budget.total_variance > 0 ? "text-red-400" : budget.total_variance < 0 ? "text-emerald-400" : "text-[var(--ch-text-primary)]",
           },
         ].map(({ label, value, color }) => (
-          <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-4">
-            <p className="text-xs text-white/40 mb-1">{label}</p>
+          <div key={label} className="bg-[var(--ch-surface)] border border-[var(--ch-border)] rounded-xl p-4">
+            <p className="text-xs text-[var(--ch-text-muted)] mb-1">{label}</p>
             <p className={`text-xl font-semibold ${color}`}>{fmt(value)}</p>
           </div>
         ))}
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-white/10 overflow-hidden">
+      <div className="rounded-xl border border-[var(--ch-border)] overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-white/5 border-b border-white/10 text-xs text-white/40 uppercase tracking-widest">
+            <tr className="bg-[var(--ch-surface)] border-b border-[var(--ch-border)] text-xs text-[var(--ch-text-muted)] uppercase tracking-widest">
               <th className="text-left px-4 py-3 w-16">PO #</th>
               <th className="text-left px-4 py-3">Description</th>
               <th className="text-right px-4 py-3 w-36">Estimate</th>
@@ -96,8 +96,8 @@ function BudgetTab({
           <tbody>
             {Object.entries(sections).map(([section, lines]) => (
               <Fragment key={section}>
-                <tr className="bg-white/3 border-t border-white/10">
-                  <td colSpan={6} className="px-4 py-2 text-[10px] font-bold text-white/30 uppercase tracking-widest">
+                <tr className="bg-[var(--ch-surface)] border-t border-[var(--ch-border)]">
+                  <td colSpan={6} className="px-4 py-2 text-[10px] font-bold text-[var(--ch-text-muted)] uppercase tracking-widest">
                     {section}
                   </td>
                 </tr>
@@ -107,9 +107,9 @@ function BudgetTab({
                   const isUnder = variance < 0 && line.actual > 0;
 
                   return (
-                    <tr key={line.id} className="border-t border-white/5 hover:bg-white/3 group">
-                      <td className="px-4 py-2.5 font-mono text-xs text-white/40">{line.po_number}</td>
-                      <td className="px-4 py-2.5 text-white/80">{line.description}</td>
+                    <tr key={line.id} className="border-t border-[var(--ch-border)] hover:bg-[var(--ch-surface)] group">
+                      <td className="px-4 py-2.5 font-mono text-xs text-[var(--ch-text-muted)]">{line.po_number}</td>
+                      <td className="px-4 py-2.5 text-[var(--ch-text-secondary)]">{line.description}</td>
 
                       {/* Estimate cell */}
                       <td className="px-4 py-2.5 text-right">
@@ -122,14 +122,14 @@ function BudgetTab({
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => commitEdit(line, "estimate")}
                             onKeyDown={(e) => e.key === "Enter" && commitEdit(line, "estimate")}
-                            className="w-full text-right bg-white/10 border border-amber-400/50 rounded px-2 py-0.5 text-white focus:outline-none"
+                            className="w-full text-right bg-[var(--ch-surface)] border border-amber-400/50 rounded px-2 py-0.5 text-[var(--ch-text-primary)] focus:outline-none"
                           />
                         ) : (
                           <span
                             onClick={() => startEdit(line, "estimate")}
-                            className="cursor-pointer hover:text-amber-300 transition-colors text-white/70"
+                            className="cursor-pointer hover:text-amber-300 transition-colors text-[var(--ch-text-secondary)]"
                           >
-                            {line.estimate > 0 ? fmt(line.estimate) : <span className="text-white/20">—</span>}
+                            {line.estimate > 0 ? fmt(line.estimate) : <span className="text-[var(--ch-text-muted)]">—</span>}
                           </span>
                         )}
                       </td>
@@ -145,20 +145,20 @@ function BudgetTab({
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => commitEdit(line, "actual")}
                             onKeyDown={(e) => e.key === "Enter" && commitEdit(line, "actual")}
-                            className="w-full text-right bg-white/10 border border-amber-400/50 rounded px-2 py-0.5 text-white focus:outline-none"
+                            className="w-full text-right bg-[var(--ch-surface)] border border-amber-400/50 rounded px-2 py-0.5 text-[var(--ch-text-primary)] focus:outline-none"
                           />
                         ) : (
                           <span
                             onClick={() => startEdit(line, "actual")}
-                            className="cursor-pointer hover:text-amber-300 transition-colors text-white/70"
+                            className="cursor-pointer hover:text-amber-300 transition-colors text-[var(--ch-text-secondary)]"
                           >
-                            {line.actual > 0 ? fmt(line.actual) : <span className="text-white/20">—</span>}
+                            {line.actual > 0 ? fmt(line.actual) : <span className="text-[var(--ch-text-muted)]">—</span>}
                           </span>
                         )}
                       </td>
 
                       {/* Variance */}
-                      <td className={`px-4 py-2.5 text-right font-medium ${isOver ? "text-red-400" : isUnder ? "text-emerald-400" : "text-white/20"}`}>
+                      <td className={`px-4 py-2.5 text-right font-medium ${isOver ? "text-red-400" : isUnder ? "text-emerald-400" : "text-[var(--ch-text-muted)]"}`}>
                         {line.actual > 0 ? fmt(variance) : "—"}
                       </td>
 
@@ -167,7 +167,7 @@ function BudgetTab({
                         <button
                           onClick={() => onIssuePO(line)}
                           title="Issue PO"
-                          className="text-xs text-white/40 hover:text-amber-300 transition-colors"
+                          className="text-xs text-[var(--ch-text-muted)] hover:text-amber-300 transition-colors"
                         >
                           PO+
                         </button>
@@ -187,7 +187,7 @@ function BudgetTab({
 // ─── PO Tab ───────────────────────────────────────────────────────────────────
 
 const PO_STATUS_COLOR: Record<string, string> = {
-  draft: "bg-white/10 text-white/50",
+  draft: "bg-[var(--ch-surface)] text-[var(--ch-text-muted)]",
   issued: "bg-blue-500/15 text-blue-300",
   acknowledged: "bg-purple-500/15 text-purple-300",
   complete: "bg-emerald-500/15 text-emerald-300",
@@ -211,14 +211,14 @@ function POTab({ budgetId }: { budgetId: string }) {
     setPOs((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
   }
 
-  if (loading) return <div className="text-white/30 text-sm py-8 text-center">Loading…</div>;
-  if (pos.length === 0) return <div className="text-white/30 text-sm py-8 text-center">No purchase orders yet. Issue one from the Budget tab.</div>;
+  if (loading) return <div className="text-[var(--ch-text-muted)] text-sm py-8 text-center">Loading…</div>;
+  if (pos.length === 0) return <div className="text-[var(--ch-text-muted)] text-sm py-8 text-center">No purchase orders yet. Issue one from the Budget tab.</div>;
 
   return (
-    <div className="rounded-xl border border-white/10 overflow-hidden">
+    <div className="rounded-xl border border-[var(--ch-border)] overflow-hidden">
       <table className="w-full text-sm">
         <thead>
-          <tr className="bg-white/5 border-b border-white/10 text-xs text-white/40 uppercase tracking-widest">
+          <tr className="bg-[var(--ch-surface)] border-b border-[var(--ch-border)] text-xs text-[var(--ch-text-muted)] uppercase tracking-widest">
             <th className="text-left px-4 py-3">PO #</th>
             <th className="text-left px-4 py-3">Vendor</th>
             <th className="text-left px-4 py-3">Description</th>
@@ -229,11 +229,11 @@ function POTab({ budgetId }: { budgetId: string }) {
         </thead>
         <tbody>
           {pos.map((po) => (
-            <tr key={po.id} className="border-t border-white/5 hover:bg-white/3">
-              <td className="px-4 py-3 font-mono text-xs text-white/50">{po.po_number}</td>
-              <td className="px-4 py-3 text-white/80">{po.vendor_name || po.vendor_name_adhoc || "—"}</td>
-              <td className="px-4 py-3 text-white/60">{po.description}</td>
-              <td className="px-4 py-3 text-right text-white/80">{fmt(po.amount)}</td>
+            <tr key={po.id} className="border-t border-[var(--ch-border)] hover:bg-[var(--ch-surface)]">
+              <td className="px-4 py-3 font-mono text-xs text-[var(--ch-text-muted)]">{po.po_number}</td>
+              <td className="px-4 py-3 text-[var(--ch-text-secondary)]">{po.vendor_name || po.vendor_name_adhoc || "—"}</td>
+              <td className="px-4 py-3 text-[var(--ch-text-secondary)]">{po.description}</td>
+              <td className="px-4 py-3 text-right text-[var(--ch-text-secondary)]">{fmt(po.amount)}</td>
               <td className="px-4 py-3">
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PO_STATUS_COLOR[po.status]}`}>
                   {po.status}
@@ -243,7 +243,7 @@ function POTab({ budgetId }: { budgetId: string }) {
                 {["draft", "issued", "acknowledged"].includes(po.status) && (
                   <button
                     onClick={() => advance(po)}
-                    className="text-xs text-white/40 hover:text-amber-300 transition-colors"
+                    className="text-xs text-[var(--ch-text-muted)] hover:text-amber-300 transition-colors"
                   >
                     Advance →
                   </button>
@@ -307,24 +307,24 @@ function InvoiceTab({ budgetId, budgetLines }: { budgetId: string; budgetLines: 
       <div className="mb-6">
         <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all
           ${uploading
-            ? "bg-white/10 text-white/40 cursor-not-allowed"
+            ? "bg-[var(--ch-surface)] text-[var(--ch-text-muted)] cursor-not-allowed"
             : "bg-amber-400/20 text-amber-300 border border-amber-400/30 hover:bg-amber-400/30"
           }`}
         >
           {uploading ? "Extracting…" : "Upload Invoice"}
           <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={handleUpload} disabled={uploading} />
         </label>
-        <p className="text-xs text-white/30 mt-1.5">PDF or image — Claude extracts the details automatically</p>
+        <p className="text-xs text-[var(--ch-text-muted)] mt-1.5">PDF or image — Claude extracts the details automatically</p>
       </div>
 
       {loading ? (
-        <div className="text-white/30 text-sm py-8 text-center">Loading…</div>
+        <div className="text-[var(--ch-text-muted)] text-sm py-8 text-center">Loading…</div>
       ) : invoices.length === 0 ? (
-        <div className="text-white/30 text-sm py-8 text-center">No invoices yet.</div>
+        <div className="text-[var(--ch-text-muted)] text-sm py-8 text-center">No invoices yet.</div>
       ) : (
         <div className="space-y-3">
           {invoices.map((inv) => (
-            <div key={inv.id} className="rounded-xl border border-white/10 bg-white/3 p-5">
+            <div key={inv.id} className="rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
               <div className="flex items-start justify-between gap-4 mb-3">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -341,29 +341,29 @@ function InvoiceTab({ budgetId, budgetLines }: { budgetId: string; budgetLines: 
                       </span>
                     )}
                   </div>
-                  <p className="text-white font-medium">{inv.vendor_name || "Unknown Vendor"}</p>
-                  {inv.invoice_number && <p className="text-xs text-white/40">#{inv.invoice_number}</p>}
+                  <p className="text-[var(--ch-text-primary)] font-medium">{inv.vendor_name || "Unknown Vendor"}</p>
+                  {inv.invoice_number && <p className="text-xs text-[var(--ch-text-muted)]">#{inv.invoice_number}</p>}
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-semibold text-white">{fmt(inv.amount_claimed)}</p>
-                  {inv.invoice_date && <p className="text-xs text-white/40">{inv.invoice_date}</p>}
+                  <p className="text-lg font-semibold text-[var(--ch-text-primary)]">{fmt(inv.amount_claimed)}</p>
+                  {inv.invoice_date && <p className="text-xs text-[var(--ch-text-muted)]">{inv.invoice_date}</p>}
                 </div>
               </div>
 
               {inv.suggested_po_number && (
-                <p className="text-xs text-white/40 mb-3">
-                  Suggested category: <span className="font-mono text-white/60">{inv.suggested_po_number}</span>
+                <p className="text-xs text-[var(--ch-text-muted)] mb-3">
+                  Suggested category: <span className="font-mono text-[var(--ch-text-secondary)]">{inv.suggested_po_number}</span>
                 </p>
               )}
 
               {inv.status === "pending_review" && (
-                <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/10">
+                <div className="flex items-center gap-3 mt-3 pt-3 border-t border-[var(--ch-border)]">
                   {approvingId === inv.id ? (
                     <>
                       <select
                         value={selectedLineId}
                         onChange={(e) => setSelectedLineId(e.target.value)}
-                        className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-amber-400/50"
+                        className="flex-1 bg-[var(--ch-surface)] border border-[var(--ch-border-strong)] rounded-lg px-3 py-1.5 text-sm text-[var(--ch-text-primary)] focus:outline-none focus:border-amber-400/50"
                       >
                         <option value="">Select budget line…</option>
                         {budgetLines.map((l) => (
@@ -380,7 +380,7 @@ function InvoiceTab({ budgetId, budgetLines }: { budgetId: string; budgetLines: 
                       </button>
                       <button
                         onClick={() => setApprovingId(null)}
-                        className="px-3 py-1.5 rounded-lg bg-white/5 text-white/40 text-sm hover:bg-white/10 transition-colors"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--ch-surface)] text-[var(--ch-text-muted)] text-sm hover:bg-[var(--ch-surface)] transition-colors"
                       >
                         Cancel
                       </button>
@@ -405,7 +405,7 @@ function InvoiceTab({ budgetId, budgetLines }: { budgetId: string; budgetLines: 
               )}
 
               {inv.status === "rejected" && inv.rejection_reason && (
-                <p className="text-xs text-red-400/70 mt-2 pt-2 border-t border-white/10">{inv.rejection_reason}</p>
+                <p className="text-xs text-red-400/70 mt-2 pt-2 border-t border-[var(--ch-border)]">{inv.rejection_reason}</p>
               )}
             </div>
           ))}
@@ -464,23 +464,23 @@ function IssuePODrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-[#161921] border-l border-white/10 h-full overflow-y-auto p-6 flex flex-col gap-5">
-        <div className="flex items-center justify-between">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative flex h-full w-full max-w-md flex-col overflow-y-auto rounded-l-2xl border-l border-[var(--ch-border)] bg-[var(--ch-surface)] shadow-xl">
+        <div className="flex items-center justify-between border-b border-[var(--ch-border)] px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold text-white">Issue Purchase Order</h2>
-            <p className="text-xs text-white/40 mt-0.5 font-mono">{line.po_number} — {line.description}</p>
+            <h2 className="text-base font-semibold text-[var(--ch-text-primary)]">Issue Purchase Order</h2>
+            <p className="text-xs text-[var(--ch-text-muted)] mt-0.5 font-mono">{line.po_number} — {line.description}</p>
           </div>
-          <button onClick={onClose} className="text-white/30 hover:text-white text-xl">×</button>
+          <button onClick={onClose} className="text-[var(--ch-text-muted)] hover:text-[var(--ch-text-primary)] text-xl">×</button>
         </div>
 
-        <div className="space-y-4">
+        <div className="flex-1 space-y-4 px-5 py-4">
           <div>
-            <label className="text-xs text-white/40 mb-1.5 block">Vendor</label>
+            <label className="text-xs text-[var(--ch-text-muted)] mb-1.5 block">Vendor</label>
             <select
               value={vendorId}
               onChange={(e) => { setVendorId(e.target.value); if (e.target.value) setVendorName(""); }}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400/50 mb-2"
+              className="w-full bg-[var(--ch-surface)] border border-[var(--ch-border)] rounded-lg px-3 py-2 text-sm text-[var(--ch-text-primary)] focus:outline-none focus:border-[var(--ch-accent)] focus:ring-2 focus:ring-[var(--ch-focus-ring)] mb-2"
             >
               <option value="">Type a new vendor name below…</option>
               {vendors.map((v) => (
@@ -493,54 +493,54 @@ function IssuePODrawer({
                 placeholder="New vendor name"
                 value={vendorName}
                 onChange={(e) => setVendorName(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-amber-400/50"
+                className="w-full bg-[var(--ch-surface)] border border-[var(--ch-border)] rounded-lg px-3 py-2 text-sm text-[var(--ch-text-primary)] placeholder:text-[var(--ch-text-muted)] focus:outline-none focus:border-[var(--ch-accent)] focus:ring-2 focus:ring-[var(--ch-focus-ring)]"
               />
             )}
           </div>
 
           <div>
-            <label className="text-xs text-white/40 mb-1.5 block">Description</label>
+            <label className="text-xs text-[var(--ch-text-muted)] mb-1.5 block">Description</label>
             <input
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400/50"
+              className="w-full bg-[var(--ch-surface)] border border-[var(--ch-border)] rounded-lg px-3 py-2 text-sm text-[var(--ch-text-primary)] focus:outline-none focus:border-[var(--ch-accent)] focus:ring-2 focus:ring-[var(--ch-focus-ring)]"
             />
           </div>
 
           <div>
-            <label className="text-xs text-white/40 mb-1.5 block">Amount (CAD)</label>
+            <label className="text-xs text-[var(--ch-text-muted)] mb-1.5 block">Amount (CAD)</label>
             <input
               type="text"
               inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400/50"
+              className="w-full bg-[var(--ch-surface)] border border-[var(--ch-border)] rounded-lg px-3 py-2 text-sm text-[var(--ch-text-primary)] focus:outline-none focus:border-[var(--ch-accent)] focus:ring-2 focus:ring-[var(--ch-focus-ring)]"
             />
           </div>
 
           <div>
-            <label className="text-xs text-white/40 mb-1.5 block">Notes (optional)</label>
+            <label className="text-xs text-[var(--ch-text-muted)] mb-1.5 block">Notes (optional)</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-amber-400/50 resize-none"
+              className="w-full bg-[var(--ch-surface)] border border-[var(--ch-border)] rounded-lg px-3 py-2 text-sm text-[var(--ch-text-primary)] placeholder:text-[var(--ch-text-muted)] focus:outline-none focus:border-[var(--ch-accent)] focus:ring-2 focus:ring-[var(--ch-focus-ring)] resize-none"
             />
           </div>
         </div>
 
-        <div className="flex gap-3 mt-auto pt-4 border-t border-white/10">
+        <div className="mt-auto flex justify-end gap-3 border-t border-[var(--ch-border)] px-5 py-4">
           <button
             onClick={submit}
             disabled={saving}
-            className="flex-1 py-2.5 rounded-lg bg-amber-400/20 text-amber-300 border border-amber-400/30 text-sm font-medium hover:bg-amber-400/30 transition-colors disabled:opacity-40"
+            className="rounded-lg bg-[var(--ch-accent)] px-5 py-2.5 text-sm font-medium text-[var(--ch-accent-text)] transition-colors hover:bg-[var(--ch-accent-hover)] disabled:opacity-40"
           >
             {saving ? "Issuing…" : "Issue PO"}
           </button>
           <button
             onClick={onClose}
-            className="px-4 py-2.5 rounded-lg bg-white/5 text-white/40 text-sm hover:bg-white/10 transition-colors"
+            className="rounded-lg border border-[var(--ch-border-strong)] bg-[var(--ch-surface)] px-4 py-2.5 text-sm text-[var(--ch-text-secondary)] transition-colors hover:bg-[var(--ch-surface-hover)]"
           >
             Cancel
           </button>
@@ -633,19 +633,19 @@ export default function CostbookPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f1117] text-white">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)]">
       {/* Top bar */}
-      <div className="border-b border-white/10 px-8 py-4 flex items-center gap-4">
+      <div className="border-b border-[var(--ch-border)] px-8 py-4 flex items-center gap-4">
         {lotId && (
-          <Link href="/lots" className="text-white/30 hover:text-white text-sm transition-colors">
+          <Link href="/lots" className="text-[var(--ch-text-muted)] hover:text-[var(--ch-text-primary)] text-sm transition-colors">
             ← Lots
           </Link>
         )}
-        <h1 className="text-base font-semibold text-white">
+        <h1 className="text-base font-semibold text-[var(--ch-text-primary)]">
           {visibleBudget ? visibleBudget.label : "Costbook"}
         </h1>
         {visibleBudget && (
-          <span className="text-xs font-mono text-white/30 bg-white/5 px-2 py-0.5 rounded">
+          <span className="text-xs font-mono text-[var(--ch-text-muted)] bg-[var(--ch-surface)] px-2 py-0.5 rounded">
             {visibleBudget.status}
           </span>
         )}
@@ -653,10 +653,10 @@ export default function CostbookPage() {
 
       <div className="px-8 py-6">
         {loading ? (
-          <div className="text-white/30 text-sm py-16 text-center">Loading…</div>
+          <div className="text-[var(--ch-text-muted)] text-sm py-16 text-center">Loading…</div>
         ) : !visibleBudget ? (
           <div className="text-center py-16">
-            <p className="text-white/40 text-sm mb-4">No budget yet for this lot.</p>
+            <p className="text-[var(--ch-text-muted)] text-sm mb-4">No budget yet for this lot.</p>
             <button
               onClick={handleCreate}
               disabled={creating}
@@ -668,15 +668,15 @@ export default function CostbookPage() {
         ) : (
           <>
             {/* Tabs */}
-            <div className="flex gap-1 mb-6 bg-white/5 rounded-xl p-1 w-fit">
+            <div className="flex gap-1 mb-6 bg-[var(--ch-surface)] rounded-xl p-1 w-fit">
               {TAB_ITEMS.map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                     activeTab === tab
-                      ? "bg-white/10 text-white"
-                      : "text-white/40 hover:text-white/70"
+                      ? "bg-[var(--ch-surface)] text-[var(--ch-text-primary)]"
+                      : "text-[var(--ch-text-muted)] hover:text-[var(--ch-text-secondary)]"
                   }`}
                 >
                   {tab}

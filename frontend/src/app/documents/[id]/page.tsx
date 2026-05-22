@@ -173,7 +173,7 @@ function getStatusBadge(status: string): string {
   if (status === "in_review") {
     return "bg-amber-100 text-amber-800 ring-amber-200";
   }
-  return "bg-slate-100 text-slate-700 ring-slate-200";
+  return "bg-[var(--ch-surface)] text-[var(--ch-text-secondary)] ring-[var(--ch-border)]";
 }
 
 function formatDocType(docType: string): string {
@@ -553,9 +553,9 @@ export default function DocumentReviewPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,_#f2ede6,_#e4ddd0)]">
-        <div className="flex items-center gap-3 rounded-full border border-stone-300 bg-white/80 px-5 py-3 text-sm font-medium text-stone-700 shadow-lg backdrop-blur">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-stone-300 border-t-stone-700" />
+      <main className="flex min-h-screen items-center justify-center bg-[var(--ch-page-bg)]">
+        <div className="flex items-center gap-3 rounded-full border border-[var(--ch-border)] bg-[var(--ch-surface)] px-5 py-3 text-sm font-medium text-[var(--ch-text-secondary)] shadow-lg backdrop-blur">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--ch-border)] border-t-[var(--ch-accent)]" />
           Loading review workspace
         </div>
       </main>
@@ -564,18 +564,18 @@ export default function DocumentReviewPage() {
 
   if (error && !detail) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,_#f2ede6,_#e4ddd0)] px-6">
+      <main className="flex min-h-screen items-center justify-center bg-[var(--ch-page-bg)] px-6">
         <div className="max-w-xl rounded-[2rem] border border-rose-200 bg-white px-6 py-8 shadow-xl">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-rose-500">
             Review Error
           </p>
-          <h1 className="mt-3 text-2xl font-semibold text-stone-950">
+          <h1 className="mt-3 text-2xl font-semibold text-[var(--ch-text-primary)]">
             Could not open this document.
           </h1>
-          <p className="mt-3 text-sm leading-6 text-stone-600">{error}</p>
+          <p className="mt-3 text-sm leading-6 text-[var(--ch-text-secondary)]">{error}</p>
           <Link
             href="/documents"
-            className="mt-6 inline-flex rounded-full bg-stone-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-stone-700"
+            className="mt-6 inline-flex rounded-full bg-[var(--ch-surface)] px-5 py-3 text-sm font-semibold text-[var(--ch-text-primary)] transition hover:bg-[var(--ch-accent-hover)]"
           >
             Back to documents
           </Link>
@@ -590,20 +590,20 @@ export default function DocumentReviewPage() {
   const activeAgreementFields = isSaleOtp ? saleAgreementFieldLabels : agreementFieldLabels;
 
   return (
-    <main className="h-screen bg-[linear-gradient(135deg,_#efe9df,_#dad0c1)] p-3 text-stone-900 sm:p-4">
+    <main className="h-screen bg-[var(--ch-page-bg)] p-3 text-[var(--ch-text-primary)] sm:p-4">
       <div className="grid h-full gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="min-h-[42vh] min-w-0 overflow-hidden rounded-[2rem] border border-stone-300/70 bg-stone-950 shadow-[0_30px_80px_rgba(44,28,15,0.35)]">
+        <section className="min-h-[42vh] min-w-0 overflow-hidden rounded-[2rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] shadow-lg">
           <div className="flex h-full flex-col">
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 text-white">
+            <div className="flex items-center justify-between border-b border-[var(--ch-border)] px-5 py-4 text-[var(--ch-text-primary)]">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                   Source PDF
                 </p>
                 <h2 className="mt-1 text-lg font-semibold">{filename}</h2>
               </div>
               <Link
                 href="/documents"
-                className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-stone-200 transition hover:border-white/40 hover:bg-white/10"
+                className="rounded-full border border-[var(--ch-border)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-text-secondary)] transition hover:border-[var(--ch-border-strong)] hover:bg-[var(--ch-surface)]"
               >
                 Back
               </Link>
@@ -619,7 +619,7 @@ export default function DocumentReviewPage() {
           </div>
         </section>
 
-        <section className="flex h-full min-h-[52vh] flex-col overflow-hidden rounded-[2rem] border border-stone-300/70 bg-white/92 shadow-[0_30px_80px_rgba(73,56,36,0.16)] backdrop-blur">
+        <section className="flex h-full min-h-[52vh] flex-col overflow-hidden rounded-[2rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] shadow-lg backdrop-blur">
           <div
             ref={panelRef}
             onScroll={(event) => {
@@ -630,12 +630,12 @@ export default function DocumentReviewPage() {
             }}
             className="min-h-0 flex-1 overflow-y-auto"
           >
-            <div className="border-b border-stone-200/80 px-6 py-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-stone-500">
+            <div className="border-b border-[var(--ch-border)] px-6 py-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--ch-text-muted)]">
                 Review Workspace
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-semibold tracking-tight text-stone-950">
+                <h1 className="text-2xl font-semibold tracking-tight text-[var(--ch-text-primary)]">
                   {filename}
                 </h1>
                 <span
@@ -643,11 +643,11 @@ export default function DocumentReviewPage() {
                 >
                   {detail?.document.status.replaceAll("_", " ")}
                 </span>
-                <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-stone-600">
+                <span className="rounded-full bg-[var(--ch-surface-muted)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-text-secondary)]">
                   {formatDocType(detail?.document.doc_type || "")}
                 </span>
               </div>
-              <div className="mt-4 grid gap-2 text-sm text-stone-600 sm:grid-cols-2">
+              <div className="mt-4 grid gap-2 text-sm text-[var(--ch-text-secondary)] sm:grid-cols-2">
                 <p>OCR method: {detail?.ingestion?.ocr_method || "Not available"}</p>
                 <p>
                   OCR confidence:{" "}
@@ -668,7 +668,7 @@ export default function DocumentReviewPage() {
                   </p>
                   <Link
                     href="/documents"
-                    className="mt-4 inline-flex rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition hover:bg-emerald-600"
+                    className="mt-4 inline-flex rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-text-primary)] transition hover:bg-emerald-600"
                   >
                     Return to queue
                   </Link>
@@ -682,13 +682,13 @@ export default function DocumentReviewPage() {
             </div>
 
             <div className="space-y-5 px-4 py-5 sm:px-5">
-              <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+              <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                       1. Agreement Fields
                     </p>
-                    <h2 className="mt-1 text-lg font-semibold text-stone-950">
+                    <h2 className="mt-1 text-lg font-semibold text-[var(--ch-text-primary)]">
                       Agreement-level extraction
                     </h2>
                   </div>
@@ -700,14 +700,14 @@ export default function DocumentReviewPage() {
                     return (
                       <label
                         key={field}
-                        className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                        className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-[var(--ch-border)] bg-white"}`}
                       >
                         <div className="mb-2 flex items-center justify-between gap-4">
-                          <span className="text-sm font-semibold text-stone-800">
+                          <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                             {label}
                           </span>
                           <span
-                            className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                            className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                           >
                             {lowConfidence
                               ? `Warning ${Math.round(getConfidence(path) * 100)}% confidence`
@@ -719,7 +719,7 @@ export default function DocumentReviewPage() {
                           onChange={(event) =>
                             updateAgreementField(field, event.target.value)
                           }
-                          className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                          className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                         />
                       </label>
                     );
@@ -729,8 +729,8 @@ export default function DocumentReviewPage() {
 
               {!isSaleOtp ? (
                 <>
-              <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+              <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                   2. Security Deposit
                 </p>
                 <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -740,14 +740,14 @@ export default function DocumentReviewPage() {
                     return (
                       <label
                         key={field}
-                        className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                        className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-[var(--ch-border)] bg-white"}`}
                       >
                         <div className="mb-2 flex items-center justify-between gap-4">
-                          <span className="text-sm font-semibold text-stone-800">
+                          <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                             {label}
                           </span>
                           <span
-                            className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                            className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                           >
                             {Math.round(getConfidence(path) * 100)}%
                           </span>
@@ -757,7 +757,7 @@ export default function DocumentReviewPage() {
                           onChange={(event) =>
                             updateSecurityDepositField(field, event.target.value)
                           }
-                          className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                          className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                         />
                       </label>
                     );
@@ -765,17 +765,17 @@ export default function DocumentReviewPage() {
                 </div>
               </section>
 
-              <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+              <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                       3. Lots
                     </p>
-                    <h2 className="mt-1 text-lg font-semibold text-stone-950">
+                    <h2 className="mt-1 text-lg font-semibold text-[var(--ch-text-primary)]">
                       Lot schedule review
                     </h2>
                   </div>
-                  <span className="rounded-full bg-stone-900 px-3 py-1 text-xs font-semibold text-white">
+                  <span className="rounded-full bg-[var(--ch-surface)] px-3 py-1 text-xs font-semibold text-[var(--ch-text-primary)]">
                     {reviewedPayload.lots.length} lot
                     {reviewedPayload.lots.length === 1 ? "" : "s"}
                   </span>
@@ -783,7 +783,7 @@ export default function DocumentReviewPage() {
                 <button
                   type="button"
                   onClick={addLotRow}
-                  className="mt-4 rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-stone-700 transition hover:bg-stone-100"
+                  className="mt-4 rounded-full border border-[var(--ch-border)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-surface-muted)]"
                 >
                   Add lot
                 </button>
@@ -793,7 +793,7 @@ export default function DocumentReviewPage() {
                     return (
                       <article
                         key={`${lot.civic_address || "lot"}-${index}`}
-                        className="overflow-hidden rounded-[1.4rem] border border-stone-200 bg-white"
+                        className="overflow-hidden rounded-[1.4rem] border border-[var(--ch-border)] bg-white"
                       >
                         <button
                           type="button"
@@ -806,23 +806,23 @@ export default function DocumentReviewPage() {
                           className="flex w-full items-center justify-between px-4 py-4 text-left"
                         >
                           <div>
-                            <p className="text-lg font-semibold text-stone-950">
+                            <p className="text-lg font-semibold text-[var(--ch-text-primary)]">
                               {String(lot.civic_address || `Lot ${index + 1}`)}
                             </p>
-                            <p className="mt-1 text-sm text-stone-500">
+                            <p className="mt-1 text-sm text-[var(--ch-text-muted)]">
                               Block {String(lot.block || "—")} | Lot{" "}
                               {String(lot.lot_number || "—")} | Plan{" "}
                               {String(lot.plan || "—")}
                             </p>
                           </div>
-                          <span className="text-sm font-semibold text-stone-500">
+                          <span className="text-sm font-semibold text-[var(--ch-text-muted)]">
                             {isOpen ? "Hide" : "Show"}
                           </span>
                         </button>
                         {isOpen ? (
-                          <div className="grid gap-4 border-t border-stone-200 bg-stone-50/70 p-4">
-                            <label className="rounded-[1.1rem] border border-stone-200 bg-white px-4 py-3">
-                              <span className="mb-2 block text-sm font-semibold text-stone-800">
+                          <div className="grid gap-4 border-t border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
+                            <label className="rounded-[1.1rem] border border-[var(--ch-border)] bg-white px-4 py-3">
+                              <span className="mb-2 block text-sm font-semibold text-[var(--ch-text-primary)]">
                                 Civic Address
                               </span>
                               <input
@@ -830,7 +830,7 @@ export default function DocumentReviewPage() {
                                 onChange={(event) =>
                                   updateLotField(index, "civic_address", event.target.value)
                                 }
-                                className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                               />
                             </label>
                             <div className="grid gap-4 sm:grid-cols-2">
@@ -840,14 +840,14 @@ export default function DocumentReviewPage() {
                                 return (
                                   <label
                                     key={field}
-                                    className={`rounded-[1.1rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                                    className={`rounded-[1.1rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-[var(--ch-border)] bg-white"}`}
                                   >
                                     <div className="mb-2 flex items-center justify-between gap-4">
-                                      <span className="text-sm font-semibold text-stone-800">
+                                      <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                                         {label}
                                       </span>
                                       <span
-                                        className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                        className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                                       >
                                         {Math.round(getConfidence(path) * 100)}%
                                       </span>
@@ -857,7 +857,7 @@ export default function DocumentReviewPage() {
                                       onChange={(event) =>
                                         updateLotField(index, field, event.target.value)
                                       }
-                                      className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                      className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                                     />
                                   </label>
                                 );
@@ -871,11 +871,11 @@ export default function DocumentReviewPage() {
                 </div>
               </section>
 
-              <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+              <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                   4. Development Guidelines
                 </p>
-                <h2 className="mt-1 text-lg font-semibold text-stone-950">
+                <h2 className="mt-1 text-lg font-semibold text-[var(--ch-text-primary)]">
                   Community-level requirements
                 </h2>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -891,14 +891,14 @@ export default function DocumentReviewPage() {
                     return (
                       <label
                         key={field}
-                        className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"} ${isLongField ? "sm:col-span-2" : ""}`}
+                        className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-[var(--ch-border)] bg-white"} ${isLongField ? "sm:col-span-2" : ""}`}
                       >
                         <div className="mb-2 flex items-center justify-between gap-4">
-                          <span className="text-sm font-semibold text-stone-800">
+                          <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                             {label}
                           </span>
                           <span
-                            className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                            className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                           >
                             {Math.round(getConfidence(path) * 100)}%
                           </span>
@@ -910,7 +910,7 @@ export default function DocumentReviewPage() {
                               updateObjectField("development_guidelines", field, event.target.value)
                             }
                             rows={3}
-                            className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                            className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                           />
                         ) : (
                           <input
@@ -918,7 +918,7 @@ export default function DocumentReviewPage() {
                             onChange={(event) =>
                               updateObjectField("development_guidelines", field, event.target.value)
                             }
-                            className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                            className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                           />
                         )}
                       </label>
@@ -931,15 +931,15 @@ export default function DocumentReviewPage() {
 
               {isSaleOtp ? (
                 <>
-                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+                  <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
                     <div className="flex items-center justify-between gap-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                         2. Payment Schedule
                       </p>
                       <button
                         type="button"
                         onClick={() => addArrayRow("payment_schedule")}
-                        className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-stone-700 transition hover:bg-stone-100"
+                        className="rounded-full border border-[var(--ch-border)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-surface-muted)]"
                       >
                         Add payment
                       </button>
@@ -948,7 +948,7 @@ export default function DocumentReviewPage() {
                       {(reviewedPayload.payment_schedule || []).map((payment, index) => (
                         <article
                           key={`payment-${index}`}
-                          className="grid gap-4 rounded-[1.2rem] border border-stone-200 bg-white p-4 sm:grid-cols-2"
+                          className="grid gap-4 rounded-[1.2rem] border border-[var(--ch-border)] bg-white p-4 sm:grid-cols-2"
                         >
                           {paymentScheduleFieldLabels.map(([field, label]) => {
                             const path = `payment_schedule.${index}.${field}`;
@@ -956,11 +956,11 @@ export default function DocumentReviewPage() {
                             return (
                               <label key={field}>
                                 <div className="mb-2 flex items-center justify-between gap-4">
-                                  <span className="text-sm font-semibold text-stone-800">
+                                  <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                                     {label}
                                   </span>
                                   <span
-                                    className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                    className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                                   >
                                     {Math.round(getConfidence(path) * 100)}%
                                   </span>
@@ -970,7 +970,7 @@ export default function DocumentReviewPage() {
                                   onChange={(event) =>
                                     updateArrayField("payment_schedule", index, field, event.target.value)
                                   }
-                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                  className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                                 />
                               </label>
                             );
@@ -980,8 +980,8 @@ export default function DocumentReviewPage() {
                     </div>
                   </section>
 
-                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                  <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                       3. Conditions
                     </p>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -991,14 +991,14 @@ export default function DocumentReviewPage() {
                         return (
                           <label
                             key={field}
-                            className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                            className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-[var(--ch-border)] bg-white"}`}
                           >
                             <div className="mb-2 flex items-center justify-between gap-4">
-                              <span className="text-sm font-semibold text-stone-800">
+                              <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                                 {label}
                               </span>
                               <span
-                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                               >
                                 {Math.round(getConfidence(path) * 100)}%
                               </span>
@@ -1008,7 +1008,7 @@ export default function DocumentReviewPage() {
                               onChange={(event) =>
                                 updateObjectField("conditions", field, event.target.value)
                               }
-                              className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                              className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                             />
                           </label>
                         );
@@ -1016,8 +1016,8 @@ export default function DocumentReviewPage() {
                     </div>
                   </section>
 
-                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                  <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                       4. Build Summary
                     </p>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -1027,14 +1027,14 @@ export default function DocumentReviewPage() {
                         return (
                           <label
                             key={field}
-                            className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                            className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-[var(--ch-border)] bg-white"}`}
                           >
                             <div className="mb-2 flex items-center justify-between gap-4">
-                              <span className="text-sm font-semibold text-stone-800">
+                              <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                                 {label}
                               </span>
                               <span
-                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                               >
                                 {Math.round(getConfidence(path) * 100)}%
                               </span>
@@ -1044,7 +1044,7 @@ export default function DocumentReviewPage() {
                               onChange={(event) =>
                                 updateObjectField("construction_summary", field, event.target.value)
                               }
-                              className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                              className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                             />
                           </label>
                         );
@@ -1052,8 +1052,8 @@ export default function DocumentReviewPage() {
                     </div>
                   </section>
 
-                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                  <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                       5. Standard Specs
                     </p>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -1063,14 +1063,14 @@ export default function DocumentReviewPage() {
                         return (
                           <label
                             key={field}
-                            className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                            className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-[var(--ch-border)] bg-white"}`}
                           >
                             <div className="mb-2 flex items-center justify-between gap-4">
-                              <span className="text-sm font-semibold text-stone-800">
+                              <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                                 {label}
                               </span>
                               <span
-                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                               >
                                 {Math.round(getConfidence(path) * 100)}%
                               </span>
@@ -1080,7 +1080,7 @@ export default function DocumentReviewPage() {
                               onChange={(event) =>
                                 updateObjectField("standard_specs", field, event.target.value)
                               }
-                              className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                              className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                             />
                           </label>
                         );
@@ -1088,15 +1088,15 @@ export default function DocumentReviewPage() {
                     </div>
                   </section>
 
-                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+                  <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
                     <div className="flex items-center justify-between gap-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                         6. Upgrades
                       </p>
                       <button
                         type="button"
                         onClick={() => addArrayRow("upgrades")}
-                        className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-stone-700 transition hover:bg-stone-100"
+                        className="rounded-full border border-[var(--ch-border)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-surface-muted)]"
                       >
                         Add upgrade
                       </button>
@@ -1105,7 +1105,7 @@ export default function DocumentReviewPage() {
                       {reviewedPayload.upgrades.map((upgrade, index) => (
                         <article
                           key={`upgrade-${index}`}
-                          className="grid gap-4 rounded-[1.2rem] border border-stone-200 bg-white p-4 sm:grid-cols-2"
+                          className="grid gap-4 rounded-[1.2rem] border border-[var(--ch-border)] bg-white p-4 sm:grid-cols-2"
                         >
                           {upgradeFieldLabels.map(([field, label]) => {
                             const path = `upgrades.${index}.${field}`;
@@ -1113,11 +1113,11 @@ export default function DocumentReviewPage() {
                             return (
                               <label key={field}>
                                 <div className="mb-2 flex items-center justify-between gap-4">
-                                  <span className="text-sm font-semibold text-stone-800">
+                                  <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                                     {label}
                                   </span>
                                   <span
-                                    className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                    className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                                   >
                                     {Math.round(getConfidence(path) * 100)}%
                                   </span>
@@ -1127,7 +1127,7 @@ export default function DocumentReviewPage() {
                                   onChange={(event) =>
                                     updateArrayField("upgrades", index, field, event.target.value)
                                   }
-                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                  className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                                 />
                               </label>
                             );
@@ -1137,8 +1137,8 @@ export default function DocumentReviewPage() {
                     </div>
                   </section>
 
-                  <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                  <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                       7. Financial and Landscaping
                     </p>
                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -1154,14 +1154,14 @@ export default function DocumentReviewPage() {
                           return (
                             <label
                               key={path}
-                              className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-stone-200 bg-white"}`}
+                              className={`rounded-[1.2rem] border px-4 py-3 ${lowConfidence ? "border-amber-300 bg-amber-50" : "border-[var(--ch-border)] bg-white"}`}
                             >
                               <div className="mb-2 flex items-center justify-between gap-4">
-                                <span className="text-sm font-semibold text-stone-800">
+                                <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                                   {label}
                                 </span>
                                 <span
-                                  className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                  className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                                 >
                                   {Math.round(getConfidence(path) * 100)}%
                                 </span>
@@ -1171,7 +1171,7 @@ export default function DocumentReviewPage() {
                                 onChange={(event) =>
                                   updateObjectField(section, field, event.target.value)
                                 }
-                                className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                               />
                             </label>
                           );
@@ -1182,29 +1182,29 @@ export default function DocumentReviewPage() {
                 </>
               ) : null}
 
-              <section className="rounded-[1.6rem] border border-stone-200 bg-stone-50/80 p-5">
+              <section className="rounded-[1.6rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5">
                 <div className="flex items-center justify-between gap-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-stone-500">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--ch-text-muted)]">
                     {isSaleOtp ? "8. Notable Clauses" : "5. Notable Clauses"}
                   </p>
                   <button
                     type="button"
                     onClick={() => addArrayRow("notable_clauses")}
-                    className="rounded-full border border-stone-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-stone-700 transition hover:bg-stone-100"
+                    className="rounded-full border border-[var(--ch-border)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-surface-muted)]"
                   >
                     Add clause
                   </button>
                 </div>
                 <div className="mt-4 space-y-3">
                   {reviewedPayload.notable_clauses.length === 0 ? (
-                    <div className="rounded-[1.2rem] border border-dashed border-stone-300 bg-white px-4 py-6 text-sm text-stone-500">
+                    <div className="rounded-[1.2rem] border border-dashed border-[var(--ch-border)] bg-white px-4 py-6 text-sm text-[var(--ch-text-muted)]">
                       No notable clauses extracted.
                     </div>
                   ) : (
                     reviewedPayload.notable_clauses.map((clause, index) => (
                       <article
                         key={`${clause.clause_ref || "clause"}-${index}`}
-                        className="grid gap-4 rounded-[1.2rem] border border-stone-200 bg-white px-4 py-4 sm:grid-cols-2"
+                        className="grid gap-4 rounded-[1.2rem] border border-[var(--ch-border)] bg-white px-4 py-4 sm:grid-cols-2"
                       >
                         {clauseFieldLabels.map(([field, label]) => {
                           const path = `notable_clauses.${index}.${field}`;
@@ -1216,11 +1216,11 @@ export default function DocumentReviewPage() {
                               className={isTextField ? "sm:col-span-2" : undefined}
                             >
                               <div className="mb-2 flex items-center justify-between gap-4">
-                                <span className="text-sm font-semibold text-stone-800">
+                                <span className="text-sm font-semibold text-[var(--ch-text-primary)]">
                                   {label}
                                 </span>
                                 <span
-                                  className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-stone-400"}`}
+                                  className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
                                 >
                                   {Math.round(getConfidence(path) * 100)}%
                                 </span>
@@ -1232,7 +1232,7 @@ export default function DocumentReviewPage() {
                                     updateArrayField("notable_clauses", index, field, event.target.value)
                                   }
                                   rows={4}
-                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                  className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                                 />
                               ) : (
                                 <input
@@ -1240,7 +1240,7 @@ export default function DocumentReviewPage() {
                                   onChange={(event) =>
                                     updateArrayField("notable_clauses", index, field, event.target.value)
                                   }
-                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-stone-500"
+                                  className="w-full rounded-xl border border-[var(--ch-border)] bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)]"
                                 />
                               )}
                             </label>
@@ -1254,7 +1254,7 @@ export default function DocumentReviewPage() {
             </div>
           </div>
 
-          <div className="border-t border-stone-200 bg-white/96 px-4 py-4 shadow-[0_-18px_35px_rgba(45,32,18,0.08)] sm:px-5">
+          <div className="border-t border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-4 shadow-lg sm:px-5">
             <div className="flex flex-col gap-4">
               {!hasScrolledToEnd ? (
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
@@ -1275,7 +1275,7 @@ export default function DocumentReviewPage() {
                     value={rejectionReason}
                     onChange={(event) => setRejectionReason(event.target.value)}
                     rows={3}
-                    className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-stone-900 outline-none transition focus:border-rose-400"
+                    className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-[var(--ch-text-primary)] outline-none transition focus:border-rose-400"
                     placeholder="Explain what blocked review approval."
                   />
                   <div className="mt-3 flex flex-wrap gap-3">
@@ -1283,14 +1283,14 @@ export default function DocumentReviewPage() {
                       type="button"
                       onClick={() => void handleSubmit("rejected")}
                       disabled={submitting}
-                      className="rounded-full bg-rose-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-full bg-rose-700 px-5 py-3 text-sm font-semibold text-[var(--ch-text-primary)] transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {submitting ? "Submitting..." : "Submit rejection"}
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowRejectForm(false)}
-                      className="rounded-full border border-stone-300 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-100"
+                      className="rounded-full border border-[var(--ch-border)] px-5 py-3 text-sm font-semibold text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-surface-muted)]"
                     >
                       Cancel
                     </button>
@@ -1299,8 +1299,8 @@ export default function DocumentReviewPage() {
               ) : null}
 
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-stone-500">
-                  Edited fields: <span className="font-semibold text-stone-800">{editedFields.length}</span>
+                <p className="text-sm text-[var(--ch-text-muted)]">
+                  Edited fields: <span className="font-semibold text-[var(--ch-text-primary)]">{editedFields.length}</span>
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <button
@@ -1310,7 +1310,7 @@ export default function DocumentReviewPage() {
                       setError(null);
                     }}
                     disabled={submitting}
-                    className="rounded-full bg-rose-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-full bg-rose-700 px-5 py-3 text-sm font-semibold text-[var(--ch-text-primary)] transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Reject
                   </button>
@@ -1318,7 +1318,7 @@ export default function DocumentReviewPage() {
                     type="button"
                     onClick={() => void handleSubmit("approved")}
                     disabled={submitting || !hasScrolledToEnd || !!success?.promotion}
-                    className="rounded-full bg-emerald-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-full bg-emerald-700 px-5 py-3 text-sm font-semibold text-[var(--ch-text-primary)] transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {submitting ? "Submitting..." : "Approve and promote to database"}
                   </button>

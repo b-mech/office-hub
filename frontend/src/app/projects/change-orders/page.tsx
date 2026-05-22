@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Columns, LayoutList } from "lucide-react";
 
@@ -40,19 +40,6 @@ function orderTotal(order: ChangeOrder) {
 }
 
 type ViewMode = "list" | "pipeline";
-
-const changeOrderTheme = {
-  "--ch-accent": "#FAC775",
-  "--ch-accent-text": "#0f1117",
-  "--ch-amber": "#FAC775",
-  "--ch-border": "rgba(255,255,255,0.1)",
-  "--ch-surface": "#151820",
-  "--ch-text-primary": "#fffaf0",
-  "--ch-text-secondary": "rgba(255,255,255,0.68)",
-  "--ch-text-muted": "rgba(255,255,255,0.38)",
-  "--ch-upcoming-badge-text": "#a5b4fc",
-  "--ch-success-text": "#86efac",
-} as CSSProperties;
 
 export default function ProjectChangeOrdersPage() {
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([]);
@@ -180,15 +167,15 @@ export default function ProjectChangeOrdersPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0f1117] text-white" style={changeOrderTheme}>
+    <main className="min-h-screen bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)]">
       <div className={`mx-auto flex flex-col gap-6 px-6 py-8 lg:px-10 ${view === "pipeline" ? "max-w-none" : "max-w-6xl"}`}>
-        <header className="flex flex-col gap-4 border-b border-white/10 pb-6 md:flex-row md:items-end md:justify-between">
+        <header className="flex flex-col gap-4 border-b border-[var(--ch-border)] pb-6 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/35">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--ch-text-muted)]">
               Projects
             </p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">Change Orders</h1>
-            <p className="mt-2 text-sm text-white/50">
+            <p className="mt-2 text-sm text-[var(--ch-text-muted)]">
               Filter and review saved change order drafts across all projects.
             </p>
           </div>
@@ -221,7 +208,7 @@ export default function ProjectChangeOrdersPage() {
             </div>
             <Link
               href="/change-orders/new"
-              className="rounded-lg bg-[#FAC775] px-4 py-2 text-sm font-bold text-[#0f1117] hover:brightness-105"
+              className="rounded-lg bg-[var(--ch-accent)] px-4 py-2 text-sm font-bold text-[var(--ch-accent-text)] hover:brightness-105"
             >
               New Change Order
             </Link>
@@ -235,9 +222,9 @@ export default function ProjectChangeOrdersPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Filter address, client, CO number, line item..."
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-amber-400/50 sm:max-w-md"
+              className="w-full rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2.5 text-sm text-[var(--ch-text-primary)] outline-none placeholder:text-[var(--ch-text-muted)] focus:border-amber-400/50 sm:max-w-md"
             />
-            <p className="text-sm text-white/40">
+            <p className="text-sm text-[var(--ch-text-muted)]">
               {filtered.length} of {changeOrders.length} shown
             </p>
           </section>
@@ -257,7 +244,7 @@ export default function ProjectChangeOrdersPage() {
 
         {view === "pipeline" ? (
           loading ? (
-            <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center text-sm text-white/35">
+            <div className="rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-8 text-center text-sm text-[var(--ch-text-muted)]">
               Loading change orders...
             </div>
           ) : (
@@ -267,11 +254,11 @@ export default function ProjectChangeOrdersPage() {
             />
           )
         ) : (
-          <section className="overflow-hidden rounded-xl border border-white/10 bg-white/5">
+          <section className="overflow-hidden rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)]">
             {loading ? (
-              <div className="p-8 text-center text-sm text-white/35">Loading change orders...</div>
+              <div className="p-8 text-center text-sm text-[var(--ch-text-muted)]">Loading change orders...</div>
             ) : filtered.length === 0 ? (
-              <div className="p-8 text-center text-sm text-white/35">
+              <div className="p-8 text-center text-sm text-[var(--ch-text-muted)]">
                 No change orders found.
               </div>
             ) : (
@@ -282,20 +269,20 @@ export default function ProjectChangeOrdersPage() {
                     className="grid gap-4 px-4 py-4 md:grid-cols-[1.2fr_1fr_150px_110px_220px] md:items-center"
                   >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-white">{order.address}</p>
-                    <p className="mt-1 truncate text-xs text-white/45">{order.client_name}</p>
+                    <p className="truncate text-sm font-semibold text-[var(--ch-text-primary)]">{order.address}</p>
+                    <p className="mt-1 truncate text-xs text-[var(--ch-text-muted)]">{order.client_name}</p>
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-sm text-white/70">
+                    <p className="truncate text-sm text-[var(--ch-text-secondary)]">
                       {order.co_number || "Unnumbered"}
                     </p>
-                    <p className="mt-1 truncate text-xs text-white/40">
+                    <p className="mt-1 truncate text-xs text-[var(--ch-text-muted)]">
                       {order.line_items.length} line item{order.line_items.length === 1 ? "" : "s"}
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">{money(orderTotal(order))}</p>
-                    <p className="mt-1 text-xs text-white/40">{formatDate(order.date)}</p>
+                    <p className="text-sm font-semibold text-[var(--ch-text-primary)]">{money(orderTotal(order))}</p>
+                    <p className="mt-1 text-xs text-[var(--ch-text-muted)]">{formatDate(order.date)}</p>
                   </div>
                   <div className="flex items-center justify-start md:justify-end">
                     <span className="rounded-full border border-amber-400/30 bg-amber-400/15 px-2.5 py-1 text-xs font-semibold text-amber-300">
@@ -307,7 +294,7 @@ export default function ProjectChangeOrdersPage() {
                       type="button"
                       onClick={() => void handleDownloadPdf(order)}
                       disabled={busyOrderId === order.id}
-                      className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-xs font-semibold text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-surface)] hover:text-[var(--ch-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       PDF
                     </button>
@@ -315,7 +302,7 @@ export default function ProjectChangeOrdersPage() {
                       <button
                         type="button"
                         onClick={() => window.open(order.box_file_url || "", "_blank", "noopener,noreferrer")}
-                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white"
+                        className="rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-xs font-semibold text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-surface)] hover:text-[var(--ch-text-primary)]"
                       >
                         Box
                       </button>
@@ -325,7 +312,7 @@ export default function ProjectChangeOrdersPage() {
                         type="button"
                         onClick={() => void handleSyncSigned(order)}
                         disabled={busyOrderId === order.id}
-                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-xs font-semibold text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-surface)] hover:text-[var(--ch-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Sync Signed
                       </button>
@@ -334,7 +321,7 @@ export default function ProjectChangeOrdersPage() {
                       type="button"
                       onClick={() => void handleSendSignature(order)}
                       disabled={busyOrderId === order.id}
-                      className="rounded-lg bg-[#FAC775] px-3 py-2 text-xs font-bold text-[#0f1117] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-lg bg-[var(--ch-accent)] px-3 py-2 text-xs font-bold text-[var(--ch-accent-text)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {busyOrderId === order.id ? "Working..." : "Send for Signature"}
                     </button>

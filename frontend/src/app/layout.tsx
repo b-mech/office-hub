@@ -23,57 +23,57 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="theme-monocle min-h-full bg-[#0f1117] text-white">
+      <body className="theme-monocle min-h-full bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)]">
         <div className="flex min-h-screen">
-          <aside className="hidden w-56 shrink-0 flex-col border-r border-white/10 bg-[#11141b] px-4 py-5 lg:flex">
+          <aside className="hidden w-56 shrink-0 flex-col border-r border-[var(--ch-sidebar-border)] bg-[var(--ch-sidebar-bg)] px-4 py-5 lg:flex">
             <Link href="/documents" className="flex items-center gap-2">
               <Image src="/favicon.png" alt="Office Hub" width={24} height={24} />
-              <span className="text-sm font-semibold text-white">Office Hub</span>
+              <span className="text-sm font-semibold text-[var(--ch-sidebar-text-primary)]">Office Hub</span>
             </Link>
             <nav className="mt-8 flex flex-1 flex-col gap-1">
               <Link
                 href="/documents"
-                className="rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/5 hover:text-white"
+                className="rounded-lg px-3 py-2 text-sm text-[var(--ch-sidebar-text-secondary)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
               >
                 Documents
               </Link>
               <Link
                 href="/lots"
-                className="rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/5 hover:text-white"
+                className="rounded-lg px-3 py-2 text-sm text-[var(--ch-sidebar-text-secondary)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
               >
                 Lots
               </Link>
               <Link
                 href="/lots/timeline"
-                className="ml-3 rounded-lg border-l border-white/10 px-3 py-1.5 text-xs text-white/45 transition hover:bg-white/5 hover:text-white"
+                className="ml-3 rounded-lg border-l border-[var(--ch-sidebar-border)] px-3 py-1.5 text-xs text-[var(--ch-sidebar-text-muted)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
               >
                 OTP Timeline
               </Link>
               <Link
                 href="/projects"
-                className="rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/5 hover:text-white"
+                className="rounded-lg px-3 py-2 text-sm text-[var(--ch-sidebar-text-secondary)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
               >
                 Projects
               </Link>
               <Link
                 href="/projects/change-orders"
-                className="ml-3 rounded-lg border-l border-white/10 px-3 py-1.5 text-xs text-white/45 transition hover:bg-white/5 hover:text-white"
+                className="ml-3 rounded-lg border-l border-[var(--ch-sidebar-border)] px-3 py-1.5 text-xs text-[var(--ch-sidebar-text-muted)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
               >
                 Change Orders
               </Link>
               <Link
                 href="/costbook"
-                className="rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/5 hover:text-white"
+                className="rounded-lg px-3 py-2 text-sm text-[var(--ch-sidebar-text-secondary)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
               >
                 Costbook
               </Link>
             </nav>
-            <div className="border-t border-white/10 pt-3">
+            <div className="border-t border-[var(--ch-sidebar-border)] pt-3">
               <Link
                 href="/settings"
-                className="flex items-center gap-3 rounded-lg px-2 py-2 text-white/65 transition hover:bg-white/5 hover:text-white"
+                className="flex items-center gap-3 rounded-lg px-2 py-2 text-[var(--ch-sidebar-text-secondary)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
               >
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#17698c] text-xs font-bold text-white">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--ch-sidebar-user-bg)] text-xs font-bold text-[var(--ch-sidebar-text-primary)]">
                   {USER_NAME.slice(0, 1).toUpperCase()}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{USER_NAME}</span>

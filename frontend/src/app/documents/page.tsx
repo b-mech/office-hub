@@ -18,7 +18,7 @@ function getStatusBadge(status: string): string {
   if (status === "in_review") {
     return "bg-amber-100 text-amber-800 ring-amber-200";
   }
-  return "bg-slate-100 text-slate-700 ring-slate-200";
+  return "bg-[var(--ch-surface)] text-[var(--ch-text-secondary)] ring-[var(--ch-border)]";
 }
 
 function formatDocType(docType: string): string {
@@ -69,30 +69,30 @@ export default function DocumentsPage() {
   }, [docType, status]);
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.82),_rgba(242,238,229,0.72)_40%,_rgba(219,210,195,0.92))] px-5 py-6 text-stone-900 sm:px-8 lg:px-10">
+    <main className="min-h-screen bg-[var(--ch-page-bg)] px-5 py-6 text-[var(--ch-text-primary)] sm:px-8 lg:px-10">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <section className="overflow-hidden rounded-[2rem] border border-stone-300/70 bg-white/80 shadow-[0_25px_80px_rgba(84,61,38,0.12)] backdrop-blur">
-          <div className="border-b border-stone-200/80 px-6 py-6 sm:px-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-stone-500">
+        <section className="overflow-hidden rounded-[2rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] shadow-lg backdrop-blur">
+          <div className="border-b border-[var(--ch-border)] px-6 py-6 sm:px-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--ch-text-muted)]">
               Office Hub
             </p>
             <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <h1 className="text-3xl font-semibold tracking-tight text-stone-950">
+                <h1 className="text-3xl font-semibold tracking-tight text-[var(--ch-text-primary)]">
                   Document Review Queue
                 </h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ch-text-secondary)]">
                   Review staged land and sale agreement documents before they cross the
                   promotion boundary into operational tables.
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex min-w-44 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
+                <label className="flex min-w-44 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ch-text-muted)]">
                   Status
                   <select
                     value={status}
                     onChange={(event) => setStatus(event.target.value)}
-                    className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 text-sm font-medium normal-case tracking-normal text-stone-900 outline-none transition focus:border-stone-500 focus:bg-white"
+                    className="rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-3 text-sm font-medium normal-case tracking-normal text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)] focus:bg-white"
                   >
                     <option value="">All statuses</option>
                     {statusOptions
@@ -104,12 +104,12 @@ export default function DocumentsPage() {
                       ))}
                   </select>
                 </label>
-                <label className="flex min-w-44 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-stone-500">
+                <label className="flex min-w-44 flex-col gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ch-text-muted)]">
                   Document Type
                   <select
                     value={docType}
                     onChange={(event) => setDocType(event.target.value)}
-                    className="rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 text-sm font-medium normal-case tracking-normal text-stone-900 outline-none transition focus:border-stone-500 focus:bg-white"
+                    className="rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-3 text-sm font-medium normal-case tracking-normal text-[var(--ch-text-primary)] outline-none transition focus:border-[var(--ch-accent)] focus:bg-white"
                   >
                     <option value="">All types</option>
                     {docTypeOptions
@@ -127,9 +127,9 @@ export default function DocumentsPage() {
 
           <div className="px-3 pb-3 pt-2 sm:px-4">
             {loading ? (
-              <div className="flex min-h-72 items-center justify-center rounded-[1.5rem] border border-dashed border-stone-300 bg-stone-50/70">
-                <div className="flex items-center gap-3 text-sm font-medium text-stone-600">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-stone-300 border-t-stone-700" />
+              <div className="flex min-h-72 items-center justify-center rounded-[1.5rem] border border-dashed border-[var(--ch-border)] bg-[var(--ch-surface)]">
+                <div className="flex items-center gap-3 text-sm font-medium text-[var(--ch-text-secondary)]">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--ch-border)] border-t-[var(--ch-accent)]" />
                   Loading documents
                 </div>
               </div>
@@ -138,18 +138,18 @@ export default function DocumentsPage() {
                 {error}
               </div>
             ) : documents.length === 0 ? (
-              <div className="flex min-h-72 flex-col items-center justify-center rounded-[1.5rem] border border-dashed border-stone-300 bg-stone-50/70 px-6 text-center">
-                <p className="text-lg font-semibold text-stone-900">No documents found.</p>
-                <p className="mt-2 max-w-md text-sm text-stone-600">
+              <div className="flex min-h-72 flex-col items-center justify-center rounded-[1.5rem] border border-dashed border-[var(--ch-border)] bg-[var(--ch-surface)] px-6 text-center">
+                <p className="text-lg font-semibold text-[var(--ch-text-primary)]">No documents found.</p>
+                <p className="mt-2 max-w-md text-sm text-[var(--ch-text-secondary)]">
                   Adjust the filters or wait for the ingestion pipeline to deliver new
                   documents into the review queue.
                 </p>
               </div>
             ) : (
-              <div className="overflow-hidden rounded-[1.5rem] border border-stone-200">
+              <div className="overflow-hidden rounded-[1.5rem] border border-[var(--ch-border)]">
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-stone-200">
-                    <thead className="bg-stone-100/80 text-left text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                  <table className="min-w-full divide-y divide-[var(--ch-border)]">
+                    <thead className="bg-[var(--ch-surface-muted)] text-left text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-text-muted)]">
                       <tr>
                         <th className="px-5 py-4">Filename</th>
                         <th className="px-5 py-4">Type</th>
@@ -158,24 +158,24 @@ export default function DocumentsPage() {
                         <th className="px-5 py-4">Received At</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-stone-200 bg-white">
+                    <tbody className="divide-y divide-[var(--ch-border)] bg-white">
                       {documents.map((document) => (
                         <tr
                           key={document.id}
-                          className="transition hover:bg-stone-50/80"
+                          className="transition hover:bg-[var(--ch-surface)]"
                         >
                           <td className="px-5 py-4">
                             <Link
                               href={`/documents/${document.id}`}
                               className="group flex flex-col gap-1"
                             >
-                              <span className="font-medium text-stone-900 transition group-hover:text-stone-700">
+                              <span className="font-medium text-[var(--ch-text-primary)] transition group-hover:text-[var(--ch-text-secondary)]">
                                 {document.original_filename || "Untitled document"}
                               </span>
-                              <span className="text-xs text-stone-500">{document.id}</span>
+                              <span className="text-xs text-[var(--ch-text-muted)]">{document.id}</span>
                             </Link>
                           </td>
-                          <td className="px-5 py-4 text-sm capitalize text-stone-700">
+                          <td className="px-5 py-4 text-sm capitalize text-[var(--ch-text-secondary)]">
                             {formatDocType(document.doc_type)}
                           </td>
                           <td className="px-5 py-4">
@@ -185,10 +185,10 @@ export default function DocumentsPage() {
                               {document.status.replaceAll("_", " ")}
                             </span>
                           </td>
-                          <td className="px-5 py-4 text-sm text-stone-700">
+                          <td className="px-5 py-4 text-sm text-[var(--ch-text-secondary)]">
                             {document.received_from_email || "Unknown"}
                           </td>
-                          <td className="px-5 py-4 text-sm text-stone-600">
+                          <td className="px-5 py-4 text-sm text-[var(--ch-text-secondary)]">
                             {new Date(document.received_at).toLocaleString()}
                           </td>
                         </tr>
