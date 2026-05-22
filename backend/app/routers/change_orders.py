@@ -24,6 +24,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.sales import ChangeOrder as ChangeOrderModel
 from app.models.sales import ChangeOrderLineItem as ChangeOrderLineItemModel
+from app.models.sales import ChangeOrderStatus
 from app.services.box import file_change_order_pdf
 from app.services.change_orders.pdf import render_change_order_pdf
 from app.services.docusign import DocuSignConfigurationError
@@ -74,7 +75,7 @@ class ChangeOrderDraftResponse(BaseModel):
 
 class ChangeOrderOut(ChangeOrderDraft):
     id: UUID
-    status: str = "draft"
+    status: ChangeOrderStatus = "draft"
     subtotal: Decimal = Decimal("0")
     gst: Decimal = Decimal("0")
     total: Decimal = Decimal("0")
@@ -87,11 +88,15 @@ class ChangeOrderOut(ChangeOrderDraft):
 
 class ChangeOrderSignatureResponse(BaseModel):
     id: UUID
-    status: str
+    status: ChangeOrderStatus
     docusign_envelope_id: str | None = None
     box_file_id: str | None = None
     box_file_url: str | None = None
     message: str
+
+
+class ChangeOrderStatusRequest(BaseModel):
+    status: ChangeOrderStatus
 
 
 class ChangeOrderSignatureRequest(BaseModel):
@@ -196,6 +201,18 @@ async def get_change_order_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
+
+
+@router.patch("/{change_order_id}/status", response_model=ChangeOrderOut)
+async def update_change_order_status(
+    change_order_id: UUID,
+    request: ChangeOrderStatusRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ChangeOrderOut:
+    change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
+    change_order.status = request.status
+    await db.commit()
+    return _change_order_out(change_order)
 
 
 @router.post("/{change_order_id}/send-signature", response_model=ChangeOrderSignatureResponse)

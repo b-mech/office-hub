@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Columns, LayoutList } from "lucide-react";
 
+import PipelineView from "@/app/projects/change-orders/PipelineView";
 import {
   downloadChangeOrderPdf,
   getChangeOrders,
   sendChangeOrderForSignature,
   syncSignedChangeOrder,
   type ChangeOrder,
+  updateChangeOrderStatus,
 } from "@/lib/api/change-orders";
 
 function formatDate(value?: string) {
@@ -36,6 +39,21 @@ function orderTotal(order: ChangeOrder) {
   }, 0);
 }
 
+type ViewMode = "list" | "pipeline";
+
+const changeOrderTheme = {
+  "--ch-accent": "#FAC775",
+  "--ch-accent-text": "#0f1117",
+  "--ch-amber": "#FAC775",
+  "--ch-border": "rgba(255,255,255,0.1)",
+  "--ch-surface": "#151820",
+  "--ch-text-primary": "#fffaf0",
+  "--ch-text-secondary": "rgba(255,255,255,0.68)",
+  "--ch-text-muted": "rgba(255,255,255,0.38)",
+  "--ch-upcoming-badge-text": "#a5b4fc",
+  "--ch-success-text": "#86efac",
+} as CSSProperties;
+
 export default function ProjectChangeOrdersPage() {
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +61,7 @@ export default function ProjectChangeOrdersPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<ViewMode>("list");
 
   useEffect(() => {
     getChangeOrders()
@@ -146,9 +165,23 @@ export default function ProjectChangeOrdersPage() {
     }
   }
 
+  async function handleStatusChange(id: string, newStatus: ChangeOrder["status"]) {
+    setError(null);
+    setActionMessage(null);
+    try {
+      await updateChangeOrderStatus(id, newStatus);
+      setChangeOrders((current) =>
+        current.map((co) => (co.id === id ? { ...co, status: newStatus } : co)),
+      );
+    } catch (statusError) {
+      setError(statusError instanceof Error ? statusError.message : "Could not update status.");
+      throw statusError;
+    }
+  }
+
   return (
-    <main className="min-h-screen bg-[#0f1117] text-white">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 lg:px-10">
+    <main className="min-h-screen bg-[#0f1117] text-white" style={changeOrderTheme}>
+      <div className={`mx-auto flex flex-col gap-6 px-6 py-8 lg:px-10 ${view === "pipeline" ? "max-w-none" : "max-w-6xl"}`}>
         <header className="flex flex-col gap-4 border-b border-white/10 pb-6 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-white/35">
@@ -159,26 +192,56 @@ export default function ProjectChangeOrdersPage() {
               Filter and review saved change order drafts across all projects.
             </p>
           </div>
-          <Link
-            href="/change-orders/new"
-            className="rounded-lg bg-[#FAC775] px-4 py-2 text-sm font-bold text-[#0f1117] hover:brightness-105"
-          >
-            New Change Order
-          </Link>
+          <div className="flex flex-wrap items-center gap-2 md:justify-end">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setView("list")}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  view === "list"
+                    ? "bg-[var(--ch-accent)] text-[var(--ch-accent-text)]"
+                    : "border border-[var(--ch-border)] bg-[var(--ch-surface)] text-[var(--ch-text-secondary)] hover:text-[var(--ch-text-primary)]"
+                }`}
+              >
+                <LayoutList className="h-4 w-4" aria-hidden="true" />
+                List
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("pipeline")}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                  view === "pipeline"
+                    ? "bg-[var(--ch-accent)] text-[var(--ch-accent-text)]"
+                    : "border border-[var(--ch-border)] bg-[var(--ch-surface)] text-[var(--ch-text-secondary)] hover:text-[var(--ch-text-primary)]"
+                }`}
+              >
+                <Columns className="h-4 w-4" aria-hidden="true" />
+                Pipeline
+              </button>
+            </div>
+            <Link
+              href="/change-orders/new"
+              className="rounded-lg bg-[#FAC775] px-4 py-2 text-sm font-bold text-[#0f1117] hover:brightness-105"
+            >
+              New Change Order
+            </Link>
+          </div>
         </header>
 
-        <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Filter address, client, CO number, line item..."
-            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-amber-400/50 sm:max-w-md"
-          />
-          <p className="text-sm text-white/40">
-            {filtered.length} of {changeOrders.length} shown
-          </p>
-        </section>
+        {view === "list" && (
+          <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Filter address, client, CO number, line item..."
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-amber-400/50 sm:max-w-md"
+            />
+            <p className="text-sm text-white/40">
+              {filtered.length} of {changeOrders.length} shown
+            </p>
+          </section>
+        )}
 
         {error && (
           <section className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
@@ -192,20 +255,32 @@ export default function ProjectChangeOrdersPage() {
           </section>
         )}
 
-        <section className="overflow-hidden rounded-xl border border-white/10 bg-white/5">
-          {loading ? (
-            <div className="p-8 text-center text-sm text-white/35">Loading change orders...</div>
-          ) : filtered.length === 0 ? (
-            <div className="p-8 text-center text-sm text-white/35">
-              No change orders found.
+        {view === "pipeline" ? (
+          loading ? (
+            <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center text-sm text-white/35">
+              Loading change orders...
             </div>
           ) : (
-            <div className="divide-y divide-white/10">
-              {filtered.map((order) => (
-                <article
-                  key={order.id}
-                  className="grid gap-4 px-4 py-4 md:grid-cols-[1.2fr_1fr_150px_110px_220px] md:items-center"
-                >
+            <PipelineView
+              changeOrders={changeOrders}
+              onStatusChange={handleStatusChange}
+            />
+          )
+        ) : (
+          <section className="overflow-hidden rounded-xl border border-white/10 bg-white/5">
+            {loading ? (
+              <div className="p-8 text-center text-sm text-white/35">Loading change orders...</div>
+            ) : filtered.length === 0 ? (
+              <div className="p-8 text-center text-sm text-white/35">
+                No change orders found.
+              </div>
+            ) : (
+              <div className="divide-y divide-white/10">
+                {filtered.map((order) => (
+                  <article
+                    key={order.id}
+                    className="grid gap-4 px-4 py-4 md:grid-cols-[1.2fr_1fr_150px_110px_220px] md:items-center"
+                  >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-white">{order.address}</p>
                     <p className="mt-1 truncate text-xs text-white/45">{order.client_name}</p>
@@ -264,11 +339,12 @@ export default function ProjectChangeOrdersPage() {
                       {busyOrderId === order.id ? "Working..." : "Send for Signature"}
                     </button>
                   </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </main>
   );

@@ -20,6 +20,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export type PaymentMethod = "add_to_mortgage" | "due_upon_receipt";
+export type ChangeOrderStatus = "draft" | "sent" | "signed" | "complete";
 
 export interface ChangeOrderLineItem {
   description: string;
@@ -40,7 +41,7 @@ export interface ChangeOrderDraft {
 
 export interface ChangeOrder extends ChangeOrderDraft {
   id: string;
-  status?: "draft" | "approved" | "sent" | "signed";
+  status: ChangeOrderStatus;
   docusign_envelope_id?: string | null;
   box_file_id?: string | null;
   box_file_url?: string | null;
@@ -68,6 +69,16 @@ export async function getChangeOrders(): Promise<ChangeOrder[]> {
 
 export async function getChangeOrder(id: string): Promise<ChangeOrder> {
   return apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}`);
+}
+
+export async function updateChangeOrderStatus(
+  id: string,
+  status: ChangeOrder["status"],
+): Promise<ChangeOrder> {
+  return apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
 }
 
 export async function downloadChangeOrderPdf(id: string): Promise<Blob> {

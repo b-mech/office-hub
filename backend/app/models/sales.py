@@ -5,6 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint
@@ -55,6 +56,9 @@ class PartyRole(str, Enum):
     CO_BUYER = "co_buyer"
     BUYERS_REALTOR = "buyers_realtor"
     SELLERS_REALTOR = "sellers_realtor"
+
+
+ChangeOrderStatus = Literal["draft", "sent", "signed", "complete"]
 
 
 class SalesAgreement(Base):
@@ -297,6 +301,7 @@ class ChangeOrderLineItem(Base):
 __all__ = [
     "ChangeOrder",
     "ChangeOrderLineItem",
+    "ChangeOrderStatus",
     "Party",
     "PartyRole",
     "SalesAgreement",
