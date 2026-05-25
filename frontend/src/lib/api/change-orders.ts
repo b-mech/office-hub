@@ -96,7 +96,7 @@ export async function downloadChangeOrderPdf(id: string): Promise<Blob> {
 
 export async function sendChangeOrderForSignature(
   id: string,
-  signer: { signer_email: string; signer_name?: string },
+  signer?: { signer_email?: string; signer_name?: string },
 ): Promise<{
   id: string;
   status: string;
@@ -107,7 +107,7 @@ export async function sendChangeOrderForSignature(
 }> {
   return apiFetch(`/api/v1/change-orders/${id}/send-signature`, {
     method: "POST",
-    body: JSON.stringify(signer),
+    body: JSON.stringify(signer || {}),
   });
 }
 

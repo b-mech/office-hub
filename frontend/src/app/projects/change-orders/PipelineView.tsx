@@ -67,9 +67,10 @@ function stageIndex(status: ChangeOrder["status"]) {
 type PipelineViewProps = {
   changeOrders: ChangeOrder[];
   onStatusChange: (id: string, newStatus: ChangeOrder["status"]) => Promise<void>;
+  onSendSignature: (order: ChangeOrder) => Promise<void>;
 };
 
-export default function PipelineView({ changeOrders, onStatusChange }: PipelineViewProps) {
+export default function PipelineView({ changeOrders, onStatusChange, onSendSignature }: PipelineViewProps) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
 
@@ -92,6 +93,18 @@ export default function PipelineView({ changeOrders, onStatusChange }: PipelineV
     setBusyOrderId(order.id);
     try {
       await onStatusChange(order.id, status);
+      setOpenMenuId(null);
+    } catch {
+      setOpenMenuId(order.id);
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
+
+  async function handleSendSignature(order: ChangeOrder) {
+    setBusyOrderId(order.id);
+    try {
+      await onSendSignature(order);
       setOpenMenuId(null);
     } catch {
       setOpenMenuId(order.id);
@@ -172,6 +185,17 @@ export default function PipelineView({ changeOrders, onStatusChange }: PipelineV
                             >
                               View PDF
                             </button>
+                            {order.status === "draft" && (
+                              <button
+                                type="button"
+                                onClick={() => void handleSendSignature(order)}
+                                disabled={busyOrderId === order.id || !order.customer_email}
+                                title={!order.customer_email ? "Add a client email before sending for signature." : undefined}
+                                className="block w-full rounded-md px-3 py-2 text-left text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-surface)] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Send for Signature
+                              </button>
+                            )}
                             {nextStage && (
                               <button
                                 type="button"

@@ -100,22 +100,24 @@ export default function ProjectChangeOrdersPage() {
   }
 
   async function handleSendSignature(order: ChangeOrder) {
-    const signerEmail = window.prompt("Signer email address", order.customer_email || "");
-    if (!signerEmail) return;
-    const signerName = window.prompt("Signer name", order.client_name) || order.client_name;
+    if (!order.customer_email) {
+      setError("No client email on file. Please add the client email before sending for signature.");
+      return;
+    }
     setBusyOrderId(order.id);
     setError(null);
     setActionMessage(null);
     try {
-      const result = await sendChangeOrderForSignature(order.id, {
-        signer_email: signerEmail,
-        signer_name: signerName,
-      });
+      const result = await sendChangeOrderForSignature(order.id);
       setActionMessage(result.message || "Change order sent for signature.");
       setChangeOrders((current) =>
         current.map((item) =>
           item.id === order.id
-            ? { ...item, status: result.status as ChangeOrder["status"] }
+            ? {
+                ...item,
+                status: result.status as ChangeOrder["status"],
+                docusign_envelope_id: result.docusign_envelope_id ?? item.docusign_envelope_id,
+              }
             : item,
         ),
       );
@@ -251,6 +253,7 @@ export default function ProjectChangeOrdersPage() {
             <PipelineView
               changeOrders={changeOrders}
               onStatusChange={handleStatusChange}
+              onSendSignature={handleSendSignature}
             />
           )
         ) : (
@@ -320,7 +323,8 @@ export default function ProjectChangeOrdersPage() {
                     <button
                       type="button"
                       onClick={() => void handleSendSignature(order)}
-                      disabled={busyOrderId === order.id}
+                      disabled={busyOrderId === order.id || !order.customer_email}
+                      title={!order.customer_email ? "Add a client email before sending for signature." : undefined}
                       className="rounded-lg bg-[var(--ch-accent)] px-3 py-2 text-xs font-bold text-[var(--ch-accent-text)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {busyOrderId === order.id ? "Working..." : "Send for Signature"}

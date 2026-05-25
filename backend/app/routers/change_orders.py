@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import date
 from datetime import datetime
 from decimal import Decimal
+import hashlib
+import hmac
+import logging
 from typing import Any
 from typing import Annotated
 from typing import Literal
 from uuid import UUID
+from xml.etree import ElementTree
 
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
+from fastapi import Request
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,12 +33,12 @@ from app.models.sales import ChangeOrderLineItem as ChangeOrderLineItemModel
 from app.models.sales import ChangeOrderStatus
 from app.services.box import file_change_order_pdf
 from app.services.change_orders.pdf import render_change_order_pdf
-from app.services.docusign import DocuSignConfigurationError
-from app.services.docusign import DocuSignEnvelopeError
-from app.services.docusign import download_completed_document
-from app.services.docusign import get_envelope_status
-from app.services.docusign import send_change_order_envelope
+from app.services.docusign import get_signed_pdf
+from app.services.docusign import send_for_signature
 from app.services.extraction.claude_provider import ClaudeProvider
+
+
+logger = logging.getLogger(__name__)
 
 
 def verify_api_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None) -> None:
@@ -40,10 +46,12 @@ def verify_api_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] =
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
+API_KEY_DEPENDENCIES = [Depends(verify_api_key)]
+
+
 router = APIRouter(
     prefix="/change-orders",
     tags=["change-orders"],
-    dependencies=[Depends(verify_api_key)],
 )
 
 
@@ -104,7 +112,7 @@ class ChangeOrderSignatureRequest(BaseModel):
     signer_name: str = ""
 
 
-@router.post("/extract", response_model=ChangeOrderDraft)
+@router.post("/extract", response_model=ChangeOrderDraft, dependencies=API_KEY_DEPENDENCIES)
 async def extract_change_order(request: ChangeOrderExtractRequest) -> ChangeOrderDraft:
     provider = ClaudeProvider()
     raw_response = await asyncio.to_thread(_request_change_order_extract, provider, request.email_body)
@@ -112,7 +120,7 @@ async def extract_change_order(request: ChangeOrderExtractRequest) -> ChangeOrde
     return _normalize_change_order_draft(parsed)
 
 
-@router.post("/draft", response_model=ChangeOrderDraftResponse)
+@router.post("/draft", response_model=ChangeOrderDraftResponse, dependencies=API_KEY_DEPENDENCIES)
 async def save_change_order_draft(
     draft: ChangeOrderDraft,
     db: AsyncSession = Depends(get_db),
@@ -149,7 +157,7 @@ async def save_change_order_draft(
     return ChangeOrderDraftResponse(id=str(change_order.id))
 
 
-@router.get("", response_model=list[ChangeOrderOut])
+@router.get("", response_model=list[ChangeOrderOut], dependencies=API_KEY_DEPENDENCIES)
 async def list_change_orders(db: AsyncSession = Depends(get_db)) -> list[ChangeOrderOut]:
     result = await db.execute(
         select(ChangeOrderModel)
@@ -160,7 +168,55 @@ async def list_change_orders(db: AsyncSession = Depends(get_db)) -> list[ChangeO
     return [_change_order_out(change_order) for change_order in result.scalars()]
 
 
-@router.get("/{change_order_id}", response_model=ChangeOrderOut)
+@router.post("/webhook/docusign")
+async def docusign_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    raw_body = await request.body()
+    if not _valid_docusign_signature(raw_body, request.headers.get("X-DocuSign-Signature-1")):
+        logger.warning("Rejected DocuSign webhook with invalid HMAC signature")
+        raise HTTPException(status_code=401, detail="Invalid DocuSign signature")
+
+    envelope_id, envelope_status = _parse_docusign_webhook(raw_body)
+    logger.info("Received DocuSign webhook envelope_id=%s status=%s", envelope_id, envelope_status)
+    if not envelope_id:
+        return {"status": "ignored"}
+    if envelope_status.lower() != "completed":
+        return {"status": "ignored"}
+
+    result = await db.execute(
+        select(ChangeOrderModel)
+        .where(ChangeOrderModel.docusign_envelope_id == envelope_id)
+        .options(selectinload(ChangeOrderModel.line_items))
+    )
+    change_order = result.scalar_one_or_none()
+    if change_order is None:
+        logger.info("No change order found for DocuSign envelope %s", envelope_id)
+        return {"status": "ignored"}
+
+    signed_pdf = await asyncio.to_thread(get_signed_pdf, envelope_id)
+    if signed_pdf:
+        box_file_id, box_file_url = file_change_order_pdf(
+            address=change_order.address,
+            pdf_bytes=signed_pdf,
+            signed=True,
+        )
+        if box_file_id:
+            change_order.box_file_id = box_file_id
+            change_order.box_file_url = box_file_url
+            logger.info("Filed signed change order %s to Box file %s", change_order.id, box_file_id)
+        else:
+            logger.warning("Signed change order %s was not filed to Box", change_order.id)
+    else:
+        logger.warning("No signed PDF returned for DocuSign envelope %s", envelope_id)
+
+    change_order.status = "signed"
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.get("/{change_order_id}", response_model=ChangeOrderOut, dependencies=API_KEY_DEPENDENCIES)
 async def get_change_order(
     change_order_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -179,7 +235,7 @@ async def get_change_order(
     return _change_order_out(change_order)
 
 
-@router.get("/{change_order_id}/pdf")
+@router.get("/{change_order_id}/pdf", dependencies=API_KEY_DEPENDENCIES)
 async def get_change_order_pdf(
     change_order_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -203,7 +259,7 @@ async def get_change_order_pdf(
     )
 
 
-@router.patch("/{change_order_id}/status", response_model=ChangeOrderOut)
+@router.patch("/{change_order_id}/status", response_model=ChangeOrderOut, dependencies=API_KEY_DEPENDENCIES)
 async def update_change_order_status(
     change_order_id: UUID,
     request: ChangeOrderStatusRequest,
@@ -215,32 +271,38 @@ async def update_change_order_status(
     return _change_order_out(change_order)
 
 
-@router.post("/{change_order_id}/send-signature", response_model=ChangeOrderSignatureResponse)
+@router.post("/{change_order_id}/send-signature", response_model=ChangeOrderSignatureResponse, dependencies=API_KEY_DEPENDENCIES)
 async def send_change_order_for_signature(
     change_order_id: UUID,
     request: ChangeOrderSignatureRequest,
     db: AsyncSession = Depends(get_db),
 ) -> ChangeOrderSignatureResponse:
     change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
-    pdf_bytes = render_change_order_pdf(change_order)
-    signer_email = request.signer_email.strip() or (change_order.customer_email or "").strip()
-    if not signer_email:
-        raise HTTPException(status_code=400, detail="Signer email is required.")
-    signer_name = request.signer_name.strip() or change_order.client_name
-    try:
-        result = await send_change_order_envelope(
-            pdf_bytes=pdf_bytes,
-            filename=_change_order_filename(change_order),
-            email_subject=f"{change_order.address} - Change Order Signature",
-            signer_name=signer_name,
-            signer_email=signer_email,
+    client_email = (change_order.customer_email or "").strip()
+    if not client_email:
+        raise HTTPException(
+            status_code=422,
+            detail="No client email on file. Please add the client email before sending for signature.",
         )
-    except DocuSignConfigurationError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
-    except DocuSignEnvelopeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    change_order.docusign_envelope_id = result.envelope_id
+    pdf_bytes = render_change_order_pdf(change_order)
+    envelope_id, docusign_view_url = await asyncio.to_thread(
+        send_for_signature,
+        change_order_id=str(change_order.id),
+        address=change_order.address,
+        client_name=(request.signer_name.strip() or change_order.client_name),
+        client_email=client_email,
+        pdf_bytes=pdf_bytes,
+        co_number=change_order.co_number,
+    )
+    if not envelope_id:
+        raise HTTPException(
+            status_code=502,
+            detail="DocuSign is not configured or the request failed. Check DOCUSIGN_PRIVATE_KEY in .env",
+        )
+    del docusign_view_url
+
+    change_order.docusign_envelope_id = envelope_id
     change_order.status = "sent"
     await db.commit()
     return ChangeOrderSignatureResponse(
@@ -249,11 +311,11 @@ async def send_change_order_for_signature(
         docusign_envelope_id=change_order.docusign_envelope_id,
         box_file_id=change_order.box_file_id,
         box_file_url=change_order.box_file_url,
-        message=f"Change order sent to {signer_email} for signature.",
+        message=f"Change order sent to {client_email} for signature.",
     )
 
 
-@router.post("/{change_order_id}/sync-signed", response_model=ChangeOrderSignatureResponse)
+@router.post("/{change_order_id}/sync-signed", response_model=ChangeOrderSignatureResponse, dependencies=API_KEY_DEPENDENCIES)
 async def sync_signed_change_order(
     change_order_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -262,13 +324,7 @@ async def sync_signed_change_order(
     if not change_order.docusign_envelope_id:
         raise HTTPException(status_code=400, detail="Change order has not been sent to DocuSign.")
 
-    try:
-        signed_pdf = await download_completed_document(change_order.docusign_envelope_id)
-        envelope_status = await get_envelope_status(change_order.docusign_envelope_id)
-    except DocuSignConfigurationError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
-    except DocuSignEnvelopeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    signed_pdf = await asyncio.to_thread(get_signed_pdf, change_order.docusign_envelope_id)
 
     if signed_pdf is None:
         return ChangeOrderSignatureResponse(
@@ -277,7 +333,7 @@ async def sync_signed_change_order(
             docusign_envelope_id=change_order.docusign_envelope_id,
             box_file_id=change_order.box_file_id,
             box_file_url=change_order.box_file_url,
-            message=f"DocuSign envelope is {envelope_status}; signed PDF is not ready yet.",
+            message="Signed PDF is not ready yet or DocuSign could not return it.",
         )
 
     box_file_id, box_file_url = file_change_order_pdf(
@@ -384,6 +440,41 @@ def _change_order_out(change_order: ChangeOrderModel) -> ChangeOrderOut:
         created_at=change_order.created_at,
         updated_at=change_order.updated_at,
     )
+
+
+def _valid_docusign_signature(raw_body: bytes, signature_header: str | None) -> bool:
+    secret = settings.docusign_webhook_secret.strip()
+    if not secret:
+        return True
+    if not signature_header:
+        return False
+
+    digest = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).digest()
+    expected_base64 = base64.b64encode(digest).decode("ascii")
+    expected_hex = digest.hex()
+    return hmac.compare_digest(signature_header, expected_base64) or hmac.compare_digest(
+        signature_header,
+        expected_hex,
+    )
+
+
+def _parse_docusign_webhook(raw_body: bytes) -> tuple[str, str]:
+    try:
+        root = ElementTree.fromstring(raw_body)
+    except ElementTree.ParseError as exc:
+        logger.warning("Failed to parse DocuSign webhook XML: %s", exc)
+        return "", ""
+
+    envelope_id = ""
+    status = ""
+    for element in root.iter():
+        tag_name = element.tag.rsplit("}", 1)[-1]
+        text = (element.text or "").strip()
+        if tag_name == "EnvelopeID" and text:
+            envelope_id = text
+        elif tag_name == "Status" and text:
+            status = text
+    return envelope_id, status
 
 
 def _calculate_totals(line_items: list[ChangeOrderLineItem]) -> tuple[Decimal, Decimal, Decimal]:

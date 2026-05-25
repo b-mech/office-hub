@@ -4,10 +4,15 @@ import base64
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any
 
-import httpx
-from jose import jwt
+from docusign_esign import ApiClient
+from docusign_esign import Document
+from docusign_esign import EnvelopeDefinition
+from docusign_esign import EnvelopesApi
+from docusign_esign import Recipients
+from docusign_esign import SignHere
+from docusign_esign import Signer
+from docusign_esign import Tabs
 
 from app.core.config import settings
 
@@ -15,174 +20,154 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-class DocuSignConfigurationError(RuntimeError):
-    pass
+@dataclass
+class _TokenCache:
+    access_token: str = ""
+    expires_at: int = 0
 
 
-class DocuSignEnvelopeError(RuntimeError):
-    pass
+_token_cache = _TokenCache()
 
 
-@dataclass(frozen=True)
-class DocuSignEnvelopeResult:
-    envelope_id: str
-    status: str
-
-
-def configured() -> bool:
-    return settings.docusign_configured
-
-
-async def send_change_order_envelope(
-    pdf_bytes: bytes,
-    filename: str,
-    email_subject: str,
-    signer_name: str,
-    signer_email: str,
-) -> DocuSignEnvelopeResult:
-    if not configured():
-        raise DocuSignConfigurationError("DocuSign is not configured.")
-
-    token = await _access_token()
-    document_base64 = base64.b64encode(pdf_bytes).decode("ascii")
-    payload: dict[str, Any] = {
-        "emailSubject": email_subject,
-        "documents": [
-            {
-                "documentBase64": document_base64,
-                "name": filename,
-                "fileExtension": "pdf",
-                "documentId": "1",
-            }
-        ],
-        "recipients": {
-            "signers": [
-                {
-                    "email": signer_email,
-                    "name": signer_name,
-                    "recipientId": "1",
-                    "routingOrder": "1",
-                    "tabs": {
-                        "signHereTabs": [
-                            {
-                                "anchorString": "Purchaser Signature",
-                                "anchorUnits": "pixels",
-                                "anchorXOffset": "0",
-                                "anchorYOffset": "-32",
-                            }
-                        ],
-                        "dateSignedTabs": [
-                            {
-                                "anchorString": "Date",
-                                "anchorUnits": "pixels",
-                                "anchorXOffset": "0",
-                                "anchorYOffset": "-32",
-                            }
-                        ],
-                    },
-                }
-            ]
-        },
-        "status": "sent",
-    }
-    url = f"{settings.docusign_base_path.rstrip('/')}/v2.1/accounts/{settings.docusign_account_id}/envelopes"
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(url, headers=_auth_headers(token), json=payload)
-
-    if response.status_code >= 400:
-        logger.warning("DocuSign envelope creation failed: %s %s", response.status_code, response.text)
-        raise DocuSignEnvelopeError(_error_detail(response))
-
-    data = response.json()
-    return DocuSignEnvelopeResult(
-        envelope_id=str(data.get("envelopeId", "")),
-        status=str(data.get("status", "sent")),
-    )
-
-
-async def get_envelope_status(envelope_id: str) -> str:
-    if not configured():
-        raise DocuSignConfigurationError("DocuSign is not configured.")
-
-    token = await _access_token()
-    url = (
-        f"{settings.docusign_base_path.rstrip('/')}/v2.1/accounts/"
-        f"{settings.docusign_account_id}/envelopes/{envelope_id}"
-    )
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(url, headers=_auth_headers(token))
-
-    if response.status_code >= 400:
-        logger.warning("DocuSign envelope status failed: %s %s", response.status_code, response.text)
-        raise DocuSignEnvelopeError(_error_detail(response))
-    return str(response.json().get("status", "unknown"))
-
-
-async def download_completed_document(envelope_id: str) -> bytes | None:
-    status = await get_envelope_status(envelope_id)
-    if status.lower() != "completed":
+def get_docusign_client() -> ApiClient | None:
+    if not settings.docusign_configured:
+        logger.warning("DocuSign is not configured; DOCUSIGN_PRIVATE_KEY is required.")
         return None
 
-    token = await _access_token()
-    url = (
-        f"{settings.docusign_base_path.rstrip('/')}/v2.1/accounts/"
-        f"{settings.docusign_account_id}/envelopes/{envelope_id}/documents/combined"
-    )
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(url, headers=_auth_headers(token))
+    try:
+        private_key = _private_key_bytes()
+    except ValueError as exc:
+        logger.error("DocuSign private key is malformed: %s", exc)
+        return None
 
-    if response.status_code >= 400:
-        logger.warning("DocuSign document download failed: %s %s", response.status_code, response.text)
-        raise DocuSignEnvelopeError(_error_detail(response))
-    return response.content
+    api_client = ApiClient()
+    api_client.host = _rest_api_base_path()
 
-
-async def _access_token() -> str:
     now = int(time.time())
-    assertion = jwt.encode(
-        {
-            "iss": settings.docusign_integration_key,
-            "sub": settings.docusign_user_id,
-            "aud": settings.docusign_auth_server,
-            "iat": now,
-            "exp": now + 3600,
-            "scope": "signature impersonation",
-        },
-        _private_key(),
-        algorithm="RS256",
-    )
-    url = f"https://{settings.docusign_auth_server}/oauth/token"
-    data = {
-        "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        "assertion": assertion,
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(url, data=data)
+    if _token_cache.access_token and _token_cache.expires_at > now + 300:
+        api_client.set_default_header("Authorization", f"Bearer {_token_cache.access_token}")
+        return api_client
 
-    if response.status_code >= 400:
-        logger.warning("DocuSign token request failed: %s %s", response.status_code, response.text)
-        raise DocuSignEnvelopeError(_error_detail(response))
-    return str(response.json()["access_token"])
+    try:
+        # JWT requires one-time user consent before token exchange works. Consent URL:
+        # https://demo.docusign.net/oauth/auth?response_type=code&scope=signature%20impersonation&client_id=f799edf4-90bc-4c55-9f66-e52ca8dcaad6&redirect_uri=https://demo.docusign.net
+        token = api_client.request_jwt_user_token(
+            client_id=settings.docusign_integration_key,
+            user_id=settings.docusign_user_id,
+            oauth_host_name=settings.docusign_auth_server,
+            private_key_bytes=private_key,
+            expires_in=3600,
+            scopes=["signature", "impersonation"],
+        )
+    except Exception as exc:
+        logger.error("DocuSign JWT authentication failed: %s", exc)
+        return None
+
+    _token_cache.access_token = token.access_token
+    _token_cache.expires_at = now + int(getattr(token, "expires_in", 3600) or 3600)
+    api_client.set_default_header("Authorization", f"Bearer {_token_cache.access_token}")
+    return api_client
 
 
-def _private_key() -> str:
+def send_for_signature(
+    change_order_id: str,
+    address: str,
+    client_name: str,
+    client_email: str,
+    pdf_bytes: bytes,
+    co_number: str | None = None,
+) -> tuple[str, str] | tuple[None, None]:
+    del change_order_id
+    api_client = get_docusign_client()
+    if api_client is None:
+        return None, None
+
+    label = co_number or "Draft"
+    document_name = f"{address} - Change Order {label}"
+    try:
+        envelope = EnvelopeDefinition(
+            email_subject=f"Please sign: Change Order {label} - {address}",
+            email_blurb=(
+                f"Please review and sign the attached change order for {address}. "
+                "If you have any questions please contact accounts@connectionhomes.ca"
+            ),
+            documents=[
+                Document(
+                    document_base64=base64.b64encode(pdf_bytes).decode("ascii"),
+                    name=document_name,
+                    file_extension="pdf",
+                    document_id="1",
+                )
+            ],
+            recipients=Recipients(
+                signers=[
+                    Signer(
+                        email=client_email,
+                        name=client_name,
+                        recipient_id="1",
+                        routing_order="1",
+                        tabs=Tabs(
+                            sign_here_tabs=[
+                                SignHere(
+                                    anchor_string="Purchaser Signature",
+                                    anchor_units="pixels",
+                                    anchor_y_offset="10",
+                                    anchor_x_offset="-20",
+                                )
+                            ]
+                        ),
+                    )
+                ]
+            ),
+            status="sent",
+        )
+        result = EnvelopesApi(api_client).create_envelope(
+            account_id=settings.docusign_account_id,
+            envelope_definition=envelope,
+        )
+    except Exception as exc:
+        logger.error("DocuSign envelope creation failed: %s", exc)
+        return None, None
+
+    envelope_id = str(getattr(result, "envelope_id", "") or "")
+    if not envelope_id:
+        logger.error("DocuSign envelope creation returned no envelope ID.")
+        return None, None
+    return envelope_id, f"{settings.docusign_base_url.rstrip('/')}/monitor"
+
+
+def get_signed_pdf(envelope_id: str) -> bytes | None:
+    api_client = get_docusign_client()
+    if api_client is None:
+        return None
+
+    try:
+        document = EnvelopesApi(api_client).get_document(
+            account_id=settings.docusign_account_id,
+            document_id="combined",
+            envelope_id=envelope_id,
+        )
+    except Exception as exc:
+        logger.error("DocuSign signed PDF download failed for envelope %s: %s", envelope_id, exc)
+        return None
+
+    if isinstance(document, bytes):
+        return document
+    if isinstance(document, str):
+        with open(document, "rb") as pdf_file:
+            return pdf_file.read()
+    logger.error("DocuSign returned unexpected document payload for envelope %s", envelope_id)
+    return None
+
+
+def _rest_api_base_path() -> str:
+    return settings.docusign_base_path or f"{settings.docusign_base_url.rstrip('/')}/restapi"
+
+
+def _private_key_bytes() -> bytes:
     key = settings.docusign_private_key.strip()
     if "\\n" in key:
         key = key.replace("\\n", "\n")
-    return key
-
-
-def _auth_headers(token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-
-
-def _error_detail(response: httpx.Response) -> str:
-    try:
-        data = response.json()
-    except ValueError:
-        return response.text or f"DocuSign API error {response.status_code}"
-    return str(data.get("message") or data.get("error_description") or data.get("error") or data)
+    if "BEGIN" not in key or "PRIVATE KEY" not in key:
+        raise ValueError("missing RSA private key PEM header")
+    return key.encode("utf-8")

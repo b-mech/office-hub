@@ -252,12 +252,12 @@ function NewChangeOrderForm() {
             </label>
 
             <label className="flex flex-col gap-2 text-sm text-[var(--ch-text-secondary)]">
-              Customer Email
+              Client Email
               <input
                 type="email"
                 value={draft.customer_email || ""}
                 onChange={(event) => updateField("customer_email", event.target.value)}
-                placeholder="customer@example.com"
+                placeholder="client@email.com"
                 className="rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2.5 text-[var(--ch-text-primary)] outline-none placeholder:text-[var(--ch-text-muted)] focus:border-[var(--ch-accent)] focus:ring-2 focus:ring-[var(--ch-focus-ring)]"
               />
             </label>
