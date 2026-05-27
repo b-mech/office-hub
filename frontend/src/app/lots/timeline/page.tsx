@@ -17,12 +17,12 @@ const FILTERS: Array<{ id: TimelineFilter; label: string; types: string[] }> = [
 
 const urgencyStyles = {
   overdue: {
-    card: "border border-red-400/20 border-l-4 border-l-red-400 bg-red-500/[0.08]",
-    badge: "bg-red-500/20 text-red-200 border-red-400/30",
+    card: "border border-red-400/20 border-l-4 border-l-red-400 bg-[var(--ch-error-bg)]",
+    badge: "bg-[var(--ch-error-bg)] text-[var(--ch-error-text)] border-[var(--ch-error-border)]",
   },
   soon: {
-    card: "border border-amber-400/20 border-l-4 border-l-amber-400 bg-amber-500/[0.08]",
-    badge: "bg-amber-500/20 text-amber-100 border-amber-400/30",
+    card: "border border-amber-400/20 border-l-4 border-l-amber-400 bg-[var(--ch-warning-bg)]",
+    badge: "bg-[var(--ch-warning-bg)] text-[var(--ch-warning-text)] border-[var(--ch-warning-border)]",
   },
   upcoming: {
     card: "border border-[var(--ch-border)] border-l-4 border-l-white/10 bg-[var(--ch-surface)]",
@@ -242,7 +242,7 @@ export default function OtpTimelinePage() {
       </header>
 
       {error && (
-        <div className="mb-6 rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200">
+        <div className="mb-6 rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] p-4 text-sm text-[var(--ch-error-text)]">
           {error}
         </div>
       )}

@@ -224,11 +224,11 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
         )}
 
         {result && (
-          <div className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+          <div className="rounded-lg border border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] p-3 text-sm text-[var(--ch-success-text)]">
             <p className="font-semibold">Import complete</p>
             {result.resource_type === "budget" && result.budget_id ? (
               <>
-                <p className="mt-1 text-emerald-100/80">Draft budget ID: {result.budget_id}</p>
+                <p className="mt-1 text-[var(--ch-success-text)]">Draft budget ID: {result.budget_id}</p>
                 <Link
                   href={`/costbook/budgets/${result.budget_id}`}
                   className="mt-2 inline-block text-[var(--ch-accent)] hover:underline"
@@ -238,7 +238,7 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
               </>
             ) : (
               <>
-                <p className="mt-1 text-emerald-100/80">Document ID: {result.document_id}</p>
+                <p className="mt-1 text-[var(--ch-success-text)]">Document ID: {result.document_id}</p>
                 <Link
                   href={`/documents/${result.document_id}`}
                   className="mt-2 inline-block text-[var(--ch-accent)] hover:underline"
@@ -251,7 +251,7 @@ function ImportCard({ config }: { config: (typeof IMPORT_TYPES)[number] }) {
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">
+          <div className="rounded-lg border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] p-3 text-sm text-[var(--ch-error-text)]">
             {error}
           </div>
         )}

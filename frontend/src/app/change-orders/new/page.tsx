@@ -200,13 +200,13 @@ function NewChangeOrderForm() {
         )}
 
         {error && (
-          <section className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <section className="rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-4 py-3 text-sm text-[var(--ch-error-text)]">
             {error}
           </section>
         )}
 
         {savedDraftId && (
-          <section className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          <section className="rounded-xl border border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] px-4 py-3 text-sm text-[var(--ch-success-text)]">
             Draft saved. Reference: {savedDraftId}
           </section>
         )}
@@ -369,7 +369,7 @@ function NewChangeOrderForm() {
                     type="button"
                     onClick={() => removeLineItem(index)}
                     aria-label="Remove line item"
-                    className="rounded-lg border border-[var(--ch-border)] text-xl leading-none text-[var(--ch-text-muted)] hover:border-red-400/35 hover:text-red-200"
+                    className="rounded-lg border border-[var(--ch-border)] text-xl leading-none text-[var(--ch-text-muted)] hover:border-red-400/35 hover:text-[var(--ch-error-text)]"
                   >
                     ×
                   </button>
@@ -418,7 +418,7 @@ function NewChangeOrderForm() {
           </button>
           <div className="flex items-center gap-3">
             {savedDraftId && (
-              <p className="text-sm font-medium text-emerald-200" role="status">
+              <p className="text-sm font-medium text-[var(--ch-success-text)]" role="status">
                 Draft saved: {savedDraftId}
               </p>
             )}

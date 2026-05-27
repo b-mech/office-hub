@@ -40,6 +40,30 @@ function orderTotal(order: ChangeOrder) {
   }, 0);
 }
 
+function StatusPill({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    draft: "bg-[var(--ch-status-draft-bg)] text-[var(--ch-status-draft-text)] border-[var(--ch-status-draft-border)]",
+    sent: "bg-[var(--ch-status-sent-bg)] text-[var(--ch-status-sent-text)] border-[var(--ch-status-sent-border)]",
+    signed: "bg-[var(--ch-status-signed-bg)] text-[var(--ch-status-signed-text)] border-[var(--ch-status-signed-border)]",
+    complete: "bg-[var(--ch-status-complete-bg)] text-[var(--ch-status-complete-text)] border-[var(--ch-status-complete-border)]",
+    declined: "bg-[var(--ch-status-declined-bg)] text-[var(--ch-status-declined-text)] border-[var(--ch-status-declined-border)]",
+  };
+  const labels: Record<string, string> = {
+    draft: "draft",
+    sent: "sent",
+    signed: "signed",
+    complete: "complete ✓",
+    declined: "declined",
+  };
+  const style = styles[status] ?? styles.draft;
+  const label = labels[status] ?? status;
+  return (
+    <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${style}`}>
+      {label}
+    </span>
+  );
+}
+
 type ViewMode = "list" | "pipeline";
 
 export default function ProjectChangeOrdersPage() {
@@ -267,13 +291,13 @@ export default function ProjectChangeOrdersPage() {
         )}
 
         {error && (
-          <section className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <section className="rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-4 py-3 text-sm text-[var(--ch-error-text)]">
             {error}
           </section>
         )}
 
         {actionMessage && (
-          <section className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          <section className="rounded-xl border border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] px-4 py-3 text-sm text-[var(--ch-success-text)]">
             {actionMessage}
           </section>
         )}
@@ -322,9 +346,7 @@ export default function ProjectChangeOrdersPage() {
                     <p className="mt-1 text-xs text-[var(--ch-text-muted)]">{formatDate(order.date)}</p>
                   </div>
                   <div className="flex items-center justify-start md:justify-end">
-                    <span className="rounded-full border border-amber-400/30 bg-amber-400/15 px-2.5 py-1 text-xs font-semibold text-amber-300">
-                      {order.status || "draft"}
-                    </span>
+                    <StatusPill status={order.status || "draft"} />
                   </div>
                   <div className="flex flex-wrap items-center gap-2 md:justify-end">
                     <button

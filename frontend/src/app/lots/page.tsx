@@ -14,8 +14,8 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_COLOR: Record<string, string> = {
   active: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  possession: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  complete: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  possession: "bg-[var(--ch-warning-bg)] text-[var(--ch-warning-text)] border-[var(--ch-warning-border)]",
+  complete: "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)] border-[var(--ch-success-border)]",
 };
 
 function formatDate(d?: string) {
@@ -69,7 +69,7 @@ function LotCard({
         </span>
       </div>
       {lot.possession_date && (
-        <p className={`text-xs mt-1.5 ${days !== null && days <= 30 ? "text-amber-400" : "text-[var(--ch-text-muted)]"}`}>
+        <p className={`text-xs mt-1.5 ${days !== null && days <= 30 ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}>
           Possession {formatDate(lot.possession_date)}
           {days !== null && days > 0 && ` · ${days}d`}
           {days !== null && days <= 0 && " · Past due"}
@@ -121,12 +121,12 @@ function LotDetail({ lot }: { lot: Lot }) {
                 key={label}
                 className={`rounded-xl p-4 border ${
                   urgent
-                    ? "bg-amber-500/10 border-amber-500/30"
+                    ? "bg-[var(--ch-warning-bg)] border-[var(--ch-warning-border)]"
                     : "bg-[var(--ch-surface)] border-[var(--ch-border)]"
                 }`}
               >
                 <p className="text-xs text-[var(--ch-text-muted)] mb-1">{label}</p>
-                <p className={`text-sm font-medium ${urgent ? "text-amber-300" : "text-[var(--ch-text-primary)]"}`}>
+                <p className={`text-sm font-medium ${urgent ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-primary)]"}`}>
                   {formatDate(value)}
                 </p>
                 {days !== null && days >= 0 && (
@@ -148,7 +148,7 @@ function LotDetail({ lot }: { lot: Lot }) {
           >
             <span className="text-xl">📒</span>
             <div>
-              <p className="text-sm font-medium text-[var(--ch-text-primary)] group-hover:text-amber-300 transition-colors">Costbook</p>
+              <p className="text-sm font-medium text-[var(--ch-text-primary)] group-hover:text-[var(--ch-warning-text)] transition-colors">Costbook</p>
               <p className="text-xs text-[var(--ch-text-muted)]">Budget & POs</p>
             </div>
           </Link>
@@ -158,7 +158,7 @@ function LotDetail({ lot }: { lot: Lot }) {
           >
             <span className="text-xl">🧾</span>
             <div>
-              <p className="text-sm font-medium text-[var(--ch-text-primary)] group-hover:text-amber-300 transition-colors">Invoices</p>
+              <p className="text-sm font-medium text-[var(--ch-text-primary)] group-hover:text-[var(--ch-warning-text)] transition-colors">Invoices</p>
               <p className="text-xs text-[var(--ch-text-muted)]">Review & approve</p>
             </div>
           </Link>
@@ -270,7 +270,7 @@ export function LotWorkspace({
                 onClick={() => setSortKey(key)}
                 className={`flex-1 text-[10px] font-medium py-1.5 rounded-md transition-all ${
                   sortKey === key
-                    ? "bg-amber-400/20 text-amber-300 border border-amber-400/30"
+                    ? "bg-amber-400/20 text-[var(--ch-warning-text)] border border-[var(--ch-warning-border)]"
                     : "bg-[var(--ch-surface)] text-[var(--ch-text-muted)] border border-transparent hover:text-[var(--ch-text-secondary)]"
                 }`}
               >

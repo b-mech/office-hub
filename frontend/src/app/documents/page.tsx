@@ -10,13 +10,13 @@ const docTypeOptions = ["", "land_otp", "sale_otp", "invoice", "legal", "other"]
 
 function getStatusBadge(status: string): string {
   if (status === "approved") {
-    return "bg-emerald-100 text-emerald-800 ring-emerald-200";
+    return "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)] ring-[var(--ch-success-border)]";
   }
   if (status === "rejected") {
     return "bg-rose-100 text-rose-800 ring-rose-200";
   }
   if (status === "in_review") {
-    return "bg-amber-100 text-amber-800 ring-amber-200";
+    return "bg-[var(--ch-warning-bg)] text-[var(--ch-warning-text)] ring-[var(--ch-warning-border)]";
   }
   return "bg-[var(--ch-surface)] text-[var(--ch-text-secondary)] ring-[var(--ch-border)]";
 }

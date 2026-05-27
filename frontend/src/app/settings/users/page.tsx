@@ -226,7 +226,7 @@ function InviteModal({
         </div>
 
         {error && (
-          <div className="mx-5 mt-4 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          <div className="mx-5 mt-4 rounded-lg border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-3 py-2 text-sm text-[var(--ch-error-text)]">
             {error}
           </div>
         )}
@@ -308,13 +308,13 @@ export default function UsersPage() {
       </header>
 
       {success && (
-        <div className="mb-4 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+        <div className="mb-4 rounded-xl border border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] px-4 py-3 text-sm text-[var(--ch-success-text)]">
           {success}
         </div>
       )}
 
       {error && (
-        <div className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <div className="mb-4 rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-4 py-3 text-sm text-[var(--ch-error-text)]">
           {error}
         </div>
       )}
@@ -356,7 +356,7 @@ export default function UsersPage() {
                 {user.role === "admin" ? "Admin" : "Member"}
               </span>
               <AccessPills permissions={{ ...EMPTY_PERMISSIONS, ...user.permissions }} />
-              <span className="w-fit rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-200">
+              <span className="w-fit rounded-full border border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] px-2.5 py-1 text-xs font-semibold text-[var(--ch-success-text)]">
                 {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
               </span>
               {CURRENT_USER_ROLE === "admin" ? (
@@ -371,7 +371,7 @@ export default function UsersPage() {
                   <button
                     type="button"
                     title="Disable"
-                    className="rounded-lg border border-[var(--ch-border)] p-2 text-[var(--ch-text-muted)] hover:border-red-400/35 hover:text-red-200"
+                    className="rounded-lg border border-[var(--ch-border)] p-2 text-[var(--ch-text-muted)] hover:border-red-400/35 hover:text-[var(--ch-error-text)]"
                   >
                     <Ban size={15} />
                   </button>

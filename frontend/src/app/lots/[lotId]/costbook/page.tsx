@@ -20,8 +20,8 @@ function fmt(n?: number | null) {
 
 function confidence(n?: number | null) {
   if (n == null) return "";
-  if (n >= 0.9) return "text-emerald-400";
-  if (n >= 0.7) return "text-amber-400";
+  if (n >= 0.9) return "text-[var(--ch-success-text)]";
+  if (n >= 0.7) return "text-[var(--ch-warning-text)]";
   return "text-red-400";
 }
 
@@ -70,7 +70,7 @@ function BudgetTab({
           {
             label: "Variance",
             value: budget.total_variance,
-            color: budget.total_variance > 0 ? "text-red-400" : budget.total_variance < 0 ? "text-emerald-400" : "text-[var(--ch-text-primary)]",
+            color: budget.total_variance > 0 ? "text-red-400" : budget.total_variance < 0 ? "text-[var(--ch-success-text)]" : "text-[var(--ch-text-primary)]",
           },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-[var(--ch-surface)] border border-[var(--ch-border)] rounded-xl p-4">
@@ -127,7 +127,7 @@ function BudgetTab({
                         ) : (
                           <span
                             onClick={() => startEdit(line, "estimate")}
-                            className="cursor-pointer hover:text-amber-300 transition-colors text-[var(--ch-text-secondary)]"
+                            className="cursor-pointer hover:text-[var(--ch-warning-text)] transition-colors text-[var(--ch-text-secondary)]"
                           >
                             {line.estimate > 0 ? fmt(line.estimate) : <span className="text-[var(--ch-text-muted)]">—</span>}
                           </span>
@@ -150,7 +150,7 @@ function BudgetTab({
                         ) : (
                           <span
                             onClick={() => startEdit(line, "actual")}
-                            className="cursor-pointer hover:text-amber-300 transition-colors text-[var(--ch-text-secondary)]"
+                            className="cursor-pointer hover:text-[var(--ch-warning-text)] transition-colors text-[var(--ch-text-secondary)]"
                           >
                             {line.actual > 0 ? fmt(line.actual) : <span className="text-[var(--ch-text-muted)]">—</span>}
                           </span>
@@ -158,7 +158,7 @@ function BudgetTab({
                       </td>
 
                       {/* Variance */}
-                      <td className={`px-4 py-2.5 text-right font-medium ${isOver ? "text-red-400" : isUnder ? "text-emerald-400" : "text-[var(--ch-text-muted)]"}`}>
+                      <td className={`px-4 py-2.5 text-right font-medium ${isOver ? "text-red-400" : isUnder ? "text-[var(--ch-success-text)]" : "text-[var(--ch-text-muted)]"}`}>
                         {line.actual > 0 ? fmt(variance) : "—"}
                       </td>
 
@@ -167,7 +167,7 @@ function BudgetTab({
                         <button
                           onClick={() => onIssuePO(line)}
                           title="Issue PO"
-                          className="text-xs text-[var(--ch-text-muted)] hover:text-amber-300 transition-colors"
+                          className="text-xs text-[var(--ch-text-muted)] hover:text-[var(--ch-warning-text)] transition-colors"
                         >
                           PO+
                         </button>
@@ -190,8 +190,8 @@ const PO_STATUS_COLOR: Record<string, string> = {
   draft: "bg-[var(--ch-surface)] text-[var(--ch-text-muted)]",
   issued: "bg-blue-500/15 text-blue-300",
   acknowledged: "bg-purple-500/15 text-purple-300",
-  complete: "bg-emerald-500/15 text-emerald-300",
-  cancelled: "bg-red-500/15 text-red-300",
+  complete: "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)]",
+  cancelled: "bg-[var(--ch-error-bg)] text-[var(--ch-error-text)]",
 };
 
 function POTab({ budgetId }: { budgetId: string }) {
@@ -243,7 +243,7 @@ function POTab({ budgetId }: { budgetId: string }) {
                 {["draft", "issued", "acknowledged"].includes(po.status) && (
                   <button
                     onClick={() => advance(po)}
-                    className="text-xs text-[var(--ch-text-muted)] hover:text-amber-300 transition-colors"
+                    className="text-xs text-[var(--ch-text-muted)] hover:text-[var(--ch-warning-text)] transition-colors"
                   >
                     Advance →
                   </button>
@@ -308,7 +308,7 @@ function InvoiceTab({ budgetId, budgetLines }: { budgetId: string; budgetLines: 
         <label className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all
           ${uploading
             ? "bg-[var(--ch-surface)] text-[var(--ch-text-muted)] cursor-not-allowed"
-            : "bg-amber-400/20 text-amber-300 border border-amber-400/30 hover:bg-amber-400/30"
+            : "bg-amber-400/20 text-[var(--ch-warning-text)] border border-[var(--ch-warning-border)] hover:bg-amber-400/30"
           }`}
         >
           {uploading ? "Extracting…" : "Upload Invoice"}
@@ -329,9 +329,9 @@ function InvoiceTab({ budgetId, budgetLines }: { budgetId: string; budgetLines: 
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      inv.status === "approved" ? "bg-emerald-500/15 text-emerald-300"
-                      : inv.status === "rejected" ? "bg-red-500/15 text-red-300"
-                      : "bg-amber-500/15 text-amber-300"
+                      inv.status === "approved" ? "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)]"
+                      : inv.status === "rejected" ? "bg-[var(--ch-error-bg)] text-[var(--ch-error-text)]"
+                      : "bg-[var(--ch-warning-bg)] text-[var(--ch-warning-text)]"
                     }`}>
                       {inv.status.replace("_", " ")}
                     </span>
@@ -374,7 +374,7 @@ function InvoiceTab({ budgetId, budgetLines }: { budgetId: string; budgetLines: 
                       </select>
                       <button
                         onClick={() => handleApprove(inv)}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 text-sm hover:bg-emerald-500/30 transition-colors"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--ch-success-bg)] text-[var(--ch-success-text)] text-sm hover:brightness-105 transition-colors"
                       >
                         Confirm
                       </button>
@@ -389,13 +389,13 @@ function InvoiceTab({ budgetId, budgetLines }: { budgetId: string; budgetLines: 
                     <>
                       <button
                         onClick={() => setApprovingId(inv.id)}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 text-sm hover:bg-emerald-500/30 transition-colors"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--ch-success-bg)] text-[var(--ch-success-text)] text-sm hover:brightness-105 transition-colors"
                       >
                         Approve
                       </button>
                       <button
                         onClick={() => handleReject(inv)}
-                        className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-300 text-sm hover:bg-red-500/30 transition-colors"
+                        className="px-3 py-1.5 rounded-lg bg-[var(--ch-error-bg)] text-[var(--ch-error-text)] text-sm hover:brightness-105 transition-colors"
                       >
                         Reject
                       </button>
@@ -660,7 +660,7 @@ export default function CostbookPage() {
             <button
               onClick={handleCreate}
               disabled={creating}
-              className="px-5 py-2.5 rounded-lg bg-amber-400/20 text-amber-300 border border-amber-400/30 text-sm font-medium hover:bg-amber-400/30 transition-colors disabled:opacity-40"
+              className="px-5 py-2.5 rounded-lg bg-amber-400/20 text-[var(--ch-warning-text)] border border-[var(--ch-warning-border)] text-sm font-medium hover:bg-amber-400/30 transition-colors disabled:opacity-40"
             >
               {creating ? "Creating…" : "Create Budget"}
             </button>

@@ -117,7 +117,7 @@ export default function BudgetDraftPage() {
         <Link href="/costbook" className="text-sm text-[var(--ch-accent)] hover:underline">
           Back to Costbook
         </Link>
-        <p className="mt-8 rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-200">
+        <p className="mt-8 rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] p-4 text-sm text-[var(--ch-error-text)]">
           {error || "Budget not found."}
         </p>
       </div>
@@ -151,7 +151,7 @@ export default function BudgetDraftPage() {
             {
               label: "Variance",
               value: budget.total_variance,
-              color: budget.total_variance > 0 ? "text-red-400" : budget.total_variance < 0 ? "text-emerald-400" : "text-[var(--ch-text-primary)]",
+              color: budget.total_variance > 0 ? "text-red-400" : budget.total_variance < 0 ? "text-[var(--ch-success-text)]" : "text-[var(--ch-text-primary)]",
             },
           ].map((item) => (
             <div key={item.label} className="rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
@@ -264,7 +264,7 @@ function FragmentRows({
                 )}
               </td>
             ))}
-            <td className={`px-4 py-2.5 text-right font-medium ${isOver ? "text-red-400" : isUnder ? "text-emerald-400" : "text-[var(--ch-text-muted)]"}`}>
+            <td className={`px-4 py-2.5 text-right font-medium ${isOver ? "text-red-400" : isUnder ? "text-[var(--ch-success-text)]" : "text-[var(--ch-text-muted)]"}`}>
               {line.actual > 0 ? fmt(variance) : "-"}
             </td>
             <td className="px-4 py-2.5 text-center">

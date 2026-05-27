@@ -18,25 +18,25 @@ const stages: Stage[] = [
   {
     name: "EXTRACTED",
     status: "draft",
-    color: "var(--ch-text-muted)",
+    color: "var(--ch-status-draft-border)",
     description: "Draft created from email",
   },
   {
     name: "PENDING SIGNATURE",
     status: "sent",
-    color: "var(--ch-amber)",
+    color: "var(--ch-status-sent-border)",
     description: "Awaiting client signature",
   },
   {
     name: "SIGNED",
     status: "signed",
-    color: "var(--ch-upcoming-badge-text)",
+    color: "var(--ch-status-signed-border)",
     description: "Signed and returned",
   },
   {
     name: "COMPLETE",
     status: "complete",
-    color: "var(--ch-success-text)",
+    color: "var(--ch-status-complete-border)",
     description: "Paid or added to mortgage",
   },
 ];

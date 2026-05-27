@@ -165,13 +165,13 @@ const developmentGuidelineFields: Array<[string, string]> = [
 
 function getStatusBadge(status: string): string {
   if (status === "approved") {
-    return "bg-emerald-100 text-emerald-800 ring-emerald-200";
+    return "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)] ring-[var(--ch-success-border)]";
   }
   if (status === "rejected") {
     return "bg-rose-100 text-rose-800 ring-rose-200";
   }
   if (status === "in_review") {
-    return "bg-amber-100 text-amber-800 ring-amber-200";
+    return "bg-[var(--ch-warning-bg)] text-[var(--ch-warning-text)] ring-[var(--ch-warning-border)]";
   }
   return "bg-[var(--ch-surface)] text-[var(--ch-text-secondary)] ring-[var(--ch-border)]";
 }
@@ -657,7 +657,7 @@ export default function DocumentReviewPage() {
                 </p>
               </div>
               {success?.promotion ? (
-                <div className="mt-5 rounded-[1.4rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
+                <div className="mt-5 rounded-[1.4rem] border border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] px-5 py-4 text-sm text-[var(--ch-success-text)]">
                   <p className="font-semibold">Promotion completed successfully.</p>
                   <p className="mt-2">
                     Lots created: {success.promotion.lots_created} | Lots matched:{" "}
@@ -668,7 +668,7 @@ export default function DocumentReviewPage() {
                   </p>
                   <Link
                     href="/documents"
-                    className="mt-4 inline-flex rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-text-primary)] transition hover:bg-emerald-600"
+                    className="mt-4 inline-flex rounded-full bg-[var(--ch-success-text)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-text-primary)] transition hover:brightness-110"
                   >
                     Return to queue
                   </Link>
@@ -707,7 +707,7 @@ export default function DocumentReviewPage() {
                             {label}
                           </span>
                           <span
-                            className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                            className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                           >
                             {lowConfidence
                               ? `Warning ${Math.round(getConfidence(path) * 100)}% confidence`
@@ -747,7 +747,7 @@ export default function DocumentReviewPage() {
                             {label}
                           </span>
                           <span
-                            className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                            className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                           >
                             {Math.round(getConfidence(path) * 100)}%
                           </span>
@@ -847,7 +847,7 @@ export default function DocumentReviewPage() {
                                         {label}
                                       </span>
                                       <span
-                                        className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                                        className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                                       >
                                         {Math.round(getConfidence(path) * 100)}%
                                       </span>
@@ -898,7 +898,7 @@ export default function DocumentReviewPage() {
                             {label}
                           </span>
                           <span
-                            className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                            className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                           >
                             {Math.round(getConfidence(path) * 100)}%
                           </span>
@@ -960,7 +960,7 @@ export default function DocumentReviewPage() {
                                     {label}
                                   </span>
                                   <span
-                                    className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                                    className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                                   >
                                     {Math.round(getConfidence(path) * 100)}%
                                   </span>
@@ -998,7 +998,7 @@ export default function DocumentReviewPage() {
                                 {label}
                               </span>
                               <span
-                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                                className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                               >
                                 {Math.round(getConfidence(path) * 100)}%
                               </span>
@@ -1034,7 +1034,7 @@ export default function DocumentReviewPage() {
                                 {label}
                               </span>
                               <span
-                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                                className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                               >
                                 {Math.round(getConfidence(path) * 100)}%
                               </span>
@@ -1070,7 +1070,7 @@ export default function DocumentReviewPage() {
                                 {label}
                               </span>
                               <span
-                                className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                                className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                               >
                                 {Math.round(getConfidence(path) * 100)}%
                               </span>
@@ -1117,7 +1117,7 @@ export default function DocumentReviewPage() {
                                     {label}
                                   </span>
                                   <span
-                                    className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                                    className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                                   >
                                     {Math.round(getConfidence(path) * 100)}%
                                   </span>
@@ -1161,7 +1161,7 @@ export default function DocumentReviewPage() {
                                   {label}
                                 </span>
                                 <span
-                                  className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                                  className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                                 >
                                   {Math.round(getConfidence(path) * 100)}%
                                 </span>
@@ -1220,7 +1220,7 @@ export default function DocumentReviewPage() {
                                   {label}
                                 </span>
                                 <span
-                                  className={`text-xs font-semibold ${lowConfidence ? "text-amber-700" : "text-[var(--ch-text-muted)]"}`}
+                                  className={`text-xs font-semibold ${lowConfidence ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}
                                 >
                                   {Math.round(getConfidence(path) * 100)}%
                                 </span>
@@ -1257,11 +1257,11 @@ export default function DocumentReviewPage() {
           <div className="border-t border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-4 shadow-lg sm:px-5">
             <div className="flex flex-col gap-4">
               {!hasScrolledToEnd ? (
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-warning-text)]">
                   Scroll through all sections to enable approval.
                 </p>
               ) : (
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-success-text)]">
                   Review complete. Approval is enabled.
                 </p>
               )}
@@ -1318,7 +1318,7 @@ export default function DocumentReviewPage() {
                     type="button"
                     onClick={() => void handleSubmit("approved")}
                     disabled={submitting || !hasScrolledToEnd || !!success?.promotion}
-                    className="rounded-full bg-emerald-700 px-5 py-3 text-sm font-semibold text-[var(--ch-text-primary)] transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-full bg-[var(--ch-success-text)] px-5 py-3 text-sm font-semibold text-[var(--ch-text-primary)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {submitting ? "Submitting..." : "Approve and promote to database"}
                   </button>

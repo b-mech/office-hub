@@ -41,7 +41,7 @@ export default function CostbookIndexPage() {
         ) : budgets.length === 0 ? (
           <div className="text-center py-16">
             <p className="text-[var(--ch-text-muted)] text-sm">No budgets yet. Open a lot to create one.</p>
-            <Link href="/lots" className="mt-4 inline-block text-amber-300 text-sm hover:underline">
+            <Link href="/lots" className="mt-4 inline-block text-[var(--ch-warning-text)] text-sm hover:underline">
               Go to Lots
             </Link>
           </div>
@@ -61,7 +61,7 @@ export default function CostbookIndexPage() {
                 >
                   <div className="flex items-start justify-between gap-4 mb-4">
                     <div>
-                      <h2 className="text-base font-medium text-[var(--ch-text-primary)] group-hover:text-amber-300 transition-colors">
+                      <h2 className="text-base font-medium text-[var(--ch-text-primary)] group-hover:text-[var(--ch-warning-text)] transition-colors">
                         {b.label}
                       </h2>
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full mt-1 inline-block ${
@@ -85,7 +85,7 @@ export default function CostbookIndexPage() {
                     </div>
                     <div>
                       <p className="text-xs text-[var(--ch-text-muted)] mb-0.5">Variance</p>
-                      <p className={over ? "text-red-400" : b.total_variance < 0 ? "text-emerald-400" : "text-[var(--ch-text-muted)]"}>
+                      <p className={over ? "text-red-400" : b.total_variance < 0 ? "text-[var(--ch-success-text)]" : "text-[var(--ch-text-muted)]"}>
                         {b.total_actual > 0 ? fmt(b.total_variance) : "—"}
                       </p>
                     </div>
