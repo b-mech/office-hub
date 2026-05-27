@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 
 from docusign_esign import ApiClient
+from docusign_esign import DateSigned
 from docusign_esign import Document
 from docusign_esign import EnvelopeDefinition
 from docusign_esign import EnvelopesApi
@@ -111,10 +112,18 @@ def send_for_signature(
                                 SignHere(
                                     anchor_string="Purchaser Signature",
                                     anchor_units="pixels",
-                                    anchor_y_offset="10",
-                                    anchor_x_offset="-20",
+                                    anchor_y_offset="-40",
+                                    anchor_x_offset="0",
                                 )
-                            ]
+                            ],
+                            date_signed_tabs=[
+                                DateSigned(
+                                    anchor_string="Date",
+                                    anchor_units="pixels",
+                                    anchor_y_offset="-40",
+                                    anchor_x_offset="0",
+                                )
+                            ],
                         ),
                     )
                 ]
