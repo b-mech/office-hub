@@ -112,7 +112,7 @@ def send_for_signature(
                                 SignHere(
                                     anchor_string="Purchaser Signature",
                                     anchor_units="pixels",
-                                    anchor_y_offset="-40",
+                                    anchor_y_offset="-25",
                                     anchor_x_offset="0",
                                 )
                             ],
@@ -120,7 +120,7 @@ def send_for_signature(
                                 DateSigned(
                                     anchor_string="Date",
                                     anchor_units="pixels",
-                                    anchor_y_offset="-40",
+                                    anchor_y_offset="-25",
                                     anchor_x_offset="0",
                                 )
                             ],

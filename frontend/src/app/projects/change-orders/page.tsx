@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Columns, LayoutList } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Columns, LayoutList, MoreVertical, RefreshCw } from "lucide-react";
 
 import PipelineView from "@/app/projects/change-orders/PipelineView";
 import {
@@ -42,11 +43,13 @@ function orderTotal(order: ChangeOrder) {
 type ViewMode = "list" | "pipeline";
 
 export default function ProjectChangeOrdersPage() {
+  const router = useRouter();
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<ViewMode>("list");
 
@@ -61,6 +64,15 @@ export default function ProjectChangeOrdersPage() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    function closeMenu() {
+      setOpenMenuId(null);
+    }
+    document.addEventListener("mousedown", closeMenu);
+    return () => document.removeEventListener("mousedown", closeMenu);
+  }, [openMenuId]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -80,6 +92,7 @@ export default function ProjectChangeOrdersPage() {
   }, [changeOrders, search]);
 
   async function handleDownloadPdf(order: ChangeOrder) {
+    setOpenMenuId(null);
     setBusyOrderId(order.id);
     setError(null);
     setActionMessage(null);
@@ -100,6 +113,7 @@ export default function ProjectChangeOrdersPage() {
   }
 
   async function handleSendSignature(order: ChangeOrder) {
+    setOpenMenuId(null);
     if (!order.customer_email) {
       setError("No client email on file. Please add the client email before sending for signature.");
       return;
@@ -129,6 +143,7 @@ export default function ProjectChangeOrdersPage() {
   }
 
   async function handleSyncSigned(order: ChangeOrder) {
+    setOpenMenuId(null);
     setBusyOrderId(order.id);
     setError(null);
     setActionMessage(null);
@@ -151,6 +166,25 @@ export default function ProjectChangeOrdersPage() {
       setError(syncError instanceof Error ? syncError.message : "Could not sync signed PDF.");
     } finally {
       setBusyOrderId(null);
+    }
+  }
+
+  function handleEdit(order: ChangeOrder) {
+    setOpenMenuId(null);
+    router.push(`/change-orders/${order.id}/edit`);
+  }
+
+  function handleDelete(order: ChangeOrder) {
+    setOpenMenuId(null);
+    if (window.confirm(`Delete change order for ${order.address}?`)) {
+      console.log("Delete change order stub", order.id);
+    }
+  }
+
+  function handleViewInBox(order: ChangeOrder) {
+    setOpenMenuId(null);
+    if (order.box_file_url) {
+      window.open(order.box_file_url, "_blank", "noopener,noreferrer");
     }
   }
 
@@ -301,34 +335,87 @@ export default function ProjectChangeOrdersPage() {
                     >
                       PDF
                     </button>
-                    {order.box_file_url && (
+                    {order.status === "draft" && (
                       <button
                         type="button"
-                        onClick={() => window.open(order.box_file_url || "", "_blank", "noopener,noreferrer")}
-                        className="rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-xs font-semibold text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-surface)] hover:text-[var(--ch-text-primary)]"
+                        onClick={() => void handleSendSignature(order)}
+                        disabled={busyOrderId === order.id || !order.customer_email}
+                        title={!order.customer_email ? "Add a client email before sending for signature." : undefined}
+                        className="rounded-lg bg-[var(--ch-accent)] px-3 py-2 text-xs font-bold text-[var(--ch-accent-text)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        Box
+                        {busyOrderId === order.id ? "Working..." : "Send for Signature"}
                       </button>
                     )}
-                    {order.docusign_envelope_id && (
+                    <div className="relative" onMouseDown={(event) => event.stopPropagation()}>
                       <button
                         type="button"
-                        onClick={() => void handleSyncSigned(order)}
-                        disabled={busyOrderId === order.id}
-                        className="rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-xs font-semibold text-[var(--ch-text-secondary)] transition hover:bg-[var(--ch-surface)] hover:text-[var(--ch-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => setOpenMenuId((current) => (current === order.id ? null : order.id))}
+                        aria-label={`Actions for ${order.address}`}
+                        className="rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-1.5 text-[var(--ch-text-muted)] transition hover:bg-[var(--ch-page-bg)]"
                       >
-                        Sync Signed
+                        <MoreVertical className="h-4 w-4" aria-hidden="true" />
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => void handleSendSignature(order)}
-                      disabled={busyOrderId === order.id || !order.customer_email}
-                      title={!order.customer_email ? "Add a client email before sending for signature." : undefined}
-                      className="rounded-lg bg-[var(--ch-accent)] px-3 py-2 text-xs font-bold text-[var(--ch-accent-text)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {busyOrderId === order.id ? "Working..." : "Send for Signature"}
-                    </button>
+                      {openMenuId === order.id && (
+                        <div className="absolute right-0 top-full z-10 mt-1 min-w-[160px] rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] py-1 shadow-lg">
+                          {order.status === "draft" && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleEdit(order)}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-page-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(order)}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-page-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                          {order.status === "sent" && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => void handleSyncSigned(order)}
+                                disabled={busyOrderId === order.id}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-page-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                                Sync Signed
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleSendSignature(order)}
+                                disabled={busyOrderId === order.id || !order.customer_email}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-page-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Resend
+                              </button>
+                            </>
+                          )}
+                          {(order.status === "signed" || order.status === "complete") && order.box_file_url && (
+                            <button
+                              type="button"
+                              onClick={() => handleViewInBox(order)}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-page-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              View in Box
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void handleDownloadPdf(order)}
+                            disabled={busyOrderId === order.id}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-page-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            View PDF
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   </article>
                 ))}
