@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Columns, LayoutList, MoreVertical, RefreshCw } from "lucide-react";
+import { AlertTriangle, Columns, LayoutList, MoreVertical, RefreshCw } from "lucide-react";
 
 import PipelineView from "@/app/projects/change-orders/PipelineView";
 import {
@@ -155,6 +155,7 @@ export default function ProjectChangeOrdersPage() {
                 ...item,
                 status: result.status as ChangeOrder["status"],
                 docusign_envelope_id: result.docusign_envelope_id ?? item.docusign_envelope_id,
+                box_unfiled: result.box_unfiled ?? item.box_unfiled,
               }
             : item,
         ),
@@ -182,6 +183,7 @@ export default function ProjectChangeOrdersPage() {
                 status: result.status as ChangeOrder["status"],
                 box_file_id: result.box_file_id ?? item.box_file_id,
                 box_file_url: result.box_file_url ?? item.box_file_url,
+                box_unfiled: result.box_unfiled ?? item.box_unfiled,
               }
             : item,
         ),
@@ -367,6 +369,13 @@ export default function ProjectChangeOrdersPage() {
                       >
                         {busyOrderId === order.id ? "Working..." : "Send for Signature"}
                       </button>
+                    )}
+                    {order.box_unfiled && (
+                      <AlertTriangle
+                        className="h-3.5 w-3.5 text-[var(--ch-warning-text)]"
+                        aria-label="Filed to Unfiled Change Orders — Box folder not found for this address"
+                        title="Filed to Unfiled Change Orders — Box folder not found for this address"
+                      />
                     )}
                     <div className="relative" onMouseDown={(event) => event.stopPropagation()}>
                       <button

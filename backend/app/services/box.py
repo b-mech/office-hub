@@ -11,6 +11,22 @@ from boxsdk import OAuth2
 from app.core.config import settings
 
 
+# BOX FOLDER STRUCTURE FOR CHANGE ORDERS
+#
+# Unsigned: [Area] / 1C - {address} - Change Orders /
+#             To Be Signed / {address}.pdf
+# Signed:   [Area] / 1C - {address} - Change Orders /
+#             {address}-signed.pdf
+#
+# OH finds the correct folder by searching Box for
+# "1C - {address} - Change Orders". The Area is not needed.
+#
+# If the folder is not found, files go to the Unfiled
+# Change Orders folder (BOX_UNFILED_FOLDER_ID in .env).
+# Create this folder in Box and add its ID to .env.
+# Manually move unfiled documents once the correct Box
+# folder is created.
+
 logger = logging.getLogger(__name__)
 _oauth_state: str | None = None
 
@@ -76,7 +92,7 @@ def handle_oauth_callback(code: str, state: str) -> bool:
 
 def get_box_client() -> Client | None:
     if not settings.box_configured:
-        logger.warning("Box is not configured; folder IDs are missing")
+        logger.warning("Box is not configured; unfiled folder ID is missing")
         return None
 
     tokens = _load_tokens()
@@ -111,6 +127,37 @@ def get_or_create_subfolder(parent_folder_id: str, folder_name: str) -> str | No
         return str(parent.create_subfolder(folder_name).id)
     except Exception as exc:
         logger.warning("Failed to get or create Box folder %s: %s", folder_name, exc)
+        return None
+
+
+def find_folder_by_name(name: str, parent_folder_id: str = "0") -> str | None:
+    client = get_box_client()
+    if client is None:
+        return None
+
+    logger.info("Searching Box for folder named %r under parent %s", name, parent_folder_id)
+    try:
+        ancestor_folders = None
+        if parent_folder_id != "0":
+            ancestor_folders = [client.folder(parent_folder_id)]
+
+        results = client.search().query(
+            query=name,
+            type="folder",
+            ancestor_folders=ancestor_folders,
+            fields=["id", "type", "name"],
+            limit=100,
+        )
+        for result in results:
+            if getattr(result, "type", None) == "folder" and getattr(result, "name", None) == name:
+                folder_id = str(result.id)
+                logger.info("Found Box folder %r: %s", name, folder_id)
+                return folder_id
+
+        logger.info("No exact Box folder match found for %r", name)
+        return None
+    except Exception as exc:
+        logger.warning("Failed to search Box for folder %r: %s", name, exc)
         return None
 
 
@@ -150,21 +197,41 @@ def file_change_order_pdf(
     address: str,
     pdf_bytes: bytes,
     signed: bool = False,
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, bool]:
     if not settings.box_configured or not settings.box_authenticated:
         logger.warning("Skipping Box filing; Box is not configured or authenticated")
-        return None, None
+        return None, None, False
 
-    parent_folder_id = settings.box_finalized_folder_id if signed else settings.box_not_finalized_folder_id
-    subfolder_name = f"1C - {address} - Change Orders"
-    filename = f"{address}-signed.pdf" if signed else f"{address}.pdf"
+    folder_name = f"1C - {address} - Change Orders"
+    folder_id = find_folder_by_name(folder_name)
+    filed_to_unfiled = False
 
-    subfolder_id = get_or_create_subfolder(parent_folder_id, subfolder_name)
-    if subfolder_id is None:
-        return None, None
-    return upload_file(
-        folder_id=subfolder_id,
+    if folder_id is not None:
+        parent_folder_id = folder_id
+        filename = f"{address}-signed.pdf" if signed else f"{address}.pdf"
+        if not signed:
+            to_be_signed_folder_id = get_or_create_subfolder(folder_id, "To Be Signed")
+            if to_be_signed_folder_id is None:
+                return None, None, False
+            parent_folder_id = to_be_signed_folder_id
+    else:
+        logger.warning(
+            "Box folder not found for address '%s' - filing to Unfiled Change Orders",
+            address,
+        )
+        parent_folder_id = settings.box_unfiled_folder_id
+        if not parent_folder_id:
+            logger.warning("Skipping Box filing; BOX_UNFILED_FOLDER_ID is not configured")
+            return None, None, False
+        filed_to_unfiled = True
+        filename = f"UNFILED - {address}-signed.pdf" if signed else f"UNFILED - {address}.pdf"
+
+    box_file_id, box_file_url = upload_file(
+        folder_id=parent_folder_id,
         filename=filename,
         content=pdf_bytes,
         content_type="application/pdf",
     )
+    if box_file_id is None:
+        return None, None, filed_to_unfiled
+    return box_file_id, box_file_url, filed_to_unfiled

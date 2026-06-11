@@ -45,6 +45,7 @@ export interface ChangeOrder extends ChangeOrderDraft {
   docusign_envelope_id?: string | null;
   box_file_id?: string | null;
   box_file_url?: string | null;
+  box_unfiled?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -103,6 +104,7 @@ export async function sendChangeOrderForSignature(
   docusign_envelope_id?: string | null;
   box_file_id?: string | null;
   box_file_url?: string | null;
+  box_unfiled?: boolean;
   message: string;
 }> {
   return apiFetch(`/api/v1/change-orders/${id}/send-signature`, {
@@ -117,6 +119,7 @@ export async function syncSignedChangeOrder(id: string): Promise<{
   docusign_envelope_id?: string | null;
   box_file_id?: string | null;
   box_file_url?: string | null;
+  box_unfiled?: boolean;
   message: string;
 }> {
   return apiFetch(`/api/v1/change-orders/${id}/sync-signed`, {

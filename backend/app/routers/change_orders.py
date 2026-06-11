@@ -90,6 +90,7 @@ class ChangeOrderOut(ChangeOrderDraft):
     docusign_envelope_id: str | None = None
     box_file_id: str | None = None
     box_file_url: str | None = None
+    box_unfiled: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -100,6 +101,7 @@ class ChangeOrderSignatureResponse(BaseModel):
     docusign_envelope_id: str | None = None
     box_file_id: str | None = None
     box_file_url: str | None = None
+    box_unfiled: bool = False
     message: str
 
 
@@ -197,7 +199,7 @@ async def docusign_webhook(
 
     signed_pdf = await asyncio.to_thread(get_signed_pdf, envelope_id)
     if signed_pdf:
-        box_file_id, box_file_url = file_change_order_pdf(
+        box_file_id, box_file_url, box_unfiled = file_change_order_pdf(
             address=change_order.address,
             pdf_bytes=signed_pdf,
             signed=True,
@@ -205,6 +207,9 @@ async def docusign_webhook(
         if box_file_id:
             change_order.box_file_id = box_file_id
             change_order.box_file_url = box_file_url
+            change_order.box_unfiled = box_unfiled
+            if box_unfiled:
+                logger.warning("Signed change order %s filed to Unfiled Change Orders", change_order.id)
             logger.info("Filed signed change order %s to Box file %s", change_order.id, box_file_id)
         else:
             logger.warning("Signed change order %s was not filed to Box", change_order.id)
@@ -242,7 +247,7 @@ async def get_change_order_pdf(
 ) -> Response:
     change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
     pdf_bytes = render_change_order_pdf(change_order)
-    box_file_id, box_file_url = file_change_order_pdf(
+    box_file_id, box_file_url, box_unfiled = file_change_order_pdf(
         address=change_order.address,
         pdf_bytes=pdf_bytes,
         signed=False,
@@ -250,6 +255,9 @@ async def get_change_order_pdf(
     if box_file_id:
         change_order.box_file_id = box_file_id
         change_order.box_file_url = box_file_url
+        change_order.box_unfiled = box_unfiled
+        if box_unfiled:
+            logger.warning("Unsigned change order %s filed to Unfiled Change Orders", change_order.id)
         await db.commit()
     filename = _change_order_filename(change_order)
     return Response(
@@ -311,6 +319,7 @@ async def send_change_order_for_signature(
         docusign_envelope_id=change_order.docusign_envelope_id,
         box_file_id=change_order.box_file_id,
         box_file_url=change_order.box_file_url,
+        box_unfiled=change_order.box_unfiled,
         message=f"Change order sent to {client_email} for signature.",
     )
 
@@ -333,10 +342,11 @@ async def sync_signed_change_order(
             docusign_envelope_id=change_order.docusign_envelope_id,
             box_file_id=change_order.box_file_id,
             box_file_url=change_order.box_file_url,
+            box_unfiled=change_order.box_unfiled,
             message="Signed PDF is not ready yet or DocuSign could not return it.",
         )
 
-    box_file_id, box_file_url = file_change_order_pdf(
+    box_file_id, box_file_url, box_unfiled = file_change_order_pdf(
         address=change_order.address,
         pdf_bytes=signed_pdf,
         signed=True,
@@ -344,6 +354,9 @@ async def sync_signed_change_order(
     if box_file_id:
         change_order.box_file_id = box_file_id
         change_order.box_file_url = box_file_url
+        change_order.box_unfiled = box_unfiled
+        if box_unfiled:
+            logger.warning("Signed change order %s filed to Unfiled Change Orders", change_order.id)
     change_order.status = "signed"
     await db.commit()
     return ChangeOrderSignatureResponse(
@@ -352,7 +365,8 @@ async def sync_signed_change_order(
         docusign_envelope_id=change_order.docusign_envelope_id,
         box_file_id=change_order.box_file_id,
         box_file_url=change_order.box_file_url,
-        message="Signed change order synced from DocuSign and filed in Box FINALIZED.",
+        box_unfiled=change_order.box_unfiled,
+        message="Signed change order synced from DocuSign and filed in Box.",
     )
 
 
@@ -437,6 +451,7 @@ def _change_order_out(change_order: ChangeOrderModel) -> ChangeOrderOut:
         docusign_envelope_id=change_order.docusign_envelope_id,
         box_file_id=change_order.box_file_id,
         box_file_url=change_order.box_file_url,
+        box_unfiled=change_order.box_unfiled,
         created_at=change_order.created_at,
         updated_at=change_order.updated_at,
     )
