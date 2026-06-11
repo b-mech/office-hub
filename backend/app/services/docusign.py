@@ -174,9 +174,18 @@ def _rest_api_base_path() -> str:
 
 
 def _private_key_bytes() -> bytes:
+    import os
+    pem_path = os.path.join(
+        os.path.dirname(__file__), 
+        "../../docusign_private_key.pem"
+    )
+    pem_path = os.path.abspath(pem_path)
+    if os.path.exists(pem_path):
+        with open(pem_path, "rb") as f:
+            return f.read()
+    # Fall back to env var
     key = settings.docusign_private_key.strip()
-    if "\\n" in key:
-        key = key.replace("\\n", "\n")
+    key = key.replace('\\n', '\n')
     if "BEGIN" not in key or "PRIVATE KEY" not in key:
-        raise ValueError("missing RSA private key PEM header")
+        raise ValueError("docusign_private_key.pem not found and DOCUSIGN_PRIVATE_KEY env var is missing or malformed")
     return key.encode("utf-8")

@@ -13,6 +13,7 @@ venv/
 !.env.example
 .box_token.json
 backend/.box_token.json
+backend/docusign_private_key.pem
 
 # Node
 node_modules/
