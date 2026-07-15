@@ -240,6 +240,7 @@ class ChangeOrder(Base):
         default=False,
         server_default=text("false"),
     )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     org_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("core.orgs.id"),

@@ -1,14 +1,11 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const OFFICE_HUB_API_KEY =
-  process.env.NEXT_PUBLIC_OFFICE_HUB_API_KEY ||
-  "b253ca1b038185185289506cd64642a1b8e478d86b09c8c58c8cad7faded8960";
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": OFFICE_HUB_API_KEY,
       ...options?.headers,
     },
   });
@@ -46,6 +43,7 @@ export interface ChangeOrder extends ChangeOrderDraft {
   box_file_id?: string | null;
   box_file_url?: string | null;
   box_unfiled?: boolean;
+  archived_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -64,8 +62,8 @@ export async function saveDraft(draft: ChangeOrderDraft): Promise<{ id: string }
   });
 }
 
-export async function getChangeOrders(): Promise<ChangeOrder[]> {
-  return apiFetch<ChangeOrder[]>("/api/v1/change-orders");
+export async function getChangeOrders(includeArchived = false): Promise<ChangeOrder[]> {
+  return apiFetch<ChangeOrder[]>(`/api/v1/change-orders${includeArchived ? "?include_archived=true" : ""}`);
 }
 
 export async function getChangeOrder(id: string): Promise<ChangeOrder> {
@@ -82,17 +80,28 @@ export async function updateChangeOrderStatus(
   });
 }
 
+export async function updateChangeOrder(id: string, draft: Partial<ChangeOrderDraft>): Promise<ChangeOrder> {
+  return apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(draft),
+  });
+}
+
 export async function downloadChangeOrderPdf(id: string): Promise<Blob> {
   const res = await fetch(`${BASE}/api/v1/change-orders/${id}/pdf`, {
-    headers: {
-      "X-API-Key": OFFICE_HUB_API_KEY,
-    },
+    credentials: "include",
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || `API error ${res.status}`);
   }
   return res.blob();
+}
+
+export async function archiveChangeOrder(id: string): Promise<ChangeOrder> {
+  return apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}`, {
+    method: "DELETE",
+  });
 }
 
 export async function sendChangeOrderForSignature(

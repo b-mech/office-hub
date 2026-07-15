@@ -164,6 +164,11 @@ export default function PipelineView({ changeOrders, onStatusChange, onSendSigna
                       <p className="mt-5 text-[14pt] font-bold text-[var(--ch-accent)]">
                         {money(orderTotal(order))}
                       </p>
+                      {!order.customer_email && (
+                        <span className="mt-2 inline-flex rounded-full border border-[var(--ch-warning-border)] bg-[var(--ch-warning-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--ch-warning-text)]">
+                          needs email
+                        </span>
+                      )}
 
                       <div className="relative mt-1 flex justify-end">
                         <button
@@ -189,8 +194,7 @@ export default function PipelineView({ changeOrders, onStatusChange, onSendSigna
                               <button
                                 type="button"
                                 onClick={() => void handleSendSignature(order)}
-                                disabled={busyOrderId === order.id || !order.customer_email}
-                                title={!order.customer_email ? "Add a client email before sending for signature." : undefined}
+                                disabled={busyOrderId === order.id}
                                 className="block w-full rounded-md px-3 py-2 text-left text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-surface)] disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Send for Signature

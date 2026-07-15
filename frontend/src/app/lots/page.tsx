@@ -33,6 +33,27 @@ function daysUntil(d?: string) {
   return diff;
 }
 
+const money = new Intl.NumberFormat("en-CA", {
+  style: "currency",
+  currency: "CAD",
+  maximumFractionDigits: 0,
+});
+
+function formatMoney(value?: string | number | null) {
+  if (value === null || value === undefined || value === "") return "—";
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? money.format(numeric) : "—";
+}
+
+function formatStage(stage?: string | null) {
+  if (!stage || stage === "NA") return "No stage";
+  return stage
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 type SortKey = "community" | "status" | "possession_date";
 
 // ─── LotCard ─────────────────────────────────────────────────────────────────
@@ -75,6 +96,24 @@ function LotCard({
           {days !== null && days <= 0 && " · Past due"}
         </p>
       )}
+      {(lot.lender_type || lot.construction_stage || lot.draw_available != null) && (
+        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+          <div className="min-w-0 rounded-md bg-[var(--ch-page-bg)] px-2 py-1">
+            <p className="text-[10px] uppercase tracking-wider text-[var(--ch-text-muted)]">Lender</p>
+            <p className="truncate font-medium text-[var(--ch-text-secondary)]">{lot.lender_type || "—"}</p>
+          </div>
+          <div className="min-w-0 rounded-md bg-[var(--ch-page-bg)] px-2 py-1 text-right">
+            <p className="text-[10px] uppercase tracking-wider text-[var(--ch-text-muted)]">Draw</p>
+            <p className="truncate font-semibold text-[var(--ch-text-primary)]">{formatMoney(lot.draw_available)}</p>
+          </div>
+        </div>
+      )}
+      {lot.construction_stage && (
+        <p className="mt-1.5 truncate text-xs text-[var(--ch-text-muted)]">
+          {formatStage(lot.construction_stage)}
+          {lot.construction_stage_updated_at && ` · Updated ${formatDate(lot.construction_stage_updated_at)}`}
+        </p>
+      )}
     </button>
   );
 }
@@ -107,6 +146,36 @@ function LotDetail({ lot }: { lot: Lot }) {
           <p className="text-[var(--ch-text-muted)] mt-1">{lot.buyer_name}</p>
         )}
         <p className="text-sm text-[var(--ch-text-muted)] mt-1">{lot.community}</p>
+      </div>
+
+      {/* Financing */}
+      <div className="mb-8">
+        <h2 className="text-xs font-semibold text-[var(--ch-text-muted)] uppercase tracking-widest mb-3">Financing & Construction</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl p-4 bg-[var(--ch-surface)] border border-[var(--ch-border)]">
+            <p className="text-xs text-[var(--ch-text-muted)] mb-1">Lender</p>
+            <p className="text-sm font-medium text-[var(--ch-text-primary)]">
+              {lot.lender_name || lot.lender_type || "Not linked"}
+            </p>
+            {lot.lender_name && lot.lender_type && (
+              <p className="text-xs text-[var(--ch-text-muted)] mt-0.5">{lot.lender_type}</p>
+            )}
+          </div>
+          <div className="rounded-xl p-4 bg-[var(--ch-surface)] border border-[var(--ch-border)]">
+            <p className="text-xs text-[var(--ch-text-muted)] mb-1">Available to Draw</p>
+            <p className="text-sm font-semibold text-[var(--ch-accent)]">{formatMoney(lot.draw_available)}</p>
+          </div>
+          <div className="rounded-xl p-4 bg-[var(--ch-surface)] border border-[var(--ch-border)]">
+            <p className="text-xs text-[var(--ch-text-muted)] mb-1">Construction Stage</p>
+            <p className="text-sm font-medium text-[var(--ch-text-primary)]">{formatStage(lot.construction_stage)}</p>
+          </div>
+          <div className="rounded-xl p-4 bg-[var(--ch-surface)] border border-[var(--ch-border)]">
+            <p className="text-xs text-[var(--ch-text-muted)] mb-1">Stage Updated</p>
+            <p className="text-sm font-medium text-[var(--ch-text-primary)]">
+              {formatDate(lot.construction_stage_updated_at || undefined)}
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Key Dates */}

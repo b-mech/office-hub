@@ -3,12 +3,6 @@ const OFFICE_HUB_API_KEY = "b253ca1b038185185289506cd64642a1b8e478d86b09c8c58c8c
 const GMAIL_FETCH_TIMEOUT_MS = 45000;
 const OFFICE_HUB_POST_TIMEOUT_MS = 600000;
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.sync.get({ autoMode: false }, ({ autoMode }) => {
-    chrome.storage.sync.set({ autoMode: Boolean(autoMode) });
-  });
-});
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "INGEST_ATTACHMENT") {
     ingestAttachment(message)
@@ -41,10 +35,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function ingestAttachment({ url, filename, docType }) {
   const attachment = await downloadAttachment({ url, filename });
-  if (attachment.downloaded) {
-    return attachment;
-  }
-
   return await postToOfficeHub({
     filename: attachment.filename,
     mimeType: attachment.mimeType,
@@ -63,17 +53,11 @@ async function downloadAttachment({ url, filename }) {
   try {
     return await fetchAttachmentBytes(url, resolvedFilename);
   } catch (error) {
-    const download = await downloadNative(url, resolvedFilename);
     const reason = error instanceof Error ? error.message : "Gmail blocked extension upload.";
-    return {
-      downloaded: true,
-      downloadId: download.id,
-      filename: download.filename || resolvedFilename,
-      error: (
-        `${reason} Chrome downloaded "${resolvedFilename}" to Downloads/Office Hub. ` +
-        "Open Office Hub and upload that file manually."
-      ),
-    };
+    throw new Error(
+      `${reason} Office Hub did not download the file automatically. ` +
+      "Open the attachment in Gmail or save it manually before uploading."
+    );
   }
 }
 
@@ -224,63 +208,6 @@ async function fetchWithManualRedirects(initialUrl) {
   }
 
   throw new Error("Gmail attachment redirect limit exceeded.");
-}
-
-function downloadNative(url, filename) {
-  return new Promise((resolve, reject) => {
-    chrome.downloads.download(
-      {
-        url,
-        filename: `Office Hub/${filename}`,
-        conflictAction: "uniquify",
-        saveAs: false,
-      },
-      (downloadId) => {
-        const runtimeError = chrome.runtime.lastError;
-        if (runtimeError || downloadId === undefined) {
-          reject(new Error(runtimeError?.message || "Chrome native download failed."));
-          return;
-        }
-
-        waitForDownload(downloadId).then(resolve).catch(reject);
-      }
-    );
-  });
-}
-
-function waitForDownload(downloadId) {
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      chrome.downloads.onChanged.removeListener(listener);
-      reject(new Error("Chrome native download timed out."));
-    }, 120000);
-
-    function listener(delta) {
-      if (delta.id !== downloadId) {
-        return;
-      }
-
-      if (delta.error?.current) {
-        clearTimeout(timeoutId);
-        chrome.downloads.onChanged.removeListener(listener);
-        reject(new Error(`Chrome native download failed: ${delta.error.current}.`));
-        return;
-      }
-
-      if (delta.state?.current === "complete") {
-        clearTimeout(timeoutId);
-        chrome.downloads.onChanged.removeListener(listener);
-        chrome.downloads.search({ id: downloadId }, ([item]) => {
-          resolve({
-            id: downloadId,
-            filename: item?.filename || "",
-          });
-        });
-      }
-    }
-
-    chrome.downloads.onChanged.addListener(listener);
-  });
 }
 
 function sanitizeFilename(filename) {

@@ -202,13 +202,14 @@ def file_change_order_pdf(
         logger.warning("Skipping Box filing; Box is not configured or authenticated")
         return None, None, False
 
-    folder_name = f"1C - {address} - Change Orders"
+    folder_address = _box_change_order_folder_address(address)
+    folder_name = f"1C - {folder_address} - Change Orders"
     folder_id = find_folder_by_name(folder_name)
     filed_to_unfiled = False
 
     if folder_id is not None:
         parent_folder_id = folder_id
-        filename = f"{address}-signed.pdf" if signed else f"{address}.pdf"
+        filename = f"{folder_address}-signed.pdf" if signed else f"{folder_address}.pdf"
         if not signed:
             to_be_signed_folder_id = get_or_create_subfolder(folder_id, "To Be Signed")
             if to_be_signed_folder_id is None:
@@ -224,7 +225,7 @@ def file_change_order_pdf(
             logger.warning("Skipping Box filing; BOX_UNFILED_FOLDER_ID is not configured")
             return None, None, False
         filed_to_unfiled = True
-        filename = f"UNFILED - {address}-signed.pdf" if signed else f"UNFILED - {address}.pdf"
+        filename = f"UNFILED - {folder_address}-signed.pdf" if signed else f"UNFILED - {folder_address}.pdf"
 
     box_file_id, box_file_url = upload_file(
         folder_id=parent_folder_id,
@@ -235,3 +236,7 @@ def file_change_order_pdf(
     if box_file_id is None:
         return None, None, filed_to_unfiled
     return box_file_id, box_file_url, filed_to_unfiled
+
+
+def _box_change_order_folder_address(address: str) -> str:
+    return address.split(",", 1)[0].strip() or address.strip()

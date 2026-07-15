@@ -31,6 +31,11 @@ export interface Lot {
   status: "active" | "possession" | "complete";
   land_agreement_id?: string;
   sale_agreement_id?: string;
+  lender_type?: string | null;
+  lender_name?: string | null;
+  draw_available?: string | number | null;
+  construction_stage?: string | null;
+  construction_stage_updated_at?: string | null;
 }
 
 export async function getLots(): Promise<Lot[]> {

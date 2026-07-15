@@ -4,6 +4,7 @@ import asyncio
 import base64
 from datetime import date
 from datetime import datetime
+from datetime import timezone
 from decimal import Decimal
 import hashlib
 import hmac
@@ -19,12 +20,16 @@ from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
 from fastapi import Request
+from fastapi import Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
+from pydantic import EmailStr
 from pydantic import Field
+from pydantic import TypeAdapter
+from pydantic import ValidationError
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -91,6 +96,7 @@ class ChangeOrderOut(ChangeOrderDraft):
     box_file_id: str | None = None
     box_file_url: str | None = None
     box_unfiled: bool = False
+    archived_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -112,6 +118,14 @@ class ChangeOrderStatusRequest(BaseModel):
 class ChangeOrderSignatureRequest(BaseModel):
     signer_email: str = ""
     signer_name: str = ""
+
+
+class ChangeOrderUpdate(BaseModel):
+    address: str | None = None
+    client_name: str | None = None
+    customer_email: str | None = None
+    line_items: list[ChangeOrderLineItem] | None = None
+    notes: str | None = None
 
 
 @router.post("/extract", response_model=ChangeOrderDraft, dependencies=API_KEY_DEPENDENCIES)
@@ -160,13 +174,19 @@ async def save_change_order_draft(
 
 
 @router.get("", response_model=list[ChangeOrderOut], dependencies=API_KEY_DEPENDENCIES)
-async def list_change_orders(db: AsyncSession = Depends(get_db)) -> list[ChangeOrderOut]:
-    result = await db.execute(
+async def list_change_orders(
+    include_archived: bool = Query(default=False),
+    db: AsyncSession = Depends(get_db),
+) -> list[ChangeOrderOut]:
+    statement = (
         select(ChangeOrderModel)
         .where(ChangeOrderModel.org_id == settings.default_org_id)
         .options(selectinload(ChangeOrderModel.line_items))
         .order_by(ChangeOrderModel.created_at.desc())
     )
+    if not include_archived:
+        statement = statement.where(ChangeOrderModel.archived_at.is_(None))
+    result = await db.execute(statement)
     return [_change_order_out(change_order) for change_order in result.scalars()]
 
 
@@ -240,6 +260,57 @@ async def get_change_order(
     return _change_order_out(change_order)
 
 
+@router.patch("/{change_order_id}", response_model=ChangeOrderOut, dependencies=API_KEY_DEPENDENCIES)
+async def update_change_order(
+    change_order_id: UUID,
+    request: ChangeOrderUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> ChangeOrderOut:
+    change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
+    if change_order.archived_at is not None:
+        raise HTTPException(status_code=409, detail="Archived change orders cannot be edited.")
+    if change_order.status in {"signed", "complete"}:
+        raise HTTPException(status_code=409, detail="Signed or complete change orders are immutable.")
+
+    updates = request.model_dump(exclude_unset=True)
+    if change_order.status == "sent" and "line_items" in updates:
+        if _line_items_changed(change_order.line_items, request.line_items or []):
+            raise HTTPException(
+                status_code=409,
+                detail="Sent change orders cannot have line items or amounts edited. Void and resend instead.",
+            )
+
+    if request.address is not None:
+        change_order.address = request.address.strip()
+    if request.client_name is not None:
+        change_order.client_name = request.client_name.strip()
+    if request.customer_email is not None:
+        email = request.customer_email.strip()
+        if email:
+            _validate_email(email)
+        change_order.customer_email = email or None
+    if request.notes is not None:
+        change_order.notes = request.notes.strip() or None
+    if request.line_items is not None and change_order.status == "draft":
+        subtotal, gst, total = _calculate_totals(request.line_items)
+        change_order.subtotal = subtotal
+        change_order.gst = gst
+        change_order.total = total
+        change_order.line_items = [
+            ChangeOrderLineItemModel(
+                description=item.description.strip(),
+                amount=abs(item.amount),
+                is_credit=item.is_credit,
+                sort_order=index,
+            )
+            for index, item in enumerate(request.line_items)
+        ]
+
+    await db.commit()
+    await db.refresh(change_order)
+    return _change_order_out(change_order)
+
+
 @router.get("/{change_order_id}/pdf", dependencies=API_KEY_DEPENDENCIES)
 async def get_change_order_pdf(
     change_order_id: UUID,
@@ -279,6 +350,19 @@ async def update_change_order_status(
     return _change_order_out(change_order)
 
 
+@router.delete("/{change_order_id}", response_model=ChangeOrderOut, dependencies=API_KEY_DEPENDENCIES)
+async def archive_change_order(
+    change_order_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ChangeOrderOut:
+    change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
+    if change_order.archived_at is None:
+        change_order.archived_at = datetime.now(tz=timezone.utc)
+        await db.commit()
+        await db.refresh(change_order)
+    return _change_order_out(change_order)
+
+
 @router.post("/{change_order_id}/send-signature", response_model=ChangeOrderSignatureResponse, dependencies=API_KEY_DEPENDENCIES)
 async def send_change_order_for_signature(
     change_order_id: UUID,
@@ -286,19 +370,23 @@ async def send_change_order_for_signature(
     db: AsyncSession = Depends(get_db),
 ) -> ChangeOrderSignatureResponse:
     change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
-    client_email = (change_order.customer_email or "").strip()
+    test_recipient_email = settings.docusign_test_recipient_email.strip()
+    test_recipient_name = settings.docusign_test_recipient_name.strip()
+    client_email = test_recipient_email or (change_order.customer_email or "").strip()
+    client_name = test_recipient_name or request.signer_name.strip() or change_order.client_name
     if not client_email:
         raise HTTPException(
             status_code=422,
             detail="No client email on file. Please add the client email before sending for signature.",
         )
+    _validate_email(client_email)
 
     pdf_bytes = render_change_order_pdf(change_order)
     envelope_id, docusign_view_url = await asyncio.to_thread(
         send_for_signature,
         change_order_id=str(change_order.id),
         address=change_order.address,
-        client_name=(request.signer_name.strip() or change_order.client_name),
+        client_name=client_name,
         client_email=client_email,
         pdf_bytes=pdf_bytes,
         co_number=change_order.co_number,
@@ -320,7 +408,11 @@ async def send_change_order_for_signature(
         box_file_id=change_order.box_file_id,
         box_file_url=change_order.box_file_url,
         box_unfiled=change_order.box_unfiled,
-        message=f"Change order sent to {client_email} for signature.",
+        message=(
+            f"Change order sent to test recipient {client_email} for signature."
+            if test_recipient_email
+            else f"Change order sent to {client_email} for signature."
+        ),
     )
 
 
@@ -452,6 +544,7 @@ def _change_order_out(change_order: ChangeOrderModel) -> ChangeOrderOut:
         box_file_id=change_order.box_file_id,
         box_file_url=change_order.box_file_url,
         box_unfiled=change_order.box_unfiled,
+        archived_at=change_order.archived_at,
         created_at=change_order.created_at,
         updated_at=change_order.updated_at,
     )
@@ -504,6 +597,25 @@ def _calculate_totals(line_items: list[ChangeOrderLineItem]) -> tuple[Decimal, D
     gst = (subtotal * Decimal("0.05")).quantize(Decimal("0.01"))
     total = (subtotal + gst).quantize(Decimal("0.01"))
     return subtotal, gst, total
+
+
+def _validate_email(value: str) -> None:
+    try:
+        TypeAdapter(EmailStr).validate_python(value)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail="Customer email must be a valid email address.") from exc
+
+
+def _line_items_changed(existing: list[ChangeOrderLineItemModel], incoming: list[ChangeOrderLineItem]) -> bool:
+    existing_values = [
+        (item.description.strip(), Decimal(item.amount).quantize(Decimal("0.01")), bool(item.is_credit))
+        for item in existing
+    ]
+    incoming_values = [
+        (item.description.strip(), abs(item.amount).quantize(Decimal("0.01")), bool(item.is_credit))
+        for item in incoming
+    ]
+    return existing_values != incoming_values
 
 
 def _parse_date(value: str) -> date | None:

@@ -18,7 +18,7 @@ TODO: deposit #3 is supported from deposit_schedule rows if present, but the cur
       land deposits #1/#2 and sale deposits found in the payment schedule.
 TODO: construction dates such as framing_date and closing_date are currently exposed as null placeholders only.
 """
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, List, Optional
 from uuid import UUID
@@ -54,6 +54,11 @@ class LotOut(BaseModel):
     status: str
     land_agreement_id: Optional[str] = None
     sale_agreement_id: Optional[str] = None
+    lender_type: Optional[str] = None
+    lender_name: Optional[str] = None
+    draw_available: Optional[Decimal] = None
+    construction_stage: Optional[str] = None
+    construction_stage_updated_at: Optional[datetime] = None
 
 
 class TimelineEvent(BaseModel):
@@ -78,6 +83,17 @@ async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
 
     sale_predicate = "sa.id IS NULL" if sale_filter == "without_sale" else "sa.id IS NOT NULL"
     query = text(f"""
+        WITH lot_rows AS (
+            SELECT
+                l.*,
+                btrim(regexp_replace(
+                    upper(COALESCE(l.civic_address, l.legal_description_normalized, '')),
+                    '[^A-Z0-9]+',
+                    ' ',
+                    'g'
+                )) AS address_normalized
+            FROM core.lots l
+        )
         SELECT
             l.id::text AS id,
             COALESCE(l.civic_address, l.legal_description_normalized, 'Unknown Address') AS address,
@@ -95,8 +111,13 @@ async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
                 ELSE 'active'
             END AS status,
             lt.agreement_id::text AS land_agreement_id,
-            sa.id::text AS sale_agreement_id
-        FROM core.lots l
+            sa.id::text AS sale_agreement_id,
+            financing.lender_type,
+            financing.lender_name,
+            financing.draw_available,
+            financing.construction_stage,
+            financing.construction_stage_updated_at
+        FROM lot_rows l
         JOIN core.developments d ON d.id = l.development_id
         LEFT JOIN LATERAL (
             SELECT agreement_id
@@ -124,6 +145,76 @@ async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
               AND sp.party_role IN ('buyer', 'co_buyer')
               AND COALESCE(c.full_name, c.company_name) IS NOT NULL
         ) buyers ON true
+        LEFT JOIN LATERAL (
+            SELECT
+                matched.lender_type,
+                matched.lender_name,
+                CASE
+                    WHEN matched.lender_type = 'CLIENT' THEN NULL::numeric
+                    WHEN matched.stage_clean IS NULL OR matched.stage_clean IN ('', 'NA') THEN 0::numeric
+                    WHEN matched.lender_type = 'PRO' AND matched.total_facility IS NOT NULL THEN
+                        GREATEST(
+                            0::numeric,
+                            CASE
+                                WHEN matched.stage_clean = 'FOUNDATION' THEN 125000::numeric
+                                WHEN matched.stage_clean = 'LOCKUP' THEN matched.total_facility * 0.55::numeric
+                                WHEN matched.stage_clean = 'DRYWALL' THEN matched.total_facility * 0.775::numeric
+                                WHEN matched.stage_clean IN ('CABINETRY', 'COMPLETED') THEN matched.total_facility
+                                ELSE 0::numeric
+                            END - COALESCE(matched.already_drawn, 0::numeric)
+                        )::numeric(15, 2)
+                    WHEN matched.lender_type IN ('SCU', 'STRIDE', 'RSU') AND matched.opening_balance IS NOT NULL THEN
+                        GREATEST(
+                            0::numeric,
+                            CASE
+                                WHEN matched.stage_clean = 'FOUNDATION' THEN matched.opening_balance * 0.20::numeric
+                                WHEN matched.stage_clean = 'LOCKUP' THEN matched.opening_balance * 0.38::numeric
+                                WHEN matched.stage_clean = 'DRYWALL' THEN matched.opening_balance * 0.62::numeric
+                                WHEN matched.stage_clean = 'CABINETRY' THEN matched.opening_balance * 0.82::numeric
+                                WHEN matched.stage_clean = 'COMPLETED' THEN matched.opening_balance
+                                ELSE 0::numeric
+                            END - COALESCE(matched.already_drawn, 0::numeric)
+                        )::numeric(15, 2)
+                    ELSE NULL::numeric
+                END AS draw_available,
+                matched.stage_clean AS construction_stage,
+                matched.last_synced_at AS construction_stage_updated_at
+            FROM (
+                SELECT
+                    COALESCE(lf.lender_type, lf.lender, css.lender_type) AS lender_type,
+                    lf.lender_name,
+                    lf.total_facility,
+                    lf.opening_balance,
+                    lf.already_drawn,
+                    NULLIF(upper(btrim(css.stage_clean)), '') AS stage_clean,
+                    css.last_synced_at,
+                    CASE WHEN lf.lot_id = l.id THEN 0 ELSE 1 END AS match_priority
+                FROM core.lender_facilities lf
+                LEFT JOIN core.properties p ON p.id = lf.property_id
+                LEFT JOIN documents.construction_stage_sync css ON css.property_id = p.id
+                WHERE lf.lot_id = l.id
+                   OR btrim(regexp_replace(upper(COALESCE(p.address, lf.property_name, '')), '[^A-Z0-9]+', ' ', 'g')) = l.address_normalized
+
+                UNION ALL
+
+                SELECT
+                    css.lender_type,
+                    NULL::varchar AS lender_name,
+                    NULL::numeric AS total_facility,
+                    NULL::numeric AS opening_balance,
+                    NULL::numeric AS already_drawn,
+                    NULLIF(upper(btrim(css.stage_clean)), '') AS stage_clean,
+                    css.last_synced_at,
+                    2 AS match_priority
+                FROM documents.construction_stage_sync css
+                LEFT JOIN core.properties p ON p.id = css.property_id
+                WHERE btrim(regexp_replace(upper(COALESCE(p.address, css.address_raw, '')), '[^A-Z0-9]+', ' ', 'g')) = l.address_normalized
+            ) matched
+            WHERE matched.lender_type IS NOT NULL
+               OR matched.stage_clean IS NOT NULL
+            ORDER BY matched.match_priority ASC, matched.last_synced_at DESC NULLS LAST
+            LIMIT 1
+        ) financing ON true
         WHERE d.org_id = :org_id
           AND {sale_predicate}
         ORDER BY l.created_at DESC
@@ -147,6 +238,11 @@ async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
             status=row["status"],
             land_agreement_id=row.get("land_agreement_id"),
             sale_agreement_id=row.get("sale_agreement_id"),
+            lender_type=row.get("lender_type"),
+            lender_name=row.get("lender_name"),
+            draw_available=row.get("draw_available"),
+            construction_stage=row.get("construction_stage"),
+            construction_stage_updated_at=row.get("construction_stage_updated_at"),
         )
         for row in rows
     ]

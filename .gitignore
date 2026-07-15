@@ -14,6 +14,8 @@ venv/
 .box_token.json
 backend/.box_token.json
 backend/docusign_private_key.pem
+backend/google-auth/
+.secrets/
 
 # Node
 node_modules/

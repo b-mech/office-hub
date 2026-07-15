@@ -1,5 +1,4 @@
 // popup.js
-const autoModeInput = document.getElementById("autoMode");
 const pendingSection = document.getElementById("pendingSection");
 const openChangeOrder = document.getElementById("openChangeOrder");
 const dismissPending = document.getElementById("dismissPending");
@@ -10,18 +9,11 @@ const reviewLink = document.getElementById("reviewLink");
 init();
 
 async function init() {
-  const { autoMode } = await chrome.storage.sync.get({ autoMode: false });
-  autoModeInput.checked = Boolean(autoMode);
-
   const { pendingChangeOrder } = await chrome.storage.local.get({ pendingChangeOrder: null });
   renderPendingChangeOrder(pendingChangeOrder);
 
   const { lastIngestion } = await chrome.storage.local.get({ lastIngestion: null });
   renderLastIngestion(lastIngestion);
-
-  autoModeInput.addEventListener("change", async () => {
-    await chrome.storage.sync.set({ autoMode: autoModeInput.checked });
-  });
 
   openChangeOrder.addEventListener("click", async () => {
     await chrome.tabs.create({

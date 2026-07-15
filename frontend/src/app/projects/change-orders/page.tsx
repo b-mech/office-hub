@@ -7,11 +7,13 @@ import { AlertTriangle, Columns, LayoutList, MoreVertical, RefreshCw } from "luc
 
 import PipelineView from "@/app/projects/change-orders/PipelineView";
 import {
+  archiveChangeOrder,
   downloadChangeOrderPdf,
   getChangeOrders,
   sendChangeOrderForSignature,
   syncSignedChangeOrder,
   type ChangeOrder,
+  updateChangeOrder,
   updateChangeOrderStatus,
 } from "@/lib/api/change-orders";
 
@@ -76,9 +78,10 @@ export default function ProjectChangeOrdersPage() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<ViewMode>("list");
+  const [includeArchived, setIncludeArchived] = useState(false);
 
   useEffect(() => {
-    getChangeOrders()
+    getChangeOrders(includeArchived)
       .then((result) => {
         setChangeOrders(result);
         setError(null);
@@ -87,7 +90,7 @@ export default function ProjectChangeOrdersPage() {
         setError(loadError instanceof Error ? loadError.message : "Could not load change orders.");
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [includeArchived]);
 
   useEffect(() => {
     if (!openMenuId) return;
@@ -126,7 +129,7 @@ export default function ProjectChangeOrdersPage() {
       window.open(objectUrl, "_blank", "noopener,noreferrer");
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
       setActionMessage(`PDF generated for ${order.address}.`);
-      getChangeOrders()
+      getChangeOrders(includeArchived)
         .then((result) => setChangeOrders(result))
         .catch(() => undefined);
     } catch (downloadError) {
@@ -138,14 +141,19 @@ export default function ProjectChangeOrdersPage() {
 
   async function handleSendSignature(order: ChangeOrder) {
     setOpenMenuId(null);
-    if (!order.customer_email) {
-      setError("No client email on file. Please add the client email before sending for signature.");
-      return;
+    let customerEmail = order.customer_email;
+    if (!customerEmail) {
+      const entered = window.prompt("Client email required before sending for signature.");
+      if (!entered) return;
+      customerEmail = entered.trim();
     }
     setBusyOrderId(order.id);
     setError(null);
     setActionMessage(null);
     try {
+      if (customerEmail !== order.customer_email) {
+        await updateChangeOrder(order.id, { customer_email: customerEmail });
+      }
       const result = await sendChangeOrderForSignature(order.id);
       setActionMessage(result.message || "Change order sent for signature.");
       setChangeOrders((current) =>
@@ -153,6 +161,7 @@ export default function ProjectChangeOrdersPage() {
           item.id === order.id
             ? {
                 ...item,
+                customer_email: customerEmail,
                 status: result.status as ChangeOrder["status"],
                 docusign_envelope_id: result.docusign_envelope_id ?? item.docusign_envelope_id,
                 box_unfiled: result.box_unfiled ?? item.box_unfiled,
@@ -200,10 +209,20 @@ export default function ProjectChangeOrdersPage() {
     router.push(`/change-orders/${order.id}/edit`);
   }
 
-  function handleDelete(order: ChangeOrder) {
+  async function handleDelete(order: ChangeOrder) {
     setOpenMenuId(null);
-    if (window.confirm(`Delete change order for ${order.address}?`)) {
-      console.log("Delete change order stub", order.id);
+    if (window.confirm(`Archive change order for ${order.address}? It will be hidden by default but retained.`)) {
+      setBusyOrderId(order.id);
+      setError(null);
+      try {
+        await archiveChangeOrder(order.id);
+        setChangeOrders((current) => current.filter((item) => item.id !== order.id));
+        setActionMessage(`Archived change order for ${order.address}.`);
+      } catch (archiveError) {
+        setError(archiveError instanceof Error ? archiveError.message : "Could not archive change order.");
+      } finally {
+        setBusyOrderId(null);
+      }
     }
   }
 
@@ -289,6 +308,14 @@ export default function ProjectChangeOrdersPage() {
             <p className="text-sm text-[var(--ch-text-muted)]">
               {filtered.length} of {changeOrders.length} shown
             </p>
+            <label className="flex items-center gap-2 text-sm text-[var(--ch-text-muted)]">
+              <input
+                type="checkbox"
+                checked={includeArchived}
+                onChange={(event) => setIncludeArchived(event.target.checked)}
+              />
+              Include archived
+            </label>
           </section>
         )}
 
@@ -333,7 +360,19 @@ export default function ProjectChangeOrdersPage() {
                   >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-[var(--ch-text-primary)]">{order.address}</p>
-                    <p className="mt-1 truncate text-xs text-[var(--ch-text-muted)]">{order.client_name}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <p className="truncate text-xs text-[var(--ch-text-muted)]">{order.client_name}</p>
+                      {!order.customer_email && (
+                        <span className="rounded-full border border-[var(--ch-warning-border)] bg-[var(--ch-warning-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--ch-warning-text)]">
+                          needs email
+                        </span>
+                      )}
+                      {order.archived_at && (
+                        <span className="rounded-full border border-[var(--ch-border)] px-2 py-0.5 text-[10px] font-semibold text-[var(--ch-text-muted)]">
+                          archived
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm text-[var(--ch-text-secondary)]">
@@ -363,19 +402,19 @@ export default function ProjectChangeOrdersPage() {
                       <button
                         type="button"
                         onClick={() => void handleSendSignature(order)}
-                        disabled={busyOrderId === order.id || !order.customer_email}
-                        title={!order.customer_email ? "Add a client email before sending for signature." : undefined}
+                        disabled={busyOrderId === order.id}
                         className="rounded-lg bg-[var(--ch-accent)] px-3 py-2 text-xs font-bold text-[var(--ch-accent-text)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {busyOrderId === order.id ? "Working..." : "Send for Signature"}
                       </button>
                     )}
                     {order.box_unfiled && (
-                      <AlertTriangle
-                        className="h-3.5 w-3.5 text-[var(--ch-warning-text)]"
-                        aria-label="Filed to Unfiled Change Orders — Box folder not found for this address"
-                        title="Filed to Unfiled Change Orders — Box folder not found for this address"
-                      />
+                      <span title="Filed to Unfiled Change Orders - Box folder not found for this address">
+                        <AlertTriangle
+                          className="h-3.5 w-3.5 text-[var(--ch-warning-text)]"
+                          aria-label="Filed to Unfiled Change Orders - Box folder not found for this address"
+                        />
+                      </span>
                     )}
                     <div className="relative" onMouseDown={(event) => event.stopPropagation()}>
                       <button
@@ -399,10 +438,10 @@ export default function ProjectChangeOrdersPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleDelete(order)}
+                                onClick={() => void handleDelete(order)}
                                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-page-bg)] disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                Delete
+                                Archive
                               </button>
                             </>
                           )}

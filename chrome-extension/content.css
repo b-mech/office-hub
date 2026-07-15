@@ -10,7 +10,7 @@
 }
 
 .office-hub-panel--launcher {
-  width: 34px;
+  width: auto;
   height: 34px;
 }
 
@@ -27,11 +27,12 @@
 /* ── Launcher ── */
 .office-hub-launcher {
   position: relative;
-  display: grid;
-  place-items: center;
-  width: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 34px;
   height: 34px;
-  padding: 0;
+  padding: 0 11px 0 5px;
   background: #ffffff;
   border: 1px solid rgba(15, 17, 23, 0.12);
   border-radius: 999px;
@@ -49,6 +50,15 @@
   height: 24px;
   border-radius: 999px;
   object-fit: cover;
+  pointer-events: none;
+}
+
+.office-hub-launcher-text {
+  color: #0f1117;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
   pointer-events: none;
 }
 
@@ -132,6 +142,14 @@
   color: rgba(255, 255, 255, 0.35);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.office-hub-panel-idle {
+  margin: 0;
+  padding: 8px 14px 14px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 /* ── Attachment list ── */

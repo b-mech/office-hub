@@ -31,6 +31,11 @@ class Settings(BaseSettings):
         default=r"(chrome-extension://.*|http://192\.168\.\d+\.\d+:3000)",
         alias="CORS_ORIGIN_REGEX",
     )
+    google_oauth_client_secret_path: str = Field(default="", alias="GOOGLE_OAUTH_CLIENT_SECRET_PATH")
+    google_oauth_token_path: str = Field(
+        default="~/.secrets/office-hub-google-token.json",
+        alias="GOOGLE_OAUTH_TOKEN_PATH",
+    )
     box_client_id: str = Field(default="", alias="BOX_CLIENT_ID")
     box_client_secret: str = Field(default="", alias="BOX_CLIENT_SECRET")
     box_redirect_uri: str = Field(
@@ -60,6 +65,8 @@ class Settings(BaseSettings):
     docusign_webhook_secret: str = Field(default="", alias="DOCUSIGN_WEBHOOK_SECRET")
     docusign_auth_server: str = Field(default="account-d.docusign.com", alias="DOCUSIGN_AUTH_SERVER")
     docusign_base_path: str = Field(default="https://demo.docusign.net/restapi", alias="DOCUSIGN_BASE_PATH")
+    docusign_test_recipient_email: str = Field(default="", alias="DOCUSIGN_TEST_RECIPIENT_EMAIL")
+    docusign_test_recipient_name: str = Field(default="", alias="DOCUSIGN_TEST_RECIPIENT_NAME")
 
     @property
     def cors_origin_list(self) -> list[str]:

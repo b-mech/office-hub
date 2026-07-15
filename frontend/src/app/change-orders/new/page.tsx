@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getLots, type Lot } from "@/lib/api/costbook";
 import {
   saveDraft,
+  updateChangeOrder,
   type ChangeOrderDraft,
   type ChangeOrderLineItem,
   type PaymentMethod,
@@ -84,15 +85,22 @@ function lineItemTotal(item: ChangeOrderLineItem) {
   return item.is_credit ? -Math.abs(item.amount || 0) : Math.abs(item.amount || 0);
 }
 
-function NewChangeOrderForm() {
+export function ChangeOrderForm({
+  changeOrderId,
+  initialDraft,
+}: {
+  changeOrderId?: string;
+  initialDraft?: ChangeOrderDraft;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const parsedDraft = useMemo(() => parseDraftParam(searchParams.get("draft")), [searchParams]);
-  const [draft, setDraft] = useState<ChangeOrderDraft>(() => parsedDraft || emptyDraft());
+  const [draft, setDraft] = useState<ChangeOrderDraft>(() => initialDraft || parsedDraft || emptyDraft());
   const [lots, setLots] = useState<Lot[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedDraftId, setSavedDraftId] = useState<string | null>(null);
+  const isEditing = Boolean(changeOrderId);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,9 +167,15 @@ function NewChangeOrderForm() {
         ...draft,
         line_items: draft.line_items.filter((item) => item.description.trim() || item.amount),
       };
-      const result = await saveDraft(payload);
-      setSavedDraftId(result.id);
+      if (changeOrderId) {
+        const result = await updateChangeOrder(changeOrderId, payload);
+        setSavedDraftId(result.id);
+      } else {
+        const result = await saveDraft(payload);
+        setSavedDraftId(result.id);
+      }
       setSaving(false);
+      router.push("/projects/change-orders");
     } catch (saveError) {
       setError(saveErrorMessage(saveError));
       setSaving(false);
@@ -181,14 +195,16 @@ function NewChangeOrderForm() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h1 className="text-3xl font-semibold tracking-tight text-[var(--ch-text-primary)]">
-                New Change Order
+                {isEditing ? "Edit Change Order" : "New Change Order"}
               </h1>
               <p className="mt-2 text-sm text-[var(--ch-text-muted)]">
-                Review the extracted email details before saving this change order draft.
+                {isEditing
+                  ? "Update the change order details before sending or filing."
+                  : "Review the extracted email details before saving this change order draft."}
               </p>
             </div>
             <div className="rounded-full border border-[var(--ch-accent)] bg-[var(--ch-accent-soft)] px-4 py-2 text-sm text-[var(--ch-accent)]">
-              Draft
+              {isEditing ? "Editing" : "Draft"}
             </div>
           </div>
         </header>
@@ -428,7 +444,7 @@ function NewChangeOrderForm() {
               onClick={handleSave}
               className="rounded-lg bg-[var(--ch-accent)] px-5 py-2.5 text-sm font-bold text-[var(--ch-accent-text)] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {saving ? "Saving..." : savedDraftId ? "Saved" : "Save Draft"}
+              {saving ? "Saving..." : savedDraftId ? "Saved" : isEditing ? "Save Changes" : "Save Draft"}
             </button>
           </div>
         </div>
@@ -448,7 +464,7 @@ export default function NewChangeOrderPage() {
         </main>
       }
     >
-      <NewChangeOrderForm />
+      <ChangeOrderForm />
     </Suspense>
   );
 }

@@ -1,0 +1,248 @@
+{
+  "lender": "PRO",
+  "source_statement": "Connect_June_07022026165452.PDF",
+  "statement_period": "2026-06",
+  "notes": "Extracted from ProAuto monthly amortization statement received July 2026. reported_balances are per-facility period-end balances from the statement, used as engine validation fixtures. Negative 'Prepay' values on the statement are additional advances (draws).",
+  "facilities": [
+    {
+      "facility_key": "PRO-2-CARDINAL",
+      "property_name": "2 Cardinal Way, Landmark, MB",
+      "borrower": "Connection Homes Inc",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2025-11-26", "amount": 86900.00 },
+      "draws": [
+        { "date": "2026-01-19", "amount": 100000.00, "reference": "Chq#47521" },
+        { "date": "2026-03-30", "amount": 150000.00, "reference": "PAP RBC Chq#0 (truncated on statement)" },
+        { "date": "2026-05-27", "amount": 8100.00, "reference": "Chq#47608" }
+      ],
+      "reported_balances": [
+        { "date": "2025-12-26", "balance": 87696.58 },
+        { "date": "2026-01-19", "balance": 188318.94 },
+        { "date": "2026-01-26", "balance": 188708.74 },
+        { "date": "2026-02-26", "balance": 190438.57 },
+        { "date": "2026-03-26", "balance": 192184.26 },
+        { "date": "2026-03-30", "balance": 342411.57 },
+        { "date": "2026-04-26", "balance": 345145.34 },
+        { "date": "2026-05-26", "balance": 348309.17 },
+        { "date": "2026-05-27", "balance": 356512.16 },
+        { "date": "2026-06-26", "balance": 359674.77 }
+      ]
+    },
+    {
+      "facility_key": "PRO-26-28-OAK-MEADOW",
+      "property_name": "26 / 28 Oak Meadow Dr., Oakbank, MB",
+      "borrower": "Connection Homes",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2024-10-31", "amount": 220000.00 },
+      "draws": [],
+      "reported_balances": [
+        { "date": "2024-11-30", "balance": 222016.67 },
+        { "date": "2024-12-31", "balance": 224051.82 },
+        { "date": "2025-12-31", "balance": 249978.82 },
+        { "date": "2026-06-30", "balance": 264046.62 }
+      ]
+    },
+    {
+      "facility_key": "PRO-64-WOODLAND",
+      "property_name": "64 Woodland Way, West St Paul, MB",
+      "borrower": "Connection Homes",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2026-03-12", "amount": 165000.00 },
+      "draws": [
+        { "date": "2026-03-30", "amount": 100000.00, "reference": "PAP Chq#4675" },
+        { "date": "2026-05-27", "amount": 100000.00, "reference": "chq#47610" }
+      ],
+      "reported_balances": [
+        { "date": "2026-03-30", "balance": 265878.23 },
+        { "date": "2026-04-12", "balance": 266900.29 },
+        { "date": "2026-05-12", "balance": 269346.88 },
+        { "date": "2026-05-27", "balance": 370541.56 },
+        { "date": "2026-06-12", "balance": 372294.66 }
+      ]
+    },
+    {
+      "facility_key": "PRO-24-GLENEAGLES",
+      "property_name": "24 Gleneagles St, Niverville, MB",
+      "borrower": "Connection Homes",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2025-12-23", "amount": 106800.00 },
+      "draws": [
+        { "date": "2026-03-30", "amount": 150000.00, "reference": "PAP RBC ch#06 (truncated on statement)" },
+        { "date": "2026-05-27", "amount": 43200.00, "reference": "ch#47611" }
+      ],
+      "reported_balances": [
+        { "date": "2026-01-23", "balance": 107779.00 },
+        { "date": "2026-02-23", "balance": 108766.97 },
+        { "date": "2026-03-23", "balance": 109764.00 },
+        { "date": "2026-03-30", "balance": 259991.20 },
+        { "date": "2026-04-23", "balance": 261836.30 },
+        { "date": "2026-05-23", "balance": 264236.47 },
+        { "date": "2026-05-27", "balance": 307749.01 },
+        { "date": "2026-06-23", "balance": 310206.04 }
+      ]
+    },
+    {
+      "facility_key": "PRO-33-GLENEAGLES",
+      "property_name": "33 Gleneagles St., Niverville, MB",
+      "borrower": "Connection Homes Inc",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2025-04-08", "amount": 95000.00 },
+      "draws": [
+        { "date": "2025-07-22", "amount": 250000.00, "reference": "Chq#055 (truncated on statement)" }
+      ],
+      "reported_balances": [
+        { "date": "2025-05-08", "balance": 95870.83 },
+        { "date": "2025-07-22", "balance": 348040.71 },
+        { "date": "2025-12-08", "balance": 362793.34 },
+        { "date": "2026-06-08", "balance": 383209.87 }
+      ]
+    },
+    {
+      "facility_key": "PRO-WATERSIDE-PARKVIEW",
+      "property_name": "Waterside Dev - Parkview Pointe, West St Paul, MB",
+      "borrower": "Connection Homes Inc.",
+      "annual_rate": 0.115,
+      "facility_scope": "development",
+      "original_advance": { "date": "2025-05-22", "amount": 405300.00 },
+      "draws": [],
+      "reported_balances": [
+        { "date": "2025-06-22", "balance": 409184.12 },
+        { "date": "2025-12-22", "balance": 433283.16 },
+        { "date": "2026-06-22", "balance": 458801.51 }
+      ]
+    },
+    {
+      "facility_key": "PRO-TEMPLETON-DEPOSIT",
+      "property_name": "Templeton Dev Deposit (Promissory Note)",
+      "borrower": "Connection Homes Inc",
+      "annual_rate": 0.115,
+      "facility_scope": "development",
+      "instrument": "promissory_note",
+      "original_advance": { "date": "2025-05-29", "amount": 473750.00 },
+      "draws": [],
+      "reported_balances": [
+        { "date": "2025-06-29", "balance": 478290.10 },
+        { "date": "2025-12-29", "balance": 506459.16 },
+        { "date": "2026-06-29", "balance": 536287.24 }
+      ]
+    },
+    {
+      "facility_key": "PRO-127-CHAMPAGNE",
+      "property_name": "127 Champagne St",
+      "borrower": "Connection Homes",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2025-07-30", "amount": 85000.00 },
+      "draws": [
+        { "date": "2026-01-19", "amount": 100000.00, "reference": "chq#47524" },
+        { "date": "2026-03-30", "amount": 145000.00, "reference": "PAP chq#4674" }
+      ],
+      "reported_balances": [
+        { "date": "2025-08-30", "balance": 85779.17 },
+        { "date": "2025-12-30", "balance": 88967.92 },
+        { "date": "2026-01-19", "balance": 189494.07 },
+        { "date": "2026-01-30", "balance": 190110.44 },
+        { "date": "2026-02-28", "balance": 191853.12 },
+        { "date": "2026-03-30", "balance": 338611.77 },
+        { "date": "2026-04-30", "balance": 341715.71 },
+        { "date": "2026-05-30", "balance": 344848.10 },
+        { "date": "2026-06-30", "balance": 348009.21 }
+      ]
+    },
+    {
+      "facility_key": "PRO-122-RAMONA-GALLOS",
+      "property_name": "122 Ramona Gallos Way, Winnipeg, MB",
+      "borrower": "Connection Homes",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2026-03-12", "amount": 165000.00 },
+      "draws": [
+        { "date": "2026-03-30", "amount": 100000.00, "reference": "Chq#47568" },
+        { "date": "2026-05-27", "amount": 100000.00, "reference": "Chq#47612" }
+      ],
+      "reported_balances": [
+        { "date": "2026-03-30", "balance": 265878.23 },
+        { "date": "2026-04-12", "balance": 266900.29 },
+        { "date": "2026-05-12", "balance": 269346.88 },
+        { "date": "2026-05-27", "balance": 370541.56 },
+        { "date": "2026-06-12", "balance": 372294.66 }
+      ]
+    },
+    {
+      "facility_key": "PRO-126-RAMONA-GALLOS",
+      "property_name": "126 Ramona Gallos Way, Winnipeg, MB",
+      "borrower": "Connection Homes",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2026-03-12", "amount": 165000.00 },
+      "draws": [
+        { "date": "2026-03-30", "amount": 100000.00, "reference": "Chq#47569" },
+        { "date": "2026-05-27", "amount": 100000.00, "reference": "Chq#47613" }
+      ],
+      "reported_balances": [
+        { "date": "2026-03-30", "balance": 265878.23 },
+        { "date": "2026-04-12", "balance": 266900.29 },
+        { "date": "2026-05-12", "balance": 269346.88 },
+        { "date": "2026-05-27", "balance": 370541.56 },
+        { "date": "2026-06-12", "balance": 372294.66 }
+      ]
+    },
+    {
+      "facility_key": "PRO-149-RAMONA-GALLOS",
+      "property_name": "149 Ramona Gallos Way, Winnipeg, MB",
+      "borrower": "Connection Homes Inc",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2026-02-25", "amount": 140000.00 },
+      "draws": [
+        { "date": "2026-03-30", "amount": 62500.00, "reference": "chq#47570" },
+        { "date": "2026-05-27", "amount": 100000.00, "reference": "chq#47614" }
+      ],
+      "reported_balances": [
+        { "date": "2026-03-25", "balance": 141283.33 },
+        { "date": "2026-03-30", "balance": 203992.22 },
+        { "date": "2026-04-25", "balance": 205560.55 },
+        { "date": "2026-05-25", "balance": 207444.86 },
+        { "date": "2026-05-27", "balance": 307567.54 },
+        { "date": "2026-06-25", "balance": 310205.01 }
+      ]
+    },
+    {
+      "facility_key": "PRO-153-RAMONA-GALLOS",
+      "property_name": "153 Ramona Gallos Way, Winnipeg, MB",
+      "borrower": "Connection Homes Inc",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2026-02-25", "amount": 140000.00 },
+      "draws": [
+        { "date": "2026-03-30", "amount": 62500.00, "reference": "chq#47571" },
+        { "date": "2026-05-27", "amount": 100000.00, "reference": "chq#47615" }
+      ],
+      "reported_balances": [
+        { "date": "2026-03-25", "balance": 141283.33 },
+        { "date": "2026-03-30", "balance": 203992.22 },
+        { "date": "2026-04-25", "balance": 205560.55 },
+        { "date": "2026-05-25", "balance": 207444.86 },
+        { "date": "2026-05-27", "balance": 307567.54 },
+        { "date": "2026-06-25", "balance": 310205.01 }
+      ]
+    },
+    {
+      "facility_key": "PRO-150-ROSYBLOOM",
+      "property_name": "150 Rosybloom Lane, Ile des Chenes, MB",
+      "borrower": "Connection Homes",
+      "annual_rate": 0.11,
+      "original_advance": { "date": "2026-03-12", "amount": 150000.00 },
+      "draws": [
+        { "date": "2026-03-30", "amount": 100000.00, "reference": "PAP Chq#4676" },
+        { "date": "2026-05-27", "amount": 100000.00, "reference": "Chq#47616" }
+      ],
+      "reported_balances": [
+        { "date": "2026-03-30", "balance": 250798.39 },
+        { "date": "2026-04-12", "balance": 251762.48 },
+        { "date": "2026-05-12", "balance": 254070.30 },
+        { "date": "2026-05-27", "balance": 355197.22 },
+        { "date": "2026-06-12", "balance": 356877.72 }
+      ]
+    }
+  ],
+  "portfolio_check": {
+    "total_period_end_balance": 4754406.98,
+    "as_of": "June 2026 anniversary dates (per facility)"
+  }
+}

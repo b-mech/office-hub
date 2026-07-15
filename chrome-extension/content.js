@@ -1,7 +1,9 @@
 // content.js
 const OFFICE_HUB_API = "http://localhost:8000";
 const OFFICE_HUB_APP = "http://localhost:3000";
+const OFFICE_HUB_EXTENSION_VERSION = "0.1.5";
 const INGEST_RESPONSE_TIMEOUT_MS = 620000;
+const SCAN_DEBOUNCE_MS = 1000;
 const OFFICE_HUB_ICON_URL = chrome.runtime.getURL("favicon.png");
 const KRISTY_EMAIL = "kristy@connectionhomes.ca";
 const KRISTY_NAME = "kristy unrau";
@@ -15,37 +17,70 @@ let renderedAttachmentSignature = "";
 let panelExpanded = false;
 let renderedChangeOrderBannerKey = "";
 let dismissedChangeOrderBannerKeys = new Set();
+let scannerStatus = "Starting";
 
 init();
 
 function init() {
-  chrome.storage.sync.get({ autoMode: false }, () => {
-    observeGmail();
-    scheduleScan();
-  });
+  console.info(`Office Hub extension ${OFFICE_HUB_EXTENSION_VERSION} content script loaded`);
+  removeOfficeHubUi();
+  renderPanel([], null);
+  observeGmail();
+  runScan();
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === "sync" && changes.autoMode) {
-      processedAttachmentKeys = new Set();
-      scheduleScan();
-    }
-  });
 }
 
 function observeGmail() {
   if (observer) observer.disconnect();
-  observer = new MutationObserver(() => scheduleScan());
+  observer = new MutationObserver((mutations) => {
+    if (mutations.every(isOfficeHubMutation)) {
+      return;
+    }
+    scheduleScan();
+  });
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
 function scheduleScan() {
+  if (scanTimer) {
+    return;
+  }
+
+  scanTimer = window.setTimeout(runScan, SCAN_DEBOUNCE_MS);
+}
+
+async function runScan() {
   window.clearTimeout(scanTimer);
-  scanTimer = window.setTimeout(scanOpenEmail, 500);
+  scanTimer = null;
+
+  try {
+    await scanOpenEmail();
+  } catch (error) {
+    scannerStatus = `Scan error: ${error instanceof Error ? error.message : "unknown error"}`;
+    renderPanel([], null);
+    console.error("Office Hub Gmail scan failed", error);
+  }
+}
+
+function isOfficeHubMutation(mutation) {
+  const target = mutation.target;
+  if (target instanceof Element && target.closest(".office-hub-panel, .office-hub-co-banner, .office-hub-summary")) {
+    return true;
+  }
+
+  const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
+  return changedNodes.length > 0 && changedNodes.every((node) => {
+    if (!(node instanceof Element)) {
+      return false;
+    }
+    return Boolean(node.closest(".office-hub-panel, .office-hub-co-banner, .office-hub-summary"));
+  });
 }
 
 async function scanOpenEmail() {
   const messageRoot = findOpenMessageRoot();
   if (!messageRoot) {
+    scannerStatus = "No open email detected";
     selectedAttachmentKeys = new Set();
     renderedAttachmentSignature = "";
     renderedChangeOrderBannerKey = "";
@@ -57,6 +92,7 @@ async function scanOpenEmail() {
   }
 
   const messageKey = getMessageKey(messageRoot);
+  scannerStatus = `Reading email: ${getEmailSubject() || "subject unavailable"}`;
   if (messageKey !== currentMessageKey) {
     currentMessageKey = messageKey;
     processedAttachmentKeys = new Set();
@@ -74,26 +110,11 @@ async function scanOpenEmail() {
   if (attachments.length === 0) {
     selectedAttachmentKeys = new Set();
     renderedAttachmentSignature = "";
-    panelExpanded = false;
     renderPanel([], messageRoot);
     return;
   }
 
-  const { autoMode } = await chrome.storage.sync.get({ autoMode: false });
   renderPanel(attachments, messageRoot);
-
-  if (autoMode) {
-    const panel = document.querySelector(".office-hub-panel");
-    setStatus(panel, "Auto mode on. Sending detected PDFs...");
-    const { sent, failed } = await autoIngest(attachments, messageRoot);
-    if (failed > 0) {
-      setStatus(panel, `${failed} file${failed !== 1 ? "s" : ""} failed in auto mode.`);
-    } else if (sent > 0) {
-      setStatus(panel, `${sent} file${sent !== 1 ? "s" : ""} sent in auto mode.`);
-    } else {
-      setStatus(panel, "Auto mode on. PDFs already sent.");
-    }
-  }
 }
 
 // ─── Gmail DOM helpers ────────────────────────────────────────────────────────
@@ -102,11 +123,35 @@ function findOpenMessageRoot() {
   const conversation = document.querySelector('div[role="main"]');
   if (!conversation) return null;
   const expandedMessages = findExpandedMessageRoots(conversation);
+  if (expandedMessages.length === 0) {
+    return findVisibleReadingPane(conversation);
+  }
+
   const messagesWithPdfAttachments = expandedMessages.filter(hasPdfAttachmentMarker);
   if (messagesWithPdfAttachments.length > 0) {
     return messagesWithPdfAttachments.at(-1);
   }
-  return expandedMessages.at(-1) || conversation;
+  return expandedMessages.at(-1);
+}
+
+function findVisibleReadingPane(conversation) {
+  const subject = getEmailSubject();
+  if (!subject) {
+    return null;
+  }
+
+  const candidates = Array.from(
+    conversation.querySelectorAll(".ii.gt, .a3s, [data-message-id], [role='article'], .gs")
+  );
+  const bodyCandidate = candidates.find((node) => {
+    const text = node.textContent || "";
+    return /change order|address:|buyers?:|method of payment/i.test(text);
+  });
+  if (bodyCandidate) {
+    return bodyCandidate.closest("[data-message-id], [role='article'], .adn, .gs") || bodyCandidate;
+  }
+
+  return conversation;
 }
 
 function findExpandedMessageRoots(conversation) {
@@ -194,12 +239,10 @@ function findPdfAttachments(messageRoot) {
 }
 
 function getAttachmentSearchRoots(messageRoot) {
-  const roots = [messageRoot];
-  const main = document.querySelector('div[role="main"]');
-  if (main && main !== messageRoot) {
-    roots.push(main);
-  }
-  return roots.filter(Boolean);
+  const scopedRoot =
+    messageRoot.closest("[data-message-id], [role='article'], div[role='listitem'], .adn, .gs") ||
+    messageRoot;
+  return [scopedRoot].filter(Boolean);
 }
 
 function parseGmailDownloadUrl(raw) {
@@ -264,10 +307,13 @@ function decodeFilename(filename) {
 function renderChangeOrderBannerIfNeeded(messageRoot, messageKey) {
   const match = getChangeOrderMatch(messageRoot);
   if (!match) {
+    scannerStatus = `No change order detected: ${getEmailSubject() || "subject unavailable"}`;
     removeChangeOrderBanners();
     renderedChangeOrderBannerKey = "";
     return;
   }
+
+  scannerStatus = `Change order detected: ${getEmailSubject() || "subject unavailable"}`;
 
   const bannerKey = match.messageKey || messageKey;
   if (dismissedChangeOrderBannerKeys.has(bannerKey)) {
@@ -296,7 +342,13 @@ function renderChangeOrderBannerIfNeeded(messageRoot, messageKey) {
   extractButton.type = "button";
   extractButton.className = "office-hub-co-button office-hub-co-button--primary";
   extractButton.textContent = "Extract";
+  let refreshRequired = false;
   extractButton.addEventListener("click", async () => {
+    if (refreshRequired) {
+      window.location.reload();
+      return;
+    }
+
     extractButton.disabled = true;
     extractButton.textContent = "Extracting...";
     try {
@@ -310,6 +362,14 @@ function renderChangeOrderBannerIfNeeded(messageRoot, messageKey) {
       banner.remove();
       renderedChangeOrderBannerKey = "";
     } catch (error) {
+      if (isExtensionContextInvalidated(error)) {
+        text.textContent = "Office Hub was reloaded. Refresh Gmail, then extract again.";
+        refreshRequired = true;
+        extractButton.disabled = false;
+        extractButton.textContent = "Refresh Gmail";
+        return;
+      }
+
       extractButton.disabled = false;
       extractButton.textContent = "Extract";
       text.textContent = error instanceof Error ? error.message : "Change order extraction failed.";
@@ -333,6 +393,11 @@ function renderChangeOrderBannerIfNeeded(messageRoot, messageKey) {
 }
 
 function getChangeOrderMatch(messageRoot) {
+  const visibleMatch = getVisibleThreadChangeOrderMatch(messageRoot);
+  if (visibleMatch) {
+    return visibleMatch;
+  }
+
   const candidates = findChangeOrderCandidateRoots(messageRoot);
   for (const candidateRoot of candidates) {
     if (!isKristyMessage(candidateRoot)) continue;
@@ -346,11 +411,6 @@ function getChangeOrderMatch(messageRoot) {
       messageKey: getMessageKey(candidateRoot),
       messageRoot: candidateRoot,
     };
-  }
-
-  const fallbackMatch = getVisibleThreadChangeOrderMatch(messageRoot, candidates);
-  if (fallbackMatch) {
-    return fallbackMatch;
   }
 
   return null;
@@ -374,10 +434,15 @@ function isKristyMessage(messageRoot) {
   }
 
   const senderName = getSenderName(messageRoot).toLowerCase();
-  return senderName.includes(KRISTY_NAME);
+  if (senderName.includes(KRISTY_NAME)) {
+    return true;
+  }
+
+  const rootText = normalizeEmailText(messageRoot.textContent || "").toLowerCase();
+  return rootText.includes(KRISTY_NAME);
 }
 
-function getVisibleThreadChangeOrderMatch(messageRoot, candidates) {
+function getVisibleThreadChangeOrderMatch(messageRoot) {
   const subject = getEmailSubject();
   const visibleText = getVisibleThreadText();
   const searchableText = `${subject}\n${visibleText}`;
@@ -389,15 +454,20 @@ function getVisibleThreadChangeOrderMatch(messageRoot, candidates) {
     return null;
   }
 
-  const matchedRoot =
-    candidates.find((candidateRoot) => /change order/i.test(getEmailBody(candidateRoot))) ||
-    messageRoot;
-
   return {
-    emailBody: getEmailBody(matchedRoot) || normalizeEmailText(visibleText),
-    messageKey: getMessageKey(matchedRoot),
-    messageRoot: matchedRoot,
+    emailBody: extractVisibleChangeOrderEmailBody(visibleText),
+    messageKey: getMessageKey(messageRoot),
+    messageRoot,
   };
+}
+
+function extractVisibleChangeOrderEmailBody(visibleText) {
+  const normalized = normalizeEmailText(visibleText);
+  const startMatch = normalized.match(/(?:Hi\s+[^,\n]+,|Here is some information for a change order, please\.?)/i);
+  if (!startMatch) {
+    return normalized;
+  }
+  return normalized.slice(startMatch.index).trim();
 }
 
 function containsKristyIdentity(text) {
@@ -410,7 +480,7 @@ function containsKristyIdentity(text) {
 
 function getVisibleThreadText() {
   const main = document.querySelector('div[role="main"]');
-  return normalizeEmailText(main?.innerText || main?.textContent || document.body.innerText || "");
+  return normalizeEmailText(main?.textContent || document.body.textContent || "");
 }
 
 function getSenderEmail(messageRoot) {
@@ -485,11 +555,13 @@ function renderPanel(attachments, messageRoot) {
   const attachmentSignature = attachments.map((attachment) => attachment.key).join("|");
   const existingPanel = document.querySelector(".office-hub-panel");
   const existingMode = existingPanel?.dataset.mode || "";
-  const nextMode = panelExpanded && attachments.length > 0 ? "expanded" : "launcher";
+  const nextMode = panelExpanded ? "expanded" : "launcher";
   if (
     existingPanel &&
+    existingPanel.dataset.version === OFFICE_HUB_EXTENSION_VERSION &&
     attachmentSignature === renderedAttachmentSignature &&
-    existingMode === nextMode
+    existingMode === nextMode &&
+    existingPanel.dataset.scannerStatus === scannerStatus
   ) {
     return;
   }
@@ -509,6 +581,8 @@ function renderPanel(attachments, messageRoot) {
   const panel = document.createElement("aside");
   panel.className = `office-hub-panel office-hub-panel--${nextMode}`;
   panel.dataset.mode = nextMode;
+  panel.dataset.version = OFFICE_HUB_EXTENSION_VERSION;
+  panel.dataset.scannerStatus = scannerStatus;
   document.body.appendChild(panel);
 
   if (nextMode === "launcher") {
@@ -517,7 +591,7 @@ function renderPanel(attachments, messageRoot) {
     launcher.type = "button";
     launcher.title = attachments.length > 0
       ? `${attachments.length} PDF${attachments.length !== 1 ? "s" : ""} detected`
-      : "Office Hub";
+      : "Office Hub is running";
     launcher.setAttribute("aria-label", launcher.title);
 
     const icon = document.createElement("img");
@@ -527,6 +601,11 @@ function renderPanel(attachments, messageRoot) {
     icon.draggable = false;
     launcher.appendChild(icon);
 
+    const launcherText = document.createElement("span");
+    launcherText.className = "office-hub-launcher-text";
+    launcherText.textContent = `Office Hub ${OFFICE_HUB_EXTENSION_VERSION}`;
+    launcher.appendChild(launcherText);
+
     if (attachments.length > 0) {
       const documentBadge = document.createElement("span");
       documentBadge.className = "office-hub-document-badge";
@@ -535,8 +614,8 @@ function renderPanel(attachments, messageRoot) {
     }
 
     launcher.addEventListener("click", () => {
-      if (attachments.length === 0) return;
       panelExpanded = true;
+      runScan();
       renderPanel(attachments, messageRoot);
     });
 
@@ -570,8 +649,18 @@ function renderPanel(attachments, messageRoot) {
   // Subtitle
   const subtitle = document.createElement("p");
   subtitle.className = "office-hub-panel-subtitle";
-  subtitle.textContent = `${attachments.length} PDF${attachments.length !== 1 ? "s" : ""} detected`;
+  subtitle.textContent = attachments.length > 0
+    ? `${attachments.length} PDF${attachments.length !== 1 ? "s" : ""} detected`
+    : "Running in Gmail";
   panel.appendChild(subtitle);
+
+  if (attachments.length === 0) {
+    const idle = document.createElement("p");
+    idle.className = "office-hub-panel-idle";
+    idle.textContent = `${scannerStatus}. No PDF attachments detected in this email.`;
+    panel.appendChild(idle);
+    return;
+  }
 
   // Attachment rows — checkbox + filename only, no type dropdown
   const list = document.createElement("div");
@@ -665,26 +754,6 @@ function setStatus(panel, text) {
 
 // ─── Ingest ───────────────────────────────────────────────────────────────────
 
-async function autoIngest(attachments, messageRoot) {
-  let sent = 0;
-  let failed = 0;
-
-  for (const attachment of attachments) {
-    if (processedAttachmentKeys.has(attachment.key)) continue;
-    processedAttachmentKeys.add(attachment.key);
-    try {
-      await ingestAttachment(attachment, messageRoot);
-      sent += 1;
-    } catch (error) {
-      failed += 1;
-      const msg = error instanceof Error ? error.message : "Office Hub ingest failed.";
-      showInlineSummary(messageRoot, `Office Hub: ${msg}`);
-    }
-  }
-
-  return { sent, failed };
-}
-
 async function ingestAttachment(attachment, messageRoot) {
   showInlineSummary(messageRoot, `Office Hub: sending ${attachment.filename}…`);
 
@@ -695,9 +764,6 @@ async function ingestAttachment(attachment, messageRoot) {
     docType: "auto",
   });
 
-  if (response.downloaded) {
-    throw new Error(response.error || "Gmail blocked extension upload.");
-  }
   if (!response.ok) {
     throw new Error(response.error || `Could not send ${attachment.filename}`);
   }
@@ -738,6 +804,11 @@ function sendRuntimeMessage(message) {
   });
 }
 
+function isExtensionContextInvalidated(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /extension context invalidated/i.test(message);
+}
+
 // ─── Inline summary ───────────────────────────────────────────────────────────
 
 function showInlineSummary(messageRoot, text, href) {
@@ -754,8 +825,17 @@ function showInlineSummary(messageRoot, text, href) {
   } else {
     summary.textContent = text;
   }
-  const header = document.querySelector("h2[data-thread-perm-id], h2.hP, h2") || messageRoot;
-  header.insertAdjacentElement("afterend", summary);
+  const anchor = getMessageSummaryAnchor(messageRoot);
+  anchor.insertAdjacentElement("afterend", summary);
+}
+
+function getMessageSummaryAnchor(messageRoot) {
+  return (
+    messageRoot.querySelector(".a3s.aiL") ||
+    messageRoot.querySelector(".a3s") ||
+    messageRoot.querySelector("[role='article']") ||
+    messageRoot
+  );
 }
 
 function removeSummaries() {
@@ -764,4 +844,10 @@ function removeSummaries() {
 
 function removePanel() {
   document.querySelector(".office-hub-panel")?.remove();
+}
+
+function removeOfficeHubUi() {
+  removePanel();
+  removeSummaries();
+  removeChangeOrderBanners();
 }

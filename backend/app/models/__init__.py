@@ -8,6 +8,17 @@ from app.models.core import Org
 from app.models.core import Reminder
 from app.models.core import User
 from app.models.core import UserRole
+from app.models.financing import ConstructionStageSync
+from app.models.financing import FacilityAlias
+from app.models.financing import FacilityStatementSnapshot
+from app.models.financing import FacilityTransaction
+from app.models.financing import LenderFacility
+from app.models.financing import LenderFacilityDocument
+from app.models.financing import ClientDrawRequest
+from app.models.financing import ClientDrawSchedule
+from app.models.financing import StageLabelAlias
+from app.models.financing import LenderStatement
+from app.models.financing import Property
 from app.models.documents import DocType
 from app.models.documents import Document
 from app.models.documents import DocumentStatus
@@ -34,6 +45,7 @@ __all__ = [
     "AuditLog",
     "Contact",
     "ContactType",
+    "ConstructionStageSync",
     "ChangeOrder",
     "ChangeOrderLineItem",
     "DepositSchedule",
@@ -42,14 +54,24 @@ __all__ = [
     "Document",
     "DocumentStatus",
     "Extraction",
+    "FacilityAlias",
+    "FacilityStatementSnapshot",
+    "FacilityTransaction",
     "Ingestion",
     "Lot",
     "LotStatus",
     "LotTerms",
+    "LenderFacility",
+    "LenderFacilityDocument",
+    "ClientDrawRequest",
+    "ClientDrawSchedule",
+    "StageLabelAlias",
+    "LenderStatement",
     "Milestone",
     "Org",
     "Party",
     "PartyRole",
+    "Property",
     "Reminder",
     "Review",
     "SalesAgreement",
