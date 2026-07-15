@@ -395,7 +395,7 @@ async def record_client_otp_schedule(
         model_provider="claude",
         model_version="claude-sonnet-4-6",
         prompt_version="client-otp-draw-schedule-v1",
-        extracted_payload=normalized,
+        extracted_payload=_json_safe(normalized),
         field_confidences={},
         low_confidence_fields=[] if normalized["extraction_confidence"] == "high" else ["schedule"],
     )
@@ -552,7 +552,7 @@ async def extract_client_otp_schedule_background(
                 model_provider="claude",
                 model_version="claude-sonnet-4-6",
                 prompt_version="client-otp-draw-schedule-v1",
-                extracted_payload=normalized,
+                extracted_payload=_json_safe(normalized),
                 field_confidences={},
                 low_confidence_fields=[] if normalized["extraction_confidence"] == "high" else ["schedule"],
             )
@@ -1952,6 +1952,18 @@ def _decimal_or_zero(value: object) -> Decimal:
 
 def _json_dumps(value: Any) -> str:
     return json.dumps(value, default=str)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    return value
 
 
 def _interest_estimates(

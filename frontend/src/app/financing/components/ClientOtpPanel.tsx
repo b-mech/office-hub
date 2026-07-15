@@ -33,9 +33,15 @@ export function ClientOtpPanel({ property, onUpdated }: { property: FinancingPro
   const [otpDate, setOtpDate] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const reviewed = Boolean(schedule?.reviewed_at);
   const requestableTotal = num(prep?.requestable_total);
+  const extractionStale = Boolean(
+    schedule &&
+    ["uploaded", "extracting"].includes(schedule.extraction_status) &&
+    nowMs - new Date(schedule.created_at).getTime() > 10 * 60 * 1000,
+  );
 
   const applySchedule = useCallback((next: ClientDrawSchedule | null) => {
     setSchedule(next);
@@ -65,7 +71,9 @@ export function ClientOtpPanel({ property, onUpdated }: { property: FinancingPro
 
   useEffect(() => {
     if (!schedule || !["uploaded", "extracting"].includes(schedule.extraction_status)) return;
+    if (Date.now() - new Date(schedule.created_at).getTime() > 10 * 60 * 1000) return;
     const timer = window.setTimeout(() => {
+      setNowMs(Date.now());
       getClientOtpSchedule(property.property_id)
         .then((nextSchedule) => {
           applySchedule(nextSchedule);
@@ -196,8 +204,11 @@ export function ClientOtpPanel({ property, onUpdated }: { property: FinancingPro
             Source: {schedule.original_filename || schedule.minio_object_key} · {schedule.extraction_status}
             {schedule.extraction_notes ? ` · ${schedule.extraction_notes}` : ""}
           </p>
-          {["uploaded", "extracting"].includes(schedule.extraction_status) ? (
+          {["uploaded", "extracting"].includes(schedule.extraction_status) && !extractionStale ? (
             <p className="rounded-md bg-[var(--ch-info-bg)] px-3 py-2 text-sm text-[var(--ch-info-text)]">Extraction is running. You can keep working; this panel will refresh.</p>
+          ) : null}
+          {extractionStale ? (
+            <p className="rounded-md bg-[var(--ch-warning-bg)] px-3 py-2 text-sm text-[var(--ch-warning-text)]">Extraction has not completed. Re-upload the OTP to retry; Office Hub will keep the prior record for history.</p>
           ) : null}
           <div className="overflow-x-auto">
             <table className="min-w-full text-xs">
