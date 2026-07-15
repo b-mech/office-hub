@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Copy, Upload } from "lucide-react";
 import {
   confirmClientPrepDraw,
@@ -37,16 +37,20 @@ export function ClientOtpPanel({ property, onUpdated }: { property: FinancingPro
   const reviewed = Boolean(schedule?.reviewed_at);
   const requestableTotal = num(prep?.requestable_total);
 
+  const applySchedule = useCallback((next: ClientDrawSchedule | null) => {
+    setSchedule(next);
+    setReviewRows(next?.schedule ? next.schedule.map((row) => ({ ...row })) : []);
+    setPurchasePrice(text(next?.purchase_price));
+    setClientName(next?.client_name || property.client_name || "");
+    setOtpDate(next?.otp_date || "");
+  }, [property.client_name]);
+
   useEffect(() => {
     let active = true;
     Promise.all([getClientOtpSchedule(property.property_id), getClientDrawRequests(property.property_id)])
       .then(([nextSchedule, nextRequests]) => {
         if (!active) return;
-        setSchedule(nextSchedule);
-        setReviewRows(nextSchedule?.schedule ? nextSchedule.schedule.map((row) => ({ ...row })) : []);
-        setPurchasePrice(text(nextSchedule?.purchase_price));
-        setClientName(nextSchedule?.client_name || property.client_name || "");
-        setOtpDate(nextSchedule?.otp_date || "");
+        applySchedule(nextSchedule);
         setRequests(nextRequests);
         setPrep(null);
         setError(null);
@@ -57,15 +61,19 @@ export function ClientOtpPanel({ property, onUpdated }: { property: FinancingPro
     return () => {
       active = false;
     };
-  }, [property.client_name, property.property_id]);
+  }, [applySchedule, property.property_id]);
 
-  function applySchedule(next: ClientDrawSchedule | null) {
-    setSchedule(next);
-    setReviewRows(next?.schedule ? next.schedule.map((row) => ({ ...row })) : []);
-    setPurchasePrice(text(next?.purchase_price));
-    setClientName(next?.client_name || property.client_name || "");
-    setOtpDate(next?.otp_date || "");
-  }
+  useEffect(() => {
+    if (!schedule || !["uploaded", "extracting"].includes(schedule.extraction_status)) return;
+    const timer = window.setTimeout(() => {
+      getClientOtpSchedule(property.property_id)
+        .then((nextSchedule) => {
+          applySchedule(nextSchedule);
+        })
+        .catch((err) => setError(err instanceof Error ? err.message : "Could not refresh OTP extraction status"));
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [applySchedule, property.property_id, schedule]);
 
   async function upload(file: File | null) {
     if (!file) return;
@@ -188,6 +196,9 @@ export function ClientOtpPanel({ property, onUpdated }: { property: FinancingPro
             Source: {schedule.original_filename || schedule.minio_object_key} · {schedule.extraction_status}
             {schedule.extraction_notes ? ` · ${schedule.extraction_notes}` : ""}
           </p>
+          {["uploaded", "extracting"].includes(schedule.extraction_status) ? (
+            <p className="rounded-md bg-[var(--ch-info-bg)] px-3 py-2 text-sm text-[var(--ch-info-text)]">Extraction is running. You can keep working; this panel will refresh.</p>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="min-w-full text-xs">
               <thead className="text-[var(--ch-text-muted)]">

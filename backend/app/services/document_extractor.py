@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import json
 import re
 from typing import Any
@@ -70,58 +71,64 @@ async def extract_financing_document(*, lender_type: str, content: bytes, conten
         return {"confidence": "manual", "message": "RSU documents are reference-only; enter values manually."}
 
     prompt = PROMPTS.get(lender, PROMPTS["CLIENT"])
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     media_type = content_type or "application/octet-stream"
     block_type = "document" if media_type == "application/pdf" else "image"
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4000,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": block_type,
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": base64.b64encode(content).decode("ascii"),
+    response = await asyncio.wait_for(
+        client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=4000,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": block_type,
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": base64.b64encode(content).decode("ascii"),
+                            },
                         },
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ],
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        ),
+        timeout=180,
     )
     raw = "\n".join(getattr(block, "text", "") for block in response.content).strip()
     return _parse_json(raw)
 
 
 async def extract_client_otp_document(*, content: bytes, content_type: str) -> dict[str, Any]:
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     media_type = content_type or "application/pdf"
     block_type = "document" if media_type == "application/pdf" else "image"
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=6000,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": block_type,
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": base64.b64encode(content).decode("ascii"),
+    response = await asyncio.wait_for(
+        client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=6000,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": block_type,
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": base64.b64encode(content).decode("ascii"),
+                            },
                         },
-                    },
-                    {"type": "text", "text": CLIENT_OTP_PROMPT},
-                ],
-            }
-        ],
+                        {"type": "text", "text": CLIENT_OTP_PROMPT},
+                    ],
+                }
+            ],
+        ),
+        timeout=180,
     )
     raw = "\n".join(getattr(block, "text", "") for block in response.content).strip()
     return _parse_json(raw)

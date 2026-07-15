@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import AsyncSessionLocal
 from app.core.addresses import normalize_address as normalize_canonical_address
 from app.models.core import Org
 from app.models.documents import DocType
@@ -49,6 +50,7 @@ from app.financing.parsers.pro_statement import ParsedProFacilityStatement
 from app.financing.parsers.pro_statement import parse_statement_text
 from app.services.ocr.extractor import PDFExtractor
 from app.services.financing_calculator import calculate_draw
+from app.services.document_extractor import extract_client_otp_document
 
 
 LENDER_TYPES = ("SCU", "PRO", "STRIDE", "RSU", "CLIENT", "OTHER")
@@ -446,6 +448,167 @@ async def record_client_otp_schedule(
     ).mappings().one()
     await db.commit()
     return ClientDrawScheduleOut(**row)
+
+
+async def create_client_otp_upload(
+    db: AsyncSession,
+    *,
+    property_id: UUID,
+    minio_bucket: str,
+    minio_key: str,
+    original_filename: str,
+    content_length: int,
+) -> ClientDrawScheduleOut:
+    property_row = await _property_row(db, property_id)
+    if property_row is None:
+        raise ValueError("Property not found")
+    org_id = await db.scalar(select(Org.id).order_by(Org.created_at.asc()).limit(1))
+    if org_id is None:
+        raise ValueError("Default org was not found")
+
+    document = Document(
+        org_id=org_id,
+        doc_type=DocType.SALE_OTP,
+        status=DocumentStatus.EXTRACTING,
+        original_filename=original_filename,
+        minio_bucket=minio_bucket,
+        minio_key=minio_key,
+        file_size_bytes=content_length,
+        checksum_sha256=None,
+        received_from_email="financing:client-otp",
+    )
+    db.add(document)
+    await db.flush()
+
+    await db.execute(
+        text(
+            """
+            UPDATE documents.client_draw_schedules
+            SET superseded_at = now(), updated_at = now()
+            WHERE property_id = :property_id
+              AND superseded_at IS NULL
+            """
+        ),
+        {"property_id": property_id},
+    )
+    row = (
+        await db.execute(
+            text(
+                """
+                INSERT INTO documents.client_draw_schedules (
+                    property_id, document_id, minio_object_key, original_filename,
+                    schedule, deposits, extraction_confidence, extraction_status, extraction_notes
+                )
+                VALUES (
+                    :property_id, :document_id, :minio_object_key, :original_filename,
+                    CAST('[]' AS jsonb), CAST('[]' AS jsonb), 'needs_review', 'extracting',
+                    'Extraction is running.'
+                )
+                RETURNING *
+                """
+            ),
+            {
+                "property_id": property_id,
+                "document_id": document.id,
+                "minio_object_key": minio_key,
+                "original_filename": original_filename,
+            },
+        )
+    ).mappings().one()
+    await db.commit()
+    return ClientDrawScheduleOut(**row)
+
+
+async def extract_client_otp_schedule_background(
+    schedule_id: UUID,
+    *,
+    content: bytes,
+    content_type: str,
+) -> None:
+    async with AsyncSessionLocal() as db:
+        schedule = await _client_schedule_row(db, schedule_id)
+        if schedule is None:
+            return
+        document_id = schedule["document_id"]
+        now = datetime.now(timezone.utc)
+        ingestion = Ingestion(
+            document_id=document_id,
+            ocr_method="manual",
+            ocr_text=None,
+            ocr_confidence=None,
+            page_count=None,
+            started_at=now,
+            completed_at=None,
+            error_message=None,
+        )
+        db.add(ingestion)
+        await db.flush()
+        try:
+            extracted = await extract_client_otp_document(content=content, content_type=content_type)
+            normalized = await _normalize_client_schedule_payload(db, extracted)
+            ingestion.completed_at = datetime.now(timezone.utc)
+            extraction = Extraction(
+                ingestion_id=ingestion.id,
+                model_provider="claude",
+                model_version="claude-sonnet-4-6",
+                prompt_version="client-otp-draw-schedule-v1",
+                extracted_payload=normalized,
+                field_confidences={},
+                low_confidence_fields=[] if normalized["extraction_confidence"] == "high" else ["schedule"],
+            )
+            db.add(extraction)
+            await db.execute(
+                text(
+                    """
+                    UPDATE documents.client_draw_schedules
+                    SET purchase_price = :purchase_price,
+                        client_name = :client_name,
+                        otp_date = :otp_date,
+                        schedule = CAST(:schedule AS jsonb),
+                        deposits = CAST(:deposits AS jsonb),
+                        extraction_confidence = :extraction_confidence,
+                        extraction_status = 'ready_for_review',
+                        extraction_notes = :extraction_notes,
+                        updated_at = now()
+                    WHERE id = :schedule_id
+                    """
+                ),
+                {
+                    "schedule_id": schedule_id,
+                    "purchase_price": normalized["purchase_price"],
+                    "client_name": normalized["client_name"],
+                    "otp_date": normalized["otp_date"],
+                    "schedule": _json_dumps(normalized["schedule"]),
+                    "deposits": _json_dumps(normalized["deposits"]),
+                    "extraction_confidence": normalized["extraction_confidence"],
+                    "extraction_notes": normalized["extraction_notes"],
+                },
+            )
+            await db.execute(
+                text("UPDATE documents.documents SET status = 'in_review' WHERE id = :document_id"),
+                {"document_id": document_id},
+            )
+        except Exception as exc:
+            ingestion.completed_at = datetime.now(timezone.utc)
+            ingestion.error_message = str(exc)
+            await db.execute(
+                text(
+                    """
+                    UPDATE documents.client_draw_schedules
+                    SET extraction_status = 'failed',
+                        extraction_confidence = 'needs_review',
+                        extraction_notes = :error,
+                        updated_at = now()
+                    WHERE id = :schedule_id
+                    """
+                ),
+                {"schedule_id": schedule_id, "error": str(exc)},
+            )
+            await db.execute(
+                text("UPDATE documents.documents SET status = 'rejected' WHERE id = :document_id"),
+                {"document_id": document_id},
+            )
+        await db.commit()
 
 
 async def review_client_draw_schedule(

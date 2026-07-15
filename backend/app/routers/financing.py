@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from uuid import UUID
 
 from fastapi import APIRouter
+from fastapi import BackgroundTasks
 from fastapi import Depends
 from fastapi import File
 from fastapi import Form
@@ -39,7 +40,6 @@ from app.schemas.financing import ProLedgerOut
 from app.schemas.financing import SyncResult
 from app.services import financing
 from app.services.document_extractor import extract_financing_document
-from app.services.document_extractor import extract_client_otp_document
 from app.services.document_extractor import requires_review
 from app.services.minio_financing import FINANCING_BUCKET
 from app.services.minio_financing import financing_key
@@ -81,6 +81,7 @@ async def property_detail(property_id: UUID, db: AsyncSession = Depends(get_db))
 @router.post("/properties/{property_id}/otp", response_model=ClientDrawScheduleOut)
 async def upload_client_otp(
     property_id: UUID,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> ClientDrawScheduleOut:
@@ -95,16 +96,21 @@ async def upload_client_otp(
     key = f"financing/client-otp/{_safe_path(canonical)}/{_safe_path(filename)}"
     try:
         upload_financing_document(key=key, content=content, content_type=file.content_type or "application/pdf")
-        extracted = await extract_client_otp_document(content=content, content_type=file.content_type or "application/pdf")
-        return await financing.record_client_otp_schedule(
+        schedule = await financing.create_client_otp_upload(
             db,
             property_id=property_id,
             minio_bucket=FINANCING_BUCKET,
             minio_key=key,
             original_filename=filename,
-            content=content,
-            extracted=extracted,
+            content_length=len(content),
         )
+        background_tasks.add_task(
+            financing.extract_client_otp_schedule_background,
+            schedule.id,
+            content=content,
+            content_type=file.content_type or "application/pdf",
+        )
+        return schedule
     except Exception as exc:
         logger.exception("Client OTP upload failed")
         raise HTTPException(status_code=500, detail=f"Client OTP upload failed: {exc}") from exc
