@@ -19,6 +19,7 @@ from app.models.financing import ClientDrawSchedule
 from app.models.financing import StageLabelAlias
 from app.models.financing import LenderStatement
 from app.models.financing import Property
+from app.models.lenders import Lender
 from app.models.documents import DocType
 from app.models.documents import Document
 from app.models.documents import DocumentStatus
@@ -63,6 +64,7 @@ __all__ = [
     "LotTerms",
     "LenderFacility",
     "LenderFacilityDocument",
+    "Lender",
     "ClientDrawRequest",
     "ClientDrawSchedule",
     "StageLabelAlias",

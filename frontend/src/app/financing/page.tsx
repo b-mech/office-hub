@@ -44,7 +44,13 @@ export default function FinancingPage() {
     let active = true;
     getFinancingDashboard()
       .then((data) => {
-        if (active) setDashboard(data);
+        if (active) {
+          setDashboard(data);
+          const requestedPropertyId = new URLSearchParams(window.location.search).get("property_id");
+          if (requestedPropertyId) {
+            setSelected(data.properties.find((item) => item.property_id === requestedPropertyId) || null);
+          }
+        }
       })
       .catch((err) => {
         if (active) setError(err instanceof Error ? err.message : "Failed to load financing dashboard");

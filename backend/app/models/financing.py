@@ -49,6 +49,7 @@ class LenderFacility(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     property_id = Column(UUID(as_uuid=True), ForeignKey("core.properties.id", ondelete="CASCADE"), nullable=True)
+    lender_id = Column(UUID(as_uuid=True), ForeignKey("core.lenders.id", ondelete="RESTRICT"), nullable=True)
     lender_type = Column(String(20), nullable=False)
     lender = Column(String(20))
     facility_key = Column(String(100), unique=True)
