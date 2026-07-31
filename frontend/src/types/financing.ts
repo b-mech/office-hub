@@ -24,6 +24,10 @@ export interface FinancingProperty {
   already_drawn?: string | number | null;
   last_draw_date?: string | null;
   last_draw_amount?: string | number | null;
+  requested_draw_amount?: string | number | null;
+  requested_draw_as_of?: string | null;
+  commitment_source?: string | null;
+  commitment_confirmed_at?: string | null;
   rate?: string | number | null;
   account_number?: string | null;
   account_title?: string | null;
@@ -114,6 +118,11 @@ export interface FacilityPayload {
   opening_balance?: string | number | null;
   rate?: string | number | null;
   already_drawn?: string | number | null;
+  draw_eligible_override?: string | number | null;
+  requested_draw_amount?: string | number | null;
+  requested_draw_as_of?: string | null;
+  commitment_source?: string | null;
+  commitment_confirmed_at?: string | null;
   last_draw_date?: string | null;
   last_draw_amount?: string | number | null;
   account_number?: string | null;
@@ -132,6 +141,28 @@ export interface FacilityPayload {
   payment_schedule?: string | null;
   term_length_days?: number | string | null;
   notes?: string | null;
+}
+
+export interface FacilityAssignmentPayload {
+  facility_type: LenderType;
+  lender_id: string;
+  total_facility?: string | number | null;
+  opening_balance?: string | number | null;
+  rate?: string | number | null;
+  already_drawn?: string | number | null;
+  draw_eligible_override?: string | number | null;
+  requested_draw_amount?: string | number | null;
+  requested_draw_as_of?: string | null;
+  commitment_source?: string | null;
+  commitment_confirmed_at?: string | null;
+  notes?: string | null;
+}
+
+export interface FacilityRecord extends FacilityPayload {
+  id: string;
+  lender_id?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface UploadResponse {

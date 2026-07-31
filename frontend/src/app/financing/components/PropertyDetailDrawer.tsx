@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
-import { createFacility, getProLedger, updateFacility } from "@/lib/api/financing";
+import { getProLedger, updateFacility } from "@/lib/api/financing";
 import type { FacilityPayload, FinancingProperty, ProLedger } from "@/types/financing";
 import { ClientOtpPanel } from "./ClientOtpPanel";
 import { DocumentUploadPanel } from "./DocumentUploadPanel";
+import { FacilityAssignmentModal } from "./FacilityAssignmentModal";
 import { LenderFacilityForm } from "./LenderFacilityForm";
 
 const money = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
@@ -28,6 +29,7 @@ export function PropertyDetailDrawer({
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [linkPropertyId, setLinkPropertyId] = useState("");
   const [linking, setLinking] = useState(false);
+  const [assignmentOpen, setAssignmentOpen] = useState(false);
 
   const linkOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -59,11 +61,8 @@ export function PropertyDetailDrawer({
   const currentLedgerError = currentLedger ? null : ledgerError;
 
   async function saveFacility(payload: FacilityPayload) {
-    if (property?.facility_id) {
-      await updateFacility(property.facility_id, payload);
-    } else {
-      await createFacility(payload);
-    }
+    if (!property?.facility_id) return;
+    await updateFacility(property.facility_id, payload);
     await onUpdated();
   }
 
@@ -193,11 +192,32 @@ export function PropertyDetailDrawer({
           ) : null}
         </div>
 
-        <div className="mb-4">
-          <LenderFacilityForm property={property} onSave={saveFacility} />
-        </div>
+        {property.facility_id ? (
+          <div className="mb-4">
+            <LenderFacilityForm
+              key={`${property.property_id}:${property.facility_id}`}
+              property={property}
+              onSave={saveFacility}
+            />
+          </div>
+        ) : (
+          <div className="mb-4 rounded-lg border border-dashed border-[var(--ch-border)] bg-[var(--ch-surface)] p-5 text-center">
+            <h3 className="text-sm font-semibold">No lender facility assigned</h3>
+            <p className="mt-1 text-sm text-[var(--ch-text-muted)]">Assign an existing lender or add a new one to start financing setup.</p>
+            <button type="button" onClick={() => setAssignmentOpen(true)} className="mt-4 rounded-md bg-[var(--ch-accent)] px-4 py-2 text-sm font-semibold text-[var(--ch-accent-text)]">
+              Assign lender facility
+            </button>
+          </div>
+        )}
         <DocumentUploadPanel property={property} onUpdated={onUpdated} />
       </aside>
+      {assignmentOpen ? (
+        <FacilityAssignmentModal
+          property={property}
+          onClose={() => setAssignmentOpen(false)}
+          onAssigned={onUpdated}
+        />
+      ) : null}
     </div>
   );
 }

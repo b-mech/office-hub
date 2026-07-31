@@ -3,6 +3,8 @@ import type {
   ClientDrawSchedule,
   ClientPrepDrawPackage,
   FacilityPayload,
+  FacilityAssignmentPayload,
+  FacilityRecord,
   FacilityStatementSnapshot,
   FinancingDashboard,
   FinancingProperty,
@@ -105,6 +107,16 @@ export function updateClientDrawRequestStatus(requestId: string, status: string,
 
 export function createFacility(payload: FacilityPayload): Promise<unknown> {
   return apiFetch("/api/v1/financing/facilities", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function assignPropertyFacility(
+  propertyId: string,
+  payload: FacilityAssignmentPayload,
+): Promise<FacilityRecord> {
+  return apiFetch<FacilityRecord>(`/api/v1/financing/properties/${propertyId}/facilities`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function updateFacility(id: string, payload: Partial<FacilityPayload>): Promise<unknown> {

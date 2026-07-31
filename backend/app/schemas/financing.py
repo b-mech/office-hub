@@ -19,6 +19,11 @@ class FacilityBase(BaseModel):
     opening_balance: Decimal | None = None
     rate: Decimal | None = None
     already_drawn: Decimal = Decimal("0")
+    draw_eligible_override: Decimal | None = None
+    requested_draw_amount: Decimal | None = None
+    requested_draw_as_of: date | None = None
+    commitment_source: str | None = None
+    commitment_confirmed_at: datetime | None = None
     last_draw_date: date | None = None
     last_draw_amount: Decimal | None = None
     account_number: str | None = None
@@ -76,6 +81,7 @@ class FacilityOut(FacilityBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    lender_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
