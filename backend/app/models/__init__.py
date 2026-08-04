@@ -39,6 +39,10 @@ from app.models.sales import ChangeOrderLineItem
 from app.models.sales import SalesAgreement
 from app.models.sales import SalesAgreementStatus
 from app.models.sales import SalesDepositSchedule
+from app.models.tendering import Contractor
+from app.models.tendering import ContractorCategory
+from app.models.tendering import TenderDocument
+from app.models.tendering import TenderPackage
 
 
 __all__ = [
@@ -81,6 +85,10 @@ __all__ = [
     "SalesDepositSchedule",
     "SecurityDeposit",
     "TriggerType",
+    "Contractor",
+    "ContractorCategory",
+    "TenderDocument",
+    "TenderPackage",
     "User",
     "UserRole",
 ]

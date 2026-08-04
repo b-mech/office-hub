@@ -7,6 +7,7 @@ import { DocumentUploadPanel } from "./DocumentUploadPanel";
 import { FacilityAssignmentModal } from "./FacilityAssignmentModal";
 import { FinancialOverview } from "./FinancialOverview";
 import { LenderFacilityForm } from "./LenderFacilityForm";
+import { TenderPackagesPanel } from "./TenderPackagesPanel";
 
 const money = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
 
@@ -104,6 +105,8 @@ export function PropertyDetailDrawer({
         </div>
 
         <FinancialOverview key={`${property.property_id}:${property.facility_id || "none"}`} property={property} onAssign={() => setAssignmentOpen(true)} />
+
+        <TenderPackagesPanel property={property} />
 
         <div id="draw-details" className="mb-4 scroll-mt-4 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold">Draw Calculation</h3>
