@@ -77,8 +77,20 @@ export default function ProjectChangeOrdersPage() {
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [scopedAddress, setScopedAddress] = useState("");
   const [view, setView] = useState<ViewMode>("list");
   const [includeArchived, setIncludeArchived] = useState(false);
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const address = params.get("property_id") ? params.get("address")?.trim() || "" : "";
+      if (address) {
+        setScopedAddress(address);
+        setSearch(address);
+      }
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
 
   useEffect(() => {
     getChangeOrders(includeArchived)
@@ -106,6 +118,7 @@ export default function ProjectChangeOrdersPage() {
     if (!query) return changeOrders;
 
     return changeOrders.filter((order) => {
+      if (scopedAddress && order.address.trim().toLowerCase() !== scopedAddress.toLowerCase()) return false;
       const searchable = [
         order.address,
         order.client_name,
@@ -116,7 +129,7 @@ export default function ProjectChangeOrdersPage() {
       ].join(" ").toLowerCase();
       return searchable.includes(query);
     });
-  }, [changeOrders, search]);
+  }, [changeOrders, scopedAddress, search]);
 
   async function handleDownloadPdf(order: ChangeOrder) {
     setOpenMenuId(null);

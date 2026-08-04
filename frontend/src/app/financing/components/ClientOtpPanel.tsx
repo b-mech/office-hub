@@ -176,7 +176,7 @@ export function ClientOtpPanel({ property, onUpdated }: { property: FinancingPro
   }, [schedule, reviewed, prep?.status, requestableTotal]);
 
   return (
-    <section className={`mb-4 rounded-lg border p-4 ${property.lender_type === "CLIENT" ? "border-[var(--ch-warning-border)] bg-[var(--ch-surface)]" : "border-[var(--ch-border)] bg-[var(--ch-surface)]"}`}>
+    <section id="prep-draw" className={`mb-4 scroll-mt-4 rounded-lg border p-4 ${property.lender_type === "CLIENT" ? "border-[var(--ch-warning-border)] bg-[var(--ch-surface)]" : "border-[var(--ch-border)] bg-[var(--ch-surface)]"}`}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">OTP Sale Draw Schedule</h3>

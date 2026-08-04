@@ -5,6 +5,7 @@ import type { FacilityPayload, FinancingProperty, ProLedger } from "@/types/fina
 import { ClientOtpPanel } from "./ClientOtpPanel";
 import { DocumentUploadPanel } from "./DocumentUploadPanel";
 import { FacilityAssignmentModal } from "./FacilityAssignmentModal";
+import { FinancialOverview } from "./FinancialOverview";
 import { LenderFacilityForm } from "./LenderFacilityForm";
 
 const money = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
@@ -102,7 +103,9 @@ export function PropertyDetailDrawer({
           <Info label="Sold / Spec" value={property.sold_or_spec || "-"} />
         </div>
 
-        <div className="mb-4 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
+        <FinancialOverview key={`${property.property_id}:${property.facility_id || "none"}`} property={property} onAssign={() => setAssignmentOpen(true)} />
+
+        <div id="draw-details" className="mb-4 scroll-mt-4 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold">Draw Calculation</h3>
           <div className="grid gap-3 sm:grid-cols-3">
             <Info label="Entitled" value={property.cumulative_entitled == null ? "-" : money.format(num(property.cumulative_entitled))} />
@@ -200,15 +203,7 @@ export function PropertyDetailDrawer({
               onSave={saveFacility}
             />
           </div>
-        ) : (
-          <div className="mb-4 rounded-lg border border-dashed border-[var(--ch-border)] bg-[var(--ch-surface)] p-5 text-center">
-            <h3 className="text-sm font-semibold">No lender facility assigned</h3>
-            <p className="mt-1 text-sm text-[var(--ch-text-muted)]">Assign an existing lender or add a new one to start financing setup.</p>
-            <button type="button" onClick={() => setAssignmentOpen(true)} className="mt-4 rounded-md bg-[var(--ch-accent)] px-4 py-2 text-sm font-semibold text-[var(--ch-accent-text)]">
-              Assign lender facility
-            </button>
-          </div>
-        )}
+        ) : null}
         <DocumentUploadPanel property={property} onUpdated={onUpdated} />
       </aside>
       {assignmentOpen ? (

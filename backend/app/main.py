@@ -13,6 +13,7 @@ from app.routers.box import router as box_router
 from app.routers.change_orders import router as change_orders_router
 from app.routers.financing import router as financing_router
 from app.routers.facility_assignments import router as facility_assignments_router
+from app.routers.financial_summaries import router as financial_summaries_router
 from app.routers.lenders import router as lenders_router
 from app.routers.users import router as users_router
 from app.core.config import settings
@@ -58,6 +59,7 @@ app.include_router(change_orders_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(financing_router)
 app.include_router(facility_assignments_router)
+app.include_router(financial_summaries_router)
 app.include_router(lenders_router)
 app.include_router(costbook_router)
 app.include_router(lots_router)
