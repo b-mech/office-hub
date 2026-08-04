@@ -1,4 +1,4 @@
-import type { Contractor, ContractorCategory, ContractorPayload, TenderDocument, TenderDocumentType, TenderPackage, TenderStatus } from "@/types/tendering";
+import type { Contractor, ContractorCategory, ContractorPayload, TenderAward, TenderBid, TenderDocument, TenderDocumentType, TenderLineItem, TenderPackage, TenderStatus } from "@/types/tendering";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -21,3 +21,10 @@ export const updateTenderPackage = (id: string, payload: Partial<{ category_id: 
 export function uploadTenderDocument(id: string, type: TenderDocumentType, file: File) { const body = new FormData(); body.set("document_type", type); body.set("file", file); return request<TenderDocument>(`/api/tender-packages/${id}/documents`, { method: "POST", body }); }
 export const deleteTenderDocument = (id: string) => request<void>(`/api/tender-documents/${id}`, { method: "DELETE" });
 export const tenderDocumentUrl = (id: string) => `${BASE}/api/tender-documents/${id}/content`;
+export const createTenderBid = (packageId: string, contractorId: string) => request<TenderBid>(`/api/tender-packages/${packageId}/bids`, { method: "POST", body: JSON.stringify({ contractor_id: contractorId }) });
+export const getTenderBids = (packageId: string) => request<TenderBid[]>(`/api/tender-packages/${packageId}/bids`);
+export function uploadTenderBidDocument(id: string, file: File) { const body = new FormData(); body.set("file", file); return request<TenderBid>(`/api/tender-bids/${id}/documents`, { method: "POST", body }); }
+export const updateTenderBid = (id: string, payload: Partial<{ quote_amount: string; extracted_line_items: TenderLineItem[]; excluded_scope_notes: string | null; reviewer_notes: string | null }>) => request<TenderBid>(`/api/tender-bids/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+export const cancelTenderBid = (id: string) => request<void>(`/api/tender-bids/${id}`, { method: "DELETE" });
+export const tenderBidDocumentUrl = (id: string) => `${BASE}/api/tender-bid-documents/${id}/content`;
+export const awardTenderPackage = (packageId: string, payload: { winning_bid_id: string; budget_id: string; budget_line_id: string; award_instructions: string; project_start_date: string; contractor_start_date: string }) => request<TenderAward>(`/api/tender-packages/${packageId}/award`, { method: "POST", body: JSON.stringify(payload) });

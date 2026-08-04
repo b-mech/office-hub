@@ -64,6 +64,17 @@ Rules:
 - Use strings for money values; do not use floating point.
 """
 
+TENDER_QUOTE_PROMPT = """
+Extract this contractor quote and return only JSON with this shape:
+{
+  "total": "0.00 or null",
+  "line_items": [{"description": "verbatim item description", "amount": "0.00"}],
+  "exclusions": "verbatim exclusions or null",
+  "confidence": "high or needs_review"
+}
+Use strings for every money value; never use floating point. Do not infer missing prices.
+"""
+
 
 async def extract_financing_document(*, lender_type: str, content: bytes, content_type: str) -> dict[str, Any]:
     lender = lender_type.upper()
@@ -127,6 +138,27 @@ async def extract_client_otp_document(*, content: bytes, content_type: str) -> d
                     ],
                 }
             ],
+        ),
+        timeout=180,
+    )
+    raw = "\n".join(getattr(block, "text", "") for block in response.content).strip()
+    return _parse_json(raw)
+
+
+async def extract_tender_quote_document(*, content: bytes, content_type: str) -> dict[str, Any]:
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    media_type = content_type or "application/pdf"
+    response = await asyncio.wait_for(
+        client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=4000,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "document", "source": {"type": "base64", "media_type": media_type, "data": base64.b64encode(content).decode("ascii")}},
+                    {"type": "text", "text": TENDER_QUOTE_PROMPT},
+                ],
+            }],
         ),
         timeout=180,
     )

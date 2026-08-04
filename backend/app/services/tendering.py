@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from uuid import UUID
 from uuid import uuid4
 
 from fastapi import UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,11 +16,18 @@ from app.models.tendering import Contractor
 from app.models.tendering import ContractorCategory
 from app.models.tendering import TenderDocument
 from app.models.tendering import TenderPackage
+from app.models.tendering import TenderAward, TenderBid, TenderBidDocument
+from app.modules.costbook import service as costbook_service
+from app.modules.costbook.models import Budget, BudgetLine, PurchaseOrder
+from app.modules.costbook.schemas import PurchaseOrderCreate
+from app.core.config import settings
 from app.schemas.tendering import ContractorCreate
 from app.schemas.tendering import ContractorUpdate
 from app.schemas.tendering import TenderDocumentType
 from app.schemas.tendering import TenderPackageCreate
 from app.schemas.tendering import TenderPackageUpdate
+from app.schemas.tendering import TenderAwardCreate, TenderBidCreate, TenderBidUpdate
+from app.services.document_extractor import extract_tender_quote_document
 from app.services.minio_financing import delete_financing_document
 from app.services.minio_financing import financing_key
 from app.services.minio_financing import get_financing_document
@@ -148,4 +157,157 @@ def _trim_values(values: dict[str, object]) -> dict[str, object]:
 
 
 def _package_query():
-    return select(TenderPackage).options(selectinload(TenderPackage.documents), selectinload(TenderPackage.category))
+    return select(TenderPackage).options(
+        selectinload(TenderPackage.documents),
+        selectinload(TenderPackage.category),
+        selectinload(TenderPackage.bids).selectinload(TenderBid.documents),
+        selectinload(TenderPackage.award),
+    )
+
+
+def _bid_query():
+    return select(TenderBid).options(selectinload(TenderBid.documents), selectinload(TenderBid.contractor))
+
+
+async def list_tender_bids(db: AsyncSession, package_id: UUID, *, include_cancelled: bool = False) -> list[TenderBid]:
+    statement = _bid_query().where(TenderBid.tender_package_id == package_id)
+    if not include_cancelled:
+        statement = statement.where(TenderBid.status != "cancelled")
+    return list((await db.execute(statement.order_by(TenderBid.created_at))).scalars().unique())
+
+
+async def get_tender_bid(db: AsyncSession, bid_id: UUID) -> TenderBid | None:
+    return (await db.execute(_bid_query().where(TenderBid.id == bid_id))).scalars().unique().one_or_none()
+
+
+async def create_tender_bid(db: AsyncSession, package: TenderPackage, data: TenderBidCreate) -> TenderBid:
+    active_count = await db.scalar(select(func.count()).select_from(TenderBid).where(TenderBid.tender_package_id == package.id, TenderBid.status != "cancelled"))
+    if (active_count or 0) >= 3:
+        raise ValueError("A tender package can have at most 3 active bids")
+    contractor = await get_contractor(db, data.contractor_id)
+    if contractor is None or not contractor.active:
+        raise ValueError("Active contractor not found")
+    if not any(category.id == package.category_id for category in contractor.categories):
+        raise ValueError("Contractor is not assigned to this tender package's trade category")
+    existing = (await db.execute(select(TenderBid).where(TenderBid.tender_package_id == package.id, TenderBid.contractor_id == data.contractor_id))).scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+    if existing is not None:
+        if existing.status != "cancelled":
+            raise ValueError("This contractor already has a bid for the tender package")
+        existing.status, existing.invited_at = "invited", now
+        existing.quote_amount = existing.extracted_amount = None
+        existing.extracted_line_items = None
+        existing.excluded_scope_notes = existing.reviewer_notes = None
+        existing.received_at = None
+        bid = existing
+    else:
+        bid = TenderBid(tender_package_id=package.id, contractor_id=data.contractor_id, status="invited", invited_at=now)
+        db.add(bid)
+    if package.status == "draft":
+        package.status = "sent"
+    await db.commit()
+    return await get_tender_bid(db, bid.id)  # type: ignore[return-value]
+
+
+async def cancel_tender_bid(db: AsyncSession, bid: TenderBid) -> None:
+    bid.status = "cancelled"
+    await db.commit()
+
+
+async def update_tender_bid(db: AsyncSession, bid: TenderBid, data: TenderBidUpdate) -> TenderBid:
+    values = data.model_dump(exclude_unset=True)
+    if "extracted_line_items" in values and values["extracted_line_items"] is not None:
+        values["extracted_line_items"] = [{"description": item["description"].strip(), "amount": str(item["amount"])} for item in values["extracted_line_items"]]
+    for field, value in _trim_values(values).items():
+        setattr(bid, field, value)
+    if "quote_amount" in values and values["quote_amount"] is not None:
+        bid.status = "reviewed"
+    await db.commit()
+    return await get_tender_bid(db, bid.id)  # type: ignore[return-value]
+
+
+async def upload_tender_bid_document(db: AsyncSession, bid: TenderBid, file: UploadFile) -> TenderBid:
+    filename = file.filename or "quote.pdf"
+    if file.content_type != "application/pdf" and not filename.lower().endswith(".pdf"):
+        raise ValueError("Bid quotes must be PDF files")
+    content = await file.read()
+    if not content:
+        raise ValueError("Uploaded PDF is empty")
+    key = financing_key("tendering/bids", f"{bid.id}-{uuid4()}-{filename}")
+    await asyncio.to_thread(upload_financing_document, key=key, content=content, content_type="application/pdf")
+    document = TenderBidDocument(tender_bid_id=bid.id, file_path=key, original_filename=filename)
+    db.add(document)
+    try:
+        extracted = await extract_tender_quote_document(content=content, content_type="application/pdf")
+        bid.extracted_amount = _decimal_or_none(extracted.get("total"))
+        bid.extracted_line_items = _normalise_line_items(extracted.get("line_items"))
+        exclusions = extracted.get("exclusions")
+        bid.excluded_scope_notes = exclusions.strip() if isinstance(exclusions, str) and exclusions.strip() else None
+        bid.status = "received"
+        bid.received_at = datetime.now(timezone.utc)
+        package = await db.get(TenderPackage, bid.tender_package_id)
+        if package is not None and package.status in {"draft", "sent"}:
+            package.status = "bids_in"
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        await asyncio.to_thread(delete_financing_document, key=key)
+        raise
+    return await get_tender_bid(db, bid.id)  # type: ignore[return-value]
+
+
+async def get_tender_bid_document_content(document: TenderBidDocument) -> bytes:
+    return await asyncio.to_thread(get_financing_document, key=document.file_path)
+
+
+async def award_tender_package(db: AsyncSession, package: TenderPackage, data: TenderAwardCreate) -> tuple[TenderAward, PurchaseOrder]:
+    if package.award is not None:
+        raise ValueError("This tender package has already been awarded")
+    bid = await get_tender_bid(db, data.winning_bid_id)
+    if bid is None or bid.tender_package_id != package.id or bid.status != "reviewed" or bid.quote_amount is None:
+        raise ValueError("Winning bid must be a reviewed bid from this tender package")
+    budget = await db.get(Budget, data.budget_id)
+    line = await db.get(BudgetLine, data.budget_line_id)
+    if budget is None:
+        raise ValueError("Budget not found")
+    if line is None or line.budget_id != budget.id:
+        raise ValueError("Budget line does not belong to the selected budget")
+    po = await costbook_service.create_purchase_order(db, settings.default_org_id, budget.id, PurchaseOrderCreate(
+        budget_line_id=line.id,
+        vendor_name_adhoc=bid.contractor.name,
+        description=package.scope_description,
+        amount=bid.quote_amount,
+        notes=data.award_instructions.strip(),
+    ))
+    award = TenderAward(
+        tender_package_id=package.id, winning_bid_id=bid.id, po_id=po.id,
+        award_instructions=data.award_instructions.strip(), project_start_date=data.project_start_date,
+        contractor_start_date=data.contractor_start_date,
+    )
+    db.add(award)
+    package.status = "awarded"
+    await db.commit()
+    await db.refresh(award)
+    return award, po
+
+
+def _decimal_or_none(value: object) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value)).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _normalise_line_items(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    result: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict) or not str(item.get("description", "")).strip():
+            continue
+        amount = _decimal_or_none(item.get("amount"))
+        if amount is not None:
+            result.append({"description": str(item["description"]).strip(), "amount": str(amount)})
+    return result

@@ -3,6 +3,7 @@ costbook/schemas.py
 Pydantic request/response schemas for the costbook module.
 """
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -136,7 +137,7 @@ class PurchaseOrderCreate(BaseModel):
     vendor_id:         Optional[UUID] = None
     vendor_name_adhoc: Optional[str] = None
     description:       str
-    amount:            float
+    amount:            Decimal
     notes:             Optional[str] = None
 
 

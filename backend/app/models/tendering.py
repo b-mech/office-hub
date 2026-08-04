@@ -13,7 +13,9 @@ from sqlalchemy import String
 from sqlalchemy import Table
 from sqlalchemy import Text
 from sqlalchemy import UniqueConstraint
+from sqlalchemy import Numeric
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -76,6 +78,8 @@ class TenderPackage(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
     category = relationship("ContractorCategory", lazy="joined")
     documents = relationship("TenderDocument", lazy="selectin", cascade="all, delete-orphan")
+    bids = relationship("TenderBid", lazy="selectin", cascade="all, delete-orphan")
+    award = relationship("TenderAward", lazy="selectin", uselist=False, cascade="all, delete-orphan")
 
 
 class TenderDocument(Base):
@@ -92,3 +96,52 @@ class TenderDocument(Base):
     file_path = Column(Text, nullable=False)
     original_filename = Column(Text, nullable=False)
     uploaded_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class TenderBid(Base):
+    __tablename__ = "tender_bids"
+    __table_args__ = (
+        CheckConstraint("status IN ('invited','received','reviewed','cancelled')", name="ck_tender_bids_status"),
+        UniqueConstraint("tender_package_id", "contractor_id", name="uq_tender_bids_package_contractor"),
+        {"schema": "core"},
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tender_package_id = Column(UUID(as_uuid=True), ForeignKey("core.tender_packages.id", ondelete="CASCADE"), nullable=False, index=True)
+    contractor_id = Column(UUID(as_uuid=True), ForeignKey("core.contractors.id", ondelete="RESTRICT"), nullable=False)
+    status = Column(String(20), nullable=False, default="invited", server_default="invited")
+    quote_amount = Column(Numeric(15, 2))
+    extracted_amount = Column(Numeric(15, 2))
+    extracted_line_items = Column(JSONB)
+    excluded_scope_notes = Column(Text)
+    reviewer_notes = Column(Text)
+    invited_at = Column(DateTime(timezone=True))
+    received_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    contractor = relationship("Contractor", lazy="joined")
+    documents = relationship("TenderBidDocument", lazy="selectin", cascade="all, delete-orphan")
+
+
+class TenderBidDocument(Base):
+    __tablename__ = "tender_bid_documents"
+    __table_args__ = {"schema": "documents"}
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tender_bid_id = Column(UUID(as_uuid=True), ForeignKey("core.tender_bids.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_path = Column(Text, nullable=False)
+    original_filename = Column(Text, nullable=False)
+    uploaded_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class TenderAward(Base):
+    __tablename__ = "tender_awards"
+    __table_args__ = (UniqueConstraint("tender_package_id", name="uq_tender_awards_package"), {"schema": "core"})
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tender_package_id = Column(UUID(as_uuid=True), ForeignKey("core.tender_packages.id", ondelete="CASCADE"), nullable=False)
+    winning_bid_id = Column(UUID(as_uuid=True), ForeignKey("core.tender_bids.id", ondelete="RESTRICT"), nullable=False)
+    po_id = Column(UUID(as_uuid=True), ForeignKey("costbook.purchase_orders.id", ondelete="RESTRICT"), nullable=False)
+    award_instructions = Column(Text, nullable=False)
+    project_start_date = Column(Date, nullable=False)
+    contractor_start_date = Column(Date, nullable=False)
+    awarded_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    purchase_order = relationship("PurchaseOrder", lazy="joined")
