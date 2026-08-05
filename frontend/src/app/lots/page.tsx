@@ -8,13 +8,19 @@ import { TenderPackagesPanel } from "@/app/projects/components/TenderPackagesPan
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<string, string> = {
+  inventory: "Inventory",
   active: "Active",
+  hold: "Hold",
+  cancelled: "Cancelled",
   possession: "Possession",
   complete: "Complete",
 };
 
 const STATUS_COLOR: Record<string, string> = {
+  inventory: "bg-[var(--ch-surface)] text-[var(--ch-text-muted)] border-[var(--ch-border)]",
   active: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+  hold: "bg-[var(--ch-warning-bg)] text-[var(--ch-warning-text)] border-[var(--ch-warning-border)]",
+  cancelled: "bg-[var(--ch-error-bg)] text-[var(--ch-error-text)] border-[var(--ch-error-border)]",
   possession: "bg-[var(--ch-warning-bg)] text-[var(--ch-warning-text)] border-[var(--ch-warning-border)]",
   complete: "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)] border-[var(--ch-success-border)]",
 };

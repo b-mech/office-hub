@@ -29,7 +29,11 @@ export interface Lot {
   possession_date?: string;
   framing_date?: string;
   closing_date?: string;
-  status: "active" | "possession" | "complete";
+  trigger_type?: "otp" | "spec" | "showhome" | null;
+  on_hold: boolean;
+  cancelled: boolean;
+  lifecycle_status: "land_contracted" | "land_purchased" | "serviced" | "sale_signed" | "build_active" | "possession" | "warranty";
+  status: "inventory" | "active" | "hold" | "cancelled" | "possession" | "complete";
   land_agreement_id?: string;
   sale_agreement_id?: string;
   lender_type?: string | null;
@@ -49,6 +53,14 @@ export async function getProjects(): Promise<Lot[]> {
 
 export async function getLot(id: string): Promise<Lot> {
   return apiFetch<Lot>(`/api/v1/lots/${id}`);
+}
+
+export async function setLotHold(id: string, onHold: boolean): Promise<Pick<Lot, "id" | "trigger_type" | "on_hold" | "cancelled">> {
+  return apiFetch(`/api/v1/lots/${id}/hold`, { method: "PATCH", body: JSON.stringify({ on_hold: onHold }) });
+}
+
+export async function setLotCancelled(id: string, cancelled: boolean): Promise<Pick<Lot, "id" | "trigger_type" | "on_hold" | "cancelled">> {
+  return apiFetch(`/api/v1/lots/${id}/cancel`, { method: "PATCH", body: JSON.stringify({ cancelled }) });
 }
 
 // ─── Cost Categories ──────────────────────────────────────────────────────────

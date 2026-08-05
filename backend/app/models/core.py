@@ -60,6 +60,12 @@ class LotStatus(str, Enum):
     WARRANTY = "warranty"
 
 
+class LotTriggerType(str, Enum):
+    OTP = "otp"
+    SPEC = "spec"
+    SHOWHOME = "showhome"
+
+
 class Org(Base):
     __tablename__ = "orgs"
     __table_args__ = {"schema": "core"}
@@ -194,6 +200,29 @@ class Lot(Base):
         PGUUID(as_uuid=True),
         ForeignKey("core.properties.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    trigger_type: Mapped[LotTriggerType | None] = mapped_column(
+        SqlEnum(
+            LotTriggerType,
+            name="ck_core_lots_trigger_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    on_hold: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    cancelled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
     )
     legal_description_raw: Mapped[str | None] = mapped_column(Text)
     legal_description_normalized: Mapped[str] = mapped_column(

@@ -4,6 +4,7 @@ from app.models.core import ContactType
 from app.models.core import Development
 from app.models.core import Lot
 from app.models.core import LotStatus
+from app.models.core import LotTriggerType
 from app.models.core import Org
 from app.models.core import Reminder
 from app.models.core import User
@@ -68,6 +69,7 @@ __all__ = [
     "Ingestion",
     "Lot",
     "LotStatus",
+    "LotTriggerType",
     "LotTerms",
     "LenderFacility",
     "LenderFacilityDocument",

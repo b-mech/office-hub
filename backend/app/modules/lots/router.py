@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.services import lots as lot_service
 
 router = APIRouter(prefix="/api/v1/lots", tags=["lots"])
 projects_router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
@@ -43,6 +44,10 @@ def verify_api_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] =
 class LotOut(BaseModel):
     id: str
     property_id: Optional[UUID] = None
+    trigger_type: Optional[str] = None
+    on_hold: bool = False
+    cancelled: bool = False
+    lifecycle_status: str
     address: str
     lot_number: Optional[str] = None
     community: str
@@ -75,14 +80,33 @@ class TimelineEvent(BaseModel):
     urgency: str
 
 
-async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
+class LotHoldUpdate(BaseModel):
+    on_hold: bool
+
+
+class LotCancelledUpdate(BaseModel):
+    cancelled: bool
+
+
+class LotActivationFlagsOut(BaseModel):
+    id: UUID
+    trigger_type: Optional[str] = None
+    on_hold: bool
+    cancelled: bool
+
+
+async def _list_lots(db: AsyncSession, screen: str) -> list[LotOut]:
     """
     Produce a unified lot list from core.lots with optional sales data.
     """
-    if sale_filter not in {"without_sale", "with_sale"}:
-        raise ValueError(f"Unsupported sale filter: {sale_filter}")
+    if screen not in {"lots", "projects"}:
+        raise ValueError(f"Unsupported lot screen: {screen}")
 
-    sale_predicate = "sa.id IS NULL" if sale_filter == "without_sale" else "sa.id IS NOT NULL"
+    eligibility_predicate = (
+        "(l.trigger_type IS NULL OR l.cancelled = true)"
+        if screen == "lots"
+        else "(l.trigger_type IS NOT NULL AND l.cancelled = false)"
+    )
     query = text(f"""
         WITH lot_rows AS (
             SELECT
@@ -98,6 +122,10 @@ async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
         SELECT
             l.id::text AS id,
             l.property_id,
+            l.trigger_type,
+            l.on_hold,
+            l.cancelled,
+            l.status::text AS lifecycle_status,
             COALESCE(l.civic_address, l.legal_description_normalized, 'Unknown Address') AS address,
             l.lot_number::text,
             COALESCE(d.name, d.municipality, 'Unknown Community') AS community,
@@ -108,9 +136,12 @@ async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
             NULL::text AS framing_date,
             NULL::text AS closing_date,
             CASE
+                WHEN l.cancelled THEN 'cancelled'
+                WHEN l.on_hold THEN 'hold'
                 WHEN sa.possession_date IS NOT NULL AND sa.possession_date <= CURRENT_DATE THEN 'possession'
                 WHEN l.status IN ('possession', 'warranty') OR sa.status = 'possession_complete' THEN 'complete'
-                ELSE 'active'
+                WHEN l.trigger_type IS NOT NULL THEN 'active'
+                ELSE 'inventory'
             END AS status,
             lt.agreement_id::text AS land_agreement_id,
             sa.id::text AS sale_agreement_id,
@@ -218,7 +249,7 @@ async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
             LIMIT 1
         ) financing ON true
         WHERE d.org_id = :org_id
-          AND {sale_predicate}
+          AND {eligibility_predicate}
         ORDER BY l.created_at DESC
     """)
 
@@ -228,6 +259,11 @@ async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
     return [
         LotOut(
             id=row["id"],
+            property_id=row.get("property_id"),
+            trigger_type=row.get("trigger_type"),
+            on_hold=row.get("on_hold", False),
+            cancelled=row.get("cancelled", False),
+            lifecycle_status=row["lifecycle_status"],
             address=row["address"],
             lot_number=row.get("lot_number"),
             community=row["community"],
@@ -252,7 +288,7 @@ async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
 
 @router.get("", response_model=List[LotOut])
 async def list_lots(db: AsyncSession = Depends(get_db)):
-    return await _list_lots(db, "without_sale")
+    return await _list_lots(db, "lots")
 
 
 @router.get("/timeline", response_model=list[TimelineEvent], dependencies=[Depends(verify_api_key)])
@@ -475,7 +511,7 @@ def _event_slug(event_type: str, event_label: str, event_date: date) -> str:
 
 @projects_router.get("", response_model=List[LotOut])
 async def list_projects(db: AsyncSession = Depends(get_db)):
-    return await _list_lots(db, "with_sale")
+    return await _list_lots(db, "projects")
 
 
 @router.get("/{lot_id}", response_model=LotOut)
@@ -484,6 +520,10 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
         SELECT
             l.id::text AS id,
             l.property_id,
+            l.trigger_type,
+            l.on_hold,
+            l.cancelled,
+            l.status::text AS lifecycle_status,
             COALESCE(l.civic_address, l.legal_description_normalized, 'Unknown Address') AS address,
             l.lot_number::text,
             COALESCE(d.name, d.municipality, 'Unknown Community') AS community,
@@ -494,9 +534,12 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
             NULL::text AS framing_date,
             NULL::text AS closing_date,
             CASE
+                WHEN l.cancelled THEN 'cancelled'
+                WHEN l.on_hold THEN 'hold'
                 WHEN sa.possession_date IS NOT NULL AND sa.possession_date <= CURRENT_DATE THEN 'possession'
                 WHEN l.status IN ('possession', 'warranty') OR sa.status = 'possession_complete' THEN 'complete'
-                ELSE 'active'
+                WHEN l.trigger_type IS NOT NULL THEN 'active'
+                ELSE 'inventory'
             END AS status,
             lt.agreement_id::text AS land_agreement_id,
             sa.id::text AS sale_agreement_id
@@ -540,6 +583,11 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
 
     return LotOut(
         id=row["id"],
+        property_id=row.get("property_id"),
+        trigger_type=row.get("trigger_type"),
+        on_hold=row.get("on_hold", False),
+        cancelled=row.get("cancelled", False),
+        lifecycle_status=row["lifecycle_status"],
         address=row["address"],
         lot_number=row.get("lot_number"),
         community=row["community"],
@@ -553,3 +601,27 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
         land_agreement_id=row.get("land_agreement_id"),
         sale_agreement_id=row.get("sale_agreement_id"),
     )
+
+
+@router.patch("/{lot_id}/hold", response_model=LotActivationFlagsOut)
+async def update_lot_hold(
+    lot_id: UUID,
+    data: LotHoldUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> LotActivationFlagsOut:
+    lot = await lot_service.set_lot_hold(db, lot_id, on_hold=data.on_hold)
+    if lot is None:
+        raise HTTPException(status_code=404, detail="Lot not found")
+    return LotActivationFlagsOut.model_validate(lot, from_attributes=True)
+
+
+@router.patch("/{lot_id}/cancel", response_model=LotActivationFlagsOut)
+async def update_lot_cancelled(
+    lot_id: UUID,
+    data: LotCancelledUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> LotActivationFlagsOut:
+    lot = await lot_service.set_lot_cancelled(db, lot_id, cancelled=data.cancelled)
+    if lot is None:
+        raise HTTPException(status_code=404, detail="Lot not found")
+    return LotActivationFlagsOut.model_validate(lot, from_attributes=True)

@@ -22,6 +22,7 @@ from app.models.core import ContactType
 from app.models.core import Development
 from app.models.core import Lot
 from app.models.core import LotStatus
+from app.models.core import LotTriggerType
 from app.models.core import Reminder
 from app.models.documents import Document
 from app.models.documents import DocumentStatus
@@ -229,12 +230,17 @@ class PromotionService:
         lot = await self.db.get(Lot, lot_id)
         if lot is not None:
             lot.status = LotStatus.SALE_SIGNED
+            if lot.trigger_type is None:
+                lot.trigger_type = LotTriggerType.OTP
             await self._write_audit_log(
                 schema_name="core",
                 table_name="lots",
                 record_id=lot.id,
                 action="UPDATE",
-                new_data={"status": LotStatus.SALE_SIGNED.value},
+                new_data={
+                    "status": LotStatus.SALE_SIGNED.value,
+                    "trigger_type": lot.trigger_type.value,
+                },
             )
 
         self._lots_matched = 1
