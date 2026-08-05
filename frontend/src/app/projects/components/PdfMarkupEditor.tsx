@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Redo2, Save, Trash2, Undo2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Minus, Plus, Redo2, Save, Trash2, Undo2, X } from "lucide-react";
 import { Canvas, Ellipse, FabricObject, IText, Line, PencilBrush, Rect } from "fabric";
 import type { TPointerEventInfo } from "fabric";
 import type { PDFDocumentProxy } from "pdfjs-dist";
@@ -39,6 +39,8 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
   const [tool, setTool] = useState<Tool>("select");
   const [color, setColor] = useState("#d7263d");
   const [strokeWidth, setStrokeWidth] = useState(3);
+  const [zoom, setZoom] = useState(1);
+  const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [calibration, setCalibration] = useState<TenderMarkupCalibration | null>(null);
   const [versions, setVersions] = useState<TenderDocumentMarkupSummary[]>([]);
   const [saving, setSaving] = useState(false);
@@ -81,6 +83,7 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
       const viewport = page.getViewport({ scale: Math.min(1.5, 1000 / base.width) });
       const pdfCanvas = pdfCanvasRef.current;
       pdfCanvas.width = viewport.width; pdfCanvas.height = viewport.height;
+      setPageSize({ width: viewport.width, height: viewport.height });
       await page.render({ canvas: pdfCanvas, canvasContext: pdfCanvas.getContext("2d")!, viewport }).promise;
       if (cancelled) return;
       const canvas = new Canvas(markupCanvasRef.current, { width: viewport.width, height: viewport.height, selection: true });
@@ -119,7 +122,17 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
     const down = (event: TPointerEventInfo) => {
       if (["select", "pan", "pen"].includes(tool)) return;
       const point = canvas.getScenePoint(event.e); start = { x: point.x, y: point.y }; end = start;
-      if (tool === "text") { const text = new IText("Type here", { left: point.x, top: point.y, fill: color, fontSize: 20 }); canvas.add(text); text.enterEditing(); start = null; return; }
+      if (tool === "text") {
+        const text = new IText("Type here", { left: point.x, top: point.y, fill: color, fontSize: 20 });
+        canvas.add(text);
+        canvas.setActiveObject(text);
+        text.enterEditing();
+        text.selectAll();
+        canvas.requestRenderAll();
+        window.setTimeout(() => text.hiddenTextarea?.focus(), 0);
+        start = null; end = null;
+        return;
+      }
       if (tool === "rect") shape = new Rect({ left: point.x, top: point.y, width: 1, height: 1, fill: "transparent", stroke: color, strokeWidth, selectable: false });
       else if (tool === "ellipse") shape = new Ellipse({ left: point.x, top: point.y, rx: 1, ry: 1, fill: "transparent", stroke: color, strokeWidth, selectable: false });
       else shape = new Line([point.x, point.y, point.x, point.y], { stroke: color, strokeWidth, selectable: false });
@@ -189,6 +202,11 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
       {tools.map(item => <button key={item.id} onClick={() => setTool(item.id)} className={`rounded-md border px-2 py-1.5 text-xs ${tool === item.id ? "border-[var(--ch-accent)] bg-[var(--ch-accent)] text-[var(--ch-accent-text)]" : "border-[var(--ch-border)]"}`}>{item.label}</button>)}
       <input aria-label="Markup color" type="color" value={color} onChange={event => setColor(event.target.value)} className="h-8 w-9"/>
       <input aria-label="Stroke width" type="range" min="1" max="10" value={strokeWidth} onChange={event => setStrokeWidth(Number(event.target.value))}/>
+      <div className="flex items-center rounded-md border border-[var(--ch-border)]">
+        <button aria-label="Zoom out" disabled={zoom <= 0.5} onClick={() => setZoom(value => Math.max(0.5, value - 0.25))} className="p-1.5 disabled:opacity-40"><Minus size={15}/></button>
+        <button title="Reset zoom" onClick={() => setZoom(1)} className="min-w-12 border-x border-[var(--ch-border)] px-1.5 py-1 text-xs">{Math.round(zoom * 100)}%</button>
+        <button aria-label="Zoom in" disabled={zoom >= 2} onClick={() => setZoom(value => Math.min(2, value + 0.25))} className="p-1.5 disabled:opacity-40"><Plus size={15}/></button>
+      </div>
       <button onClick={() => void history("undo")} title="Undo"><Undo2 size={17}/></button><button onClick={() => void history("redo")} title="Redo"><Redo2 size={17}/></button>
       <button onClick={() => { fabricRef.current?.clear(); snapshot(); }} title="Clear page"><Trash2 size={17}/></button>
       <button onClick={() => { setCalibration(null); setTool("measure"); }} className="rounded-md border border-[var(--ch-border)] px-2 py-1.5 text-xs">Recalibrate</button>
@@ -203,7 +221,13 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
         onPointerDown={event => { const area = scrollAreaRef.current; if (tool === "pan" && area) { panRef.current = { x: event.clientX, y: event.clientY, left: area.scrollLeft, top: area.scrollTop }; event.currentTarget.setPointerCapture(event.pointerId); } }}
         onPointerMove={event => { const area = scrollAreaRef.current; const origin = panRef.current; if (tool === "pan" && area && origin) { area.scrollLeft = origin.left - (event.clientX - origin.x); area.scrollTop = origin.top - (event.clientY - origin.y); } }}
         onPointerUp={() => { panRef.current = null; }}
-      ><div className="relative mx-auto w-fit shadow-xl"><canvas ref={pdfCanvasRef}/><canvas ref={markupCanvasRef} className="absolute inset-0"/></div></main>
+      ><div
+        className="relative mx-auto shadow-xl"
+        style={{
+          width: pageSize.width * zoom || undefined,
+          height: pageSize.height * zoom || undefined,
+        }}
+      ><div className="absolute left-0 top-0 origin-top-left" style={{ transform: `scale(${zoom})` }}><canvas ref={pdfCanvasRef}/><canvas ref={markupCanvasRef} className="absolute inset-0"/></div></div></main>
       <aside className="w-64 shrink-0 overflow-auto border-l border-[var(--ch-border)] bg-[var(--ch-surface)] p-3">
         <div className="mb-4 flex items-center justify-between"><button disabled={pageNumber <= 1} onClick={() => setPageNumber(value => value - 1)}><ChevronLeft/></button><span className="text-sm">Page {pageNumber} / {pageCount || "…"}</span><button disabled={pageNumber >= pageCount} onClick={() => setPageNumber(value => value + 1)}><ChevronRight/></button></div>
         <h3 className="text-sm font-semibold">Versions</h3><p className="mb-2 text-xs text-[var(--ch-text-muted)]">Latest five are retained.</p>
