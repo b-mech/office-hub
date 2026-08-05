@@ -190,6 +190,11 @@ class Lot(Base):
         ForeignKey("core.developments.id"),
         nullable=False,
     )
+    property_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("core.properties.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     legal_description_raw: Mapped[str | None] = mapped_column(Text)
     legal_description_normalized: Mapped[str] = mapped_column(
         Text,
