@@ -42,6 +42,7 @@ def verify_api_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] =
 
 class LotOut(BaseModel):
     id: str
+    property_id: Optional[UUID] = None
     address: str
     lot_number: Optional[str] = None
     community: str
@@ -96,6 +97,7 @@ async def _list_lots(db: AsyncSession, sale_filter: str) -> list[LotOut]:
         )
         SELECT
             l.id::text AS id,
+            l.property_id,
             COALESCE(l.civic_address, l.legal_description_normalized, 'Unknown Address') AS address,
             l.lot_number::text,
             COALESCE(d.name, d.municipality, 'Unknown Community') AS community,
@@ -481,6 +483,7 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
     query = text("""
         SELECT
             l.id::text AS id,
+            l.property_id,
             COALESCE(l.civic_address, l.legal_description_normalized, 'Unknown Address') AS address,
             l.lot_number::text,
             COALESCE(d.name, d.municipality, 'Unknown Community') AS community,

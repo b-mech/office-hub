@@ -19,6 +19,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 export interface Lot {
   id: string;
+  property_id?: string | null;
   address: string;
   lot_number?: string;
   community: string;

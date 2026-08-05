@@ -2,23 +2,22 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileText, Plus, Trash2, Upload } from "lucide-react";
 import { getBudget, getBudgets, type Budget, type BudgetLine } from "@/lib/api/costbook";
 import { awardTenderPackage, cancelTenderBid, createTenderBid, createTenderPackage, deleteTenderDocument, getContractorCategories, getContractors, getTenderPackages, tenderBidDocumentUrl, tenderDocumentUrl, updateTenderBid, updateTenderPackage, uploadTenderBidDocument, uploadTenderDocument } from "@/lib/api/tendering";
-import type { FinancingProperty } from "@/types/financing";
 import type { Contractor, ContractorCategory, TenderBid, TenderDocumentType, TenderLineItem, TenderPackage, TenderStatus } from "@/types/tendering";
 
 const statuses: TenderStatus[] = ["draft", "sent", "bids_in", "compared", "awarded", "cancelled"];
 const money = (value?: string | null) => value ? new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(Number(value)) : "—";
 const field = "rounded-md border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-sm";
 
-export function TenderPackagesPanel({ property }: { property: FinancingProperty }) {
+export function TenderPackagesPanel({ propertyId }: { propertyId: string }) {
   const [packages, setPackages] = useState<TenderPackage[]>([]);
   const [categories, setCategories] = useState<ContractorCategory[]>([]);
   const [creating, setCreating] = useState(false);
   const [categoryId, setCategoryId] = useState(""); const [scope, setScope] = useState(""); const [dueDate, setDueDate] = useState("");
   const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(true);
   const showError = useCallback((err: unknown) => { setError(err instanceof Error ? err.message : "Tendering request failed"); }, []);
-  async function load() { setPackages(await getTenderPackages(property.property_id)); }
-  useEffect(() => { let active = true; Promise.all([getTenderPackages(property.property_id), getContractorCategories()]).then(([p, c]) => { if (active) { setPackages(p); setCategories(c); } }).catch(showError).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [property.property_id, showError]);
-  async function create(e: React.FormEvent) { e.preventDefault(); try { await createTenderPackage(property.property_id, { category_id: categoryId, scope_description: scope, due_date: dueDate || null }); setCreating(false); setCategoryId(""); setScope(""); setDueDate(""); await load(); } catch (err) { showError(err); } }
+  async function load() { setPackages(await getTenderPackages(propertyId)); }
+  useEffect(() => { let active = true; Promise.all([getTenderPackages(propertyId), getContractorCategories()]).then(([p, c]) => { if (active) { setPackages(p); setCategories(c); } }).catch(showError).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [propertyId, showError]);
+  async function create(e: React.FormEvent) { e.preventDefault(); try { await createTenderPackage(propertyId, { category_id: categoryId, scope_description: scope, due_date: dueDate || null }); setCreating(false); setCategoryId(""); setScope(""); setDueDate(""); await load(); } catch (err) { showError(err); } }
   return <section className="mb-4 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
     <div className="flex items-start justify-between"><div><h3 className="text-sm font-semibold">Tender Packages</h3><p className="mt-1 text-xs text-[var(--ch-text-muted)]">Invite up to three contractors, compare quotes, and award to a Costbook line.</p></div><button onClick={() => setCreating(!creating)} className="inline-flex items-center gap-1 rounded-md bg-[var(--ch-accent)] px-3 py-2 text-xs font-semibold text-[var(--ch-accent-text)]"><Plus size={14}/>New package</button></div>
     {error && <p className="mt-3 rounded-md bg-[var(--ch-error-bg)] p-2 text-sm text-[var(--ch-error-text)]">{error}</p>}

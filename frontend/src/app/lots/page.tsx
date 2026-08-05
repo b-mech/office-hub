@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { getLots, type Lot } from "@/lib/api/costbook";
+import { TenderPackagesPanel } from "@/app/projects/components/TenderPackagesPanel";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ function LotCard({
 
 // ─── LotDetail ────────────────────────────────────────────────────────────────
 
-function LotDetail({ lot }: { lot: Lot }) {
+function LotDetail({ lot, showTendering }: { lot: Lot; showTendering: boolean }) {
   const dates = [
     { label: "Agreement", value: lot.agreement_date },
     { label: "Conditions", value: lot.condition_removal_date },
@@ -147,6 +148,19 @@ function LotDetail({ lot }: { lot: Lot }) {
         )}
         <p className="text-sm text-[var(--ch-text-muted)] mt-1">{lot.community}</p>
       </div>
+
+      {showTendering ? (
+        lot.property_id ? (
+          <TenderPackagesPanel propertyId={lot.property_id} />
+        ) : (
+          <section className="mb-8 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
+            <h2 className="text-sm font-semibold text-[var(--ch-text-primary)]">Tender Packages</h2>
+            <p className="mt-1 text-sm text-[var(--ch-text-muted)]">
+              No linked property yet — link this lot to a property to enable tendering.
+            </p>
+          </section>
+        )
+      ) : null}
 
       {/* Financing */}
       <div className="mb-8">
@@ -257,11 +271,13 @@ export function LotWorkspace({
   loadingText,
   emptyText,
   loadLots,
+  showTendering = false,
 }: {
   title: string;
   loadingText: string;
   emptyText: string;
   loadLots: () => Promise<Lot[]>;
+  showTendering?: boolean;
 }) {
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -379,7 +395,7 @@ export function LotWorkspace({
       {/* Right panel */}
       <div className="flex-1 overflow-hidden">
         {selected ? (
-          <LotDetail lot={selected} />
+          <LotDetail lot={selected} showTendering={showTendering} />
         ) : (
           <div className="h-full flex items-center justify-center text-[var(--ch-text-muted)] text-sm">
             Select a lot to view details

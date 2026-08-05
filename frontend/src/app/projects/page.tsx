@@ -10,6 +10,7 @@ export default function ProjectsPage() {
       loadingText="Loading projects..."
       emptyText="No projects found"
       loadLots={getProjects}
+      showTendering
     />
   );
 }
