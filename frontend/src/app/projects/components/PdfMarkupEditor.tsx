@@ -82,9 +82,20 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
       const base = page.getViewport({ scale: 1 });
       const viewport = page.getViewport({ scale: Math.min(1.5, 1000 / base.width) });
       const pdfCanvas = pdfCanvasRef.current;
-      pdfCanvas.width = viewport.width; pdfCanvas.height = viewport.height;
+      // Render enough backing pixels for the editor's maximum 200% zoom while
+      // keeping CSS/Fabric coordinates in the stable logical viewport.
+      const outputScale = Math.min((window.devicePixelRatio || 1) * 2, 4);
+      pdfCanvas.width = Math.floor(viewport.width * outputScale);
+      pdfCanvas.height = Math.floor(viewport.height * outputScale);
+      pdfCanvas.style.width = `${viewport.width}px`;
+      pdfCanvas.style.height = `${viewport.height}px`;
       setPageSize({ width: viewport.width, height: viewport.height });
-      await page.render({ canvas: pdfCanvas, canvasContext: pdfCanvas.getContext("2d")!, viewport }).promise;
+      await page.render({
+        canvas: pdfCanvas,
+        canvasContext: pdfCanvas.getContext("2d")!,
+        viewport,
+        transform: [outputScale, 0, 0, outputScale, 0, 0],
+      }).promise;
       if (cancelled) return;
       const canvas = new Canvas(markupCanvasRef.current, { width: viewport.width, height: viewport.height, selection: true });
       fabricRef.current = canvas;
