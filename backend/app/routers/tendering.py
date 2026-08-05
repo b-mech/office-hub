@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.tendering import TenderDocument
+from app.models.tendering import TenderDocumentMarkup
 from app.models.tendering import TenderBidDocument
 from app.schemas.tendering import CategoryOut
 from app.schemas.tendering import ContractorCreate
@@ -22,11 +23,15 @@ from app.schemas.tendering import ContractorOut
 from app.schemas.tendering import ContractorUpdate
 from app.schemas.tendering import TenderDocumentOut
 from app.schemas.tendering import TenderDocumentType
+from app.schemas.tendering import TenderDocumentMarkupCreate
+from app.schemas.tendering import TenderDocumentMarkupOut
+from app.schemas.tendering import TenderDocumentMarkupSummary
 from app.schemas.tendering import TenderPackageCreate
 from app.schemas.tendering import TenderPackageOut
 from app.schemas.tendering import TenderPackageUpdate
 from app.schemas.tendering import TenderAwardCreate, TenderAwardOut, TenderBidCreate, TenderBidOut, TenderBidUpdate, TenderComparisonOut, PurchaseOrderSummary
 from app.services import tendering
+from app.services import tender_markups
 
 
 router = APIRouter(prefix="/api", tags=["tendering"])
@@ -152,6 +157,73 @@ async def delete_tender_document(document_id: UUID, db: AsyncSession = Depends(g
         raise HTTPException(status_code=404, detail="Tender document not found")
     await tendering.delete_tender_document(db, document)
     return Response(status_code=204)
+
+
+@router.post(
+    "/tender-documents/{document_id}/markups",
+    response_model=TenderDocumentMarkupOut,
+    status_code=201,
+)
+async def create_tender_document_markup(
+    document_id: UUID,
+    data: TenderDocumentMarkupCreate,
+    db: AsyncSession = Depends(get_db),
+) -> TenderDocumentMarkupOut:
+    document = await db.get(TenderDocument, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Tender document not found")
+    try:
+        return TenderDocumentMarkupOut.model_validate(
+            await tender_markups.create_markup(db, document, data)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/tender-documents/{document_id}/markups",
+    response_model=list[TenderDocumentMarkupSummary],
+)
+async def tender_document_markups(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[TenderDocumentMarkupSummary]:
+    if await db.get(TenderDocument, document_id) is None:
+        raise HTTPException(status_code=404, detail="Tender document not found")
+    return [
+        TenderDocumentMarkupSummary.model_validate(item)
+        for item in await tender_markups.list_markups(db, document_id)
+    ]
+
+
+@router.get(
+    "/tender-document-markups/{markup_id}",
+    response_model=TenderDocumentMarkupOut,
+)
+async def tender_document_markup(
+    markup_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> TenderDocumentMarkupOut:
+    markup = await db.get(TenderDocumentMarkup, markup_id)
+    if markup is None:
+        raise HTTPException(status_code=404, detail="Tender document markup not found")
+    return TenderDocumentMarkupOut.model_validate(markup)
+
+
+@router.get("/tender-document-markups/{markup_id}/flattened")
+async def tender_document_markup_flattened(
+    markup_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    markup = await db.get(TenderDocumentMarkup, markup_id)
+    if markup is None:
+        raise HTTPException(status_code=404, detail="Tender document markup not found")
+    content = await tender_markups.get_flattened_pdf(markup)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="tender-markup-v{markup.version_number}.pdf"'},
+    )
 
 
 @router.post("/tender-packages/{package_id}/bids", response_model=TenderBidOut, status_code=201)

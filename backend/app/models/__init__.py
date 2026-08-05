@@ -44,6 +44,7 @@ from app.models.sales import SalesDepositSchedule
 from app.models.tendering import Contractor
 from app.models.tendering import ContractorCategory
 from app.models.tendering import TenderDocument
+from app.models.tendering import TenderDocumentMarkup
 from app.models.tendering import TenderPackage
 from app.models.tendering import TenderAward
 from app.models.tendering import TenderBid
@@ -95,6 +96,7 @@ __all__ = [
     "Contractor",
     "ContractorCategory",
     "TenderDocument",
+    "TenderDocumentMarkup",
     "TenderPackage",
     "TenderAward",
     "TenderBid",

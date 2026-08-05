@@ -15,6 +15,7 @@ from app.models.financing import Property
 from app.models.tendering import Contractor
 from app.models.tendering import ContractorCategory
 from app.models.tendering import TenderDocument
+from app.models.tendering import TenderDocumentMarkup
 from app.models.tendering import TenderPackage
 from app.models.tendering import TenderAward, TenderBid, TenderBidDocument
 from app.modules.costbook import service as costbook_service
@@ -134,9 +135,20 @@ async def list_tender_documents(db: AsyncSession, package_id: UUID) -> list[Tend
 
 async def delete_tender_document(db: AsyncSession, document: TenderDocument) -> None:
     key = document.file_path
+    markup_keys = list(
+        (
+            await db.execute(
+                select(TenderDocumentMarkup.flattened_pdf_path).where(
+                    TenderDocumentMarkup.tender_document_id == document.id
+                )
+            )
+        ).scalars()
+    )
     await db.delete(document)
     await db.commit()
     await asyncio.to_thread(delete_financing_document, key=key)
+    for markup_key in markup_keys:
+        await asyncio.to_thread(delete_financing_document, key=markup_key)
 
 
 async def get_tender_document_content(document: TenderDocument) -> bytes:

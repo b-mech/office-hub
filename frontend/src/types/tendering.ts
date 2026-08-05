@@ -11,6 +11,11 @@ export interface ContractorPayload {
 export type TenderStatus = "draft" | "sent" | "bids_in" | "compared" | "awarded" | "cancelled";
 export type TenderDocumentType = "plan" | "markup" | "spec";
 export interface TenderDocument { id: string; tender_package_id: string; document_type: TenderDocumentType; file_path: string; original_filename: string; uploaded_at: string }
+export interface TenderMarkupCalibration { pixel_distance: number; real_distance: number; unit: "in" | "ft" | "mm" | "cm" | "m" }
+export interface TenderDocumentMarkupSummary { id: string; tender_document_id: string; version_number: number; calibration?: TenderMarkupCalibration | null; created_at: string }
+export interface TenderDocumentMarkup extends TenderDocumentMarkupSummary { annotation_data: MarkupDocumentState; flattened_pdf_path: string }
+export interface MarkupPageState { width: number; height: number; objects: Record<string, unknown>[] }
+export interface MarkupDocumentState { schema_version: 1; pages: Record<string, MarkupPageState> }
 export type TenderBidStatus = "invited" | "received" | "reviewed" | "cancelled";
 export interface TenderLineItem { description: string; amount: string }
 export interface TenderBidDocument { id: string; tender_bid_id: string; file_path: string; original_filename: string; uploaded_at: string }

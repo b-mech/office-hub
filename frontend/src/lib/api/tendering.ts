@@ -1,4 +1,4 @@
-import type { Contractor, ContractorCategory, ContractorPayload, TenderAward, TenderBid, TenderDocument, TenderDocumentType, TenderLineItem, TenderPackage, TenderStatus } from "@/types/tendering";
+import type { Contractor, ContractorCategory, ContractorPayload, MarkupDocumentState, TenderAward, TenderBid, TenderDocument, TenderDocumentMarkup, TenderDocumentMarkupSummary, TenderDocumentType, TenderLineItem, TenderMarkupCalibration, TenderPackage, TenderStatus } from "@/types/tendering";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -21,6 +21,10 @@ export const updateTenderPackage = (id: string, payload: Partial<{ category_id: 
 export function uploadTenderDocument(id: string, type: TenderDocumentType, file: File) { const body = new FormData(); body.set("document_type", type); body.set("file", file); return request<TenderDocument>(`/api/tender-packages/${id}/documents`, { method: "POST", body }); }
 export const deleteTenderDocument = (id: string) => request<void>(`/api/tender-documents/${id}`, { method: "DELETE" });
 export const tenderDocumentUrl = (id: string) => `${BASE}/api/tender-documents/${id}/content`;
+export const getTenderDocumentMarkups = (id: string) => request<TenderDocumentMarkupSummary[]>(`/api/tender-documents/${id}/markups`);
+export const getTenderDocumentMarkup = (id: string) => request<TenderDocumentMarkup>(`/api/tender-document-markups/${id}`);
+export const saveTenderDocumentMarkup = (id: string, annotationData: MarkupDocumentState, calibration: TenderMarkupCalibration | null) => request<TenderDocumentMarkup>(`/api/tender-documents/${id}/markups`, { method: "POST", body: JSON.stringify({ annotation_data: annotationData, calibration }) });
+export const tenderDocumentMarkupPdfUrl = (id: string) => `${BASE}/api/tender-document-markups/${id}/flattened`;
 export const createTenderBid = (packageId: string, contractorId: string) => request<TenderBid>(`/api/tender-packages/${packageId}/bids`, { method: "POST", body: JSON.stringify({ contractor_id: contractorId }) });
 export const getTenderBids = (packageId: string) => request<TenderBid[]>(`/api/tender-packages/${packageId}/bids`);
 export function uploadTenderBidDocument(id: string, file: File) { const body = new FormData(); body.set("file", file); return request<TenderBid>(`/api/tender-bids/${id}/documents`, { method: "POST", body }); }

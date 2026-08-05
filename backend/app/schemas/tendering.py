@@ -84,6 +84,31 @@ class TenderDocumentOut(BaseModel):
     uploaded_at: datetime
 
 
+class TenderMarkupCalibration(BaseModel):
+    pixel_distance: float = Field(gt=0)
+    real_distance: float = Field(gt=0)
+    unit: Literal["in", "ft", "mm", "cm", "m"]
+
+
+class TenderDocumentMarkupCreate(BaseModel):
+    annotation_data: dict[str, object]
+    calibration: TenderMarkupCalibration | None = None
+
+
+class TenderDocumentMarkupSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    tender_document_id: UUID
+    version_number: int
+    calibration: dict[str, object] | None = None
+    created_at: datetime
+
+
+class TenderDocumentMarkupOut(TenderDocumentMarkupSummary):
+    annotation_data: dict[str, object]
+    flattened_pdf_path: str
+
+
 class TenderBidDocumentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID

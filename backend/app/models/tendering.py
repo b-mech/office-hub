@@ -9,6 +9,7 @@ from sqlalchemy import Column
 from sqlalchemy import Date
 from sqlalchemy import DateTime
 from sqlalchemy import ForeignKey
+from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Table
 from sqlalchemy import Text
@@ -96,6 +97,27 @@ class TenderDocument(Base):
     file_path = Column(Text, nullable=False)
     original_filename = Column(Text, nullable=False)
     uploaded_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class TenderDocumentMarkup(Base):
+    __tablename__ = "tender_document_markups"
+    __table_args__ = (
+        UniqueConstraint("tender_document_id", "version_number", name="uq_tender_document_markups_version"),
+        {"schema": "documents"},
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tender_document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.tender_documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_number = Column(Integer, nullable=False)
+    annotation_data = Column(JSONB, nullable=False)
+    calibration = Column(JSONB)
+    flattened_pdf_path = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class TenderBid(Base):

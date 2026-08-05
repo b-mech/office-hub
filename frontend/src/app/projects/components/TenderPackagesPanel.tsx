@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Plus, Trash2, Upload } from "lucide-react";
+import { FilePenLine, FileText, Plus, Trash2, Upload } from "lucide-react";
 import { getBudget, getBudgets, type Budget, type BudgetLine } from "@/lib/api/costbook";
 import { awardTenderPackage, cancelTenderBid, createTenderBid, createTenderPackage, deleteTenderDocument, getContractorCategories, getContractors, getTenderPackages, tenderBidDocumentUrl, tenderDocumentUrl, updateTenderBid, updateTenderPackage, uploadTenderBidDocument, uploadTenderDocument } from "@/lib/api/tendering";
-import type { Contractor, ContractorCategory, TenderBid, TenderDocumentType, TenderLineItem, TenderPackage, TenderStatus } from "@/types/tendering";
+import type { Contractor, ContractorCategory, TenderBid, TenderDocument, TenderDocumentType, TenderLineItem, TenderPackage, TenderStatus } from "@/types/tendering";
+import { PdfMarkupEditor } from "./PdfMarkupEditor";
 
 const statuses: TenderStatus[] = ["draft", "sent", "bids_in", "compared", "awarded", "cancelled"];
 const money = (value?: string | null) => value ? new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(Number(value)) : "—";
@@ -42,8 +43,9 @@ function PackageCard({ item, reload, showError }: { item: TenderPackage; reload:
 }
 
 function PackageDocuments({ item, reload, showError }: { item: TenderPackage; reload: () => Promise<void>; showError: (e: unknown) => void }) {
+  const [markupDocument, setMarkupDocument] = useState<TenderDocument | null>(null);
   async function upload(type: TenderDocumentType, file?: File) { if (!file) return; try { await uploadTenderDocument(item.id, type, file); await reload(); } catch (e) { showError(e); } }
-  return <div className="mt-3"><div className="space-y-1">{item.documents.map(d => <div key={d.id} className="flex items-center gap-2 rounded-md bg-[var(--ch-surface-muted)] px-3 py-2 text-xs"><FileText size={14}/><a target="_blank" href={tenderDocumentUrl(d.id)} className="min-w-0 flex-1 truncate text-[var(--ch-accent)]">{d.original_filename}</a><span>{d.document_type}</span><button onClick={() => void deleteTenderDocument(d.id).then(reload).catch(showError)}><Trash2 size={14}/></button></div>)}</div><div className="mt-2 flex gap-2">{(["plan", "markup", "spec"] as TenderDocumentType[]).map(type => <label key={type} className="cursor-pointer rounded-md border border-[var(--ch-border)] px-2 py-1.5 text-xs"><Upload className="mr-1 inline" size={13}/>Add {type}<input type="file" accept="application/pdf" className="hidden" onChange={e => void upload(type, e.target.files?.[0])}/></label>)}</div></div>;
+  return <div className="mt-3"><div className="space-y-1">{item.documents.map(d => <div key={d.id} className="flex items-center gap-2 rounded-md bg-[var(--ch-surface-muted)] px-3 py-2 text-xs"><FileText size={14}/><a target="_blank" href={tenderDocumentUrl(d.id)} className="min-w-0 flex-1 truncate text-[var(--ch-accent)]">{d.original_filename}</a><span>{d.document_type}</span>{d.document_type === "plan" ? <button onClick={() => setMarkupDocument(d)} className="inline-flex items-center gap-1 rounded border border-[var(--ch-border)] px-2 py-1" title="Open PDF markup editor"><FilePenLine size={13}/>Markup</button> : null}<button onClick={() => void deleteTenderDocument(d.id).then(reload).catch(showError)}><Trash2 size={14}/></button></div>)}</div><div className="mt-2 flex gap-2">{(["plan", "markup", "spec"] as TenderDocumentType[]).map(type => <label key={type} className="cursor-pointer rounded-md border border-[var(--ch-border)] px-2 py-1.5 text-xs"><Upload className="mr-1 inline" size={13}/>Add {type}<input type="file" accept="application/pdf" className="hidden" onChange={e => void upload(type, e.target.files?.[0])}/></label>)}</div>{markupDocument ? <PdfMarkupEditor document={markupDocument} onClose={() => setMarkupDocument(null)}/> : null}</div>;
 }
 
 function BidCard({ bid, reload, showError }: { bid: TenderBid; reload: () => Promise<void>; showError: (e: unknown) => void }) {
