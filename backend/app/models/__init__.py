@@ -10,6 +10,7 @@ from app.models.core import Reminder
 from app.models.core import User
 from app.models.core import UserRole
 from app.models.financing import ConstructionStageSync
+from app.models.financing import ConstructionStageHistory
 from app.models.financing import FacilityAlias
 from app.models.financing import FacilityStatementSnapshot
 from app.models.financing import FacilityTransaction
@@ -55,6 +56,7 @@ __all__ = [
     "Contact",
     "ContactType",
     "ConstructionStageSync",
+    "ConstructionStageHistory",
     "ChangeOrder",
     "ChangeOrderLineItem",
     "DepositSchedule",

@@ -135,6 +135,22 @@ class ConstructionStageSync(Base):
     last_synced_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class ConstructionStageHistory(Base):
+    __tablename__ = "construction_stage_history"
+    __table_args__ = {"schema": "documents"}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    property_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("core.properties.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    previous_stage = Column(Text)
+    new_stage = Column(Text, nullable=False)
+    changed_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    synced_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class LenderFacilityDocument(Base):
     __tablename__ = "lender_facility_documents"
     __table_args__ = {"schema": "documents"}

@@ -51,6 +51,7 @@ from app.financing.parsers.pro_statement import parse_statement_text
 from app.services.ocr.extractor import PDFExtractor
 from app.services.financing_calculator import calculate_draw
 from app.services.document_extractor import extract_client_otp_document
+from app.services.construction_stage_history import record_stage_change
 
 
 LENDER_TYPES = ("SCU", "PRO", "STRIDE", "RSU", "CLIENT", "OTHER")
@@ -118,6 +119,12 @@ async def get_or_create_property(db: AsyncSession, address: str) -> tuple[UUID, 
 
 async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
     property_id, created = await get_or_create_property(db, row["address_raw"])
+    await record_stage_change(
+        db,
+        property_id=property_id,
+        incoming_stage=row.get("stage_clean"),
+        synced_at=datetime.now(timezone.utc),
+    )
     await db.execute(
         text(
             """

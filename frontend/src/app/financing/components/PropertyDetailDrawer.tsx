@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { getProLedger, updateFacility } from "@/lib/api/financing";
 import type { FacilityPayload, FinancingProperty, ProLedger } from "@/types/financing";
 import { ClientOtpPanel } from "./ClientOtpPanel";
+import { ConstructionStageHistory } from "./ConstructionStageHistory";
 import { DocumentUploadPanel } from "./DocumentUploadPanel";
 import { FacilityAssignmentModal } from "./FacilityAssignmentModal";
 import { FinancialOverview } from "./FinancialOverview";
@@ -102,6 +103,8 @@ export function PropertyDetailDrawer({
           <Info label="Build start" value={property.build_start || "-"} />
           <Info label="Sold / Spec" value={property.sold_or_spec || "-"} />
         </div>
+
+        <ConstructionStageHistory key={property.property_id} propertyId={property.property_id} />
 
         <FinancialOverview key={`${property.property_id}:${property.facility_id || "none"}`} property={property} onAssign={() => setAssignmentOpen(true)} />
 
