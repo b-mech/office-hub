@@ -67,6 +67,16 @@ class Settings(BaseSettings):
     docusign_base_path: str = Field(default="https://demo.docusign.net/restapi", alias="DOCUSIGN_BASE_PATH")
     docusign_test_recipient_email: str = Field(default="", alias="DOCUSIGN_TEST_RECIPIENT_EMAIL")
     docusign_test_recipient_name: str = Field(default="", alias="DOCUSIGN_TEST_RECIPIENT_NAME")
+    qbo_client_id: str = Field(default="", alias="QBO_CLIENT_ID")
+    qbo_client_secret: str = Field(default="", alias="QBO_CLIENT_SECRET")
+    qbo_redirect_uri: str = Field(default="http://localhost:8000/api/v1/change-orders/qbo/oauth/callback", alias="QBO_REDIRECT_URI")
+    qbo_environment: str = Field(default="sandbox", alias="QBO_ENVIRONMENT")
+    qbo_token_file: str = Field(default=".qbo_token.json", alias="QBO_TOKEN_FILE")
+    qbo_customer_cache_file: str = Field(default=".qbo_customer_cache.json", alias="QBO_CUSTOMER_CACHE_FILE")
+    qbo_change_order_item_id: str = Field(default="", alias="QBO_CHANGE_ORDER_ITEM_ID")
+    redis_url: str = Field(default="redis://127.0.0.1:6379/0", alias="REDIS_URL")
+    gmail_sender_email: str = Field(default="yana@connectionhomes.ca", alias="GMAIL_SENDER_EMAIL")
+    gmail_sender_app_password: str = Field(default="", alias="GMAIL_SENDER_APP_PASSWORD")
 
     @property
     def cors_origin_list(self) -> list[str]:

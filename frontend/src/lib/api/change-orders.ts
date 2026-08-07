@@ -17,7 +17,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export type PaymentMethod = "add_to_mortgage" | "due_upon_receipt";
-export type ChangeOrderStatus = "draft" | "sent" | "signed" | "complete";
+export type ChangeOrderStatus = "draft" | "awaiting_payment_link" | "sent" | "signed" | "complete";
 
 export interface ChangeOrderLineItem {
   description: string;
@@ -40,6 +40,14 @@ export interface ChangeOrder extends ChangeOrderDraft {
   id: string;
   status: ChangeOrderStatus;
   docusign_envelope_id?: string | null;
+  plooto_payment_link?: string | null;
+  plooto_status: "not_started" | "awaiting_link" | "link_received";
+  qb_invoice_id?: string | null;
+  qb_invoice_status: "not_created" | "created" | "synced_error" | "paid";
+  qb_customer_id?: string | null;
+  qb_project_id?: string | null;
+  qb_sync_error?: string | null;
+  payment_email_sent_at?: string | null;
   box_file_id?: string | null;
   box_file_url?: string | null;
   box_unfiled?: boolean;
@@ -121,6 +129,11 @@ export async function sendChangeOrderForSignature(
     body: JSON.stringify(signer || {}),
   });
 }
+
+export const prepareChangeOrderSignature = (id: string) => apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}/prepare-signature`, { method: "POST" });
+export const submitChangeOrderPaymentLink = (id: string, plootoPaymentLink: string) => apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}/payment-link`, { method: "POST", body: JSON.stringify({ plooto_payment_link: plootoPaymentLink }) });
+export const retryChangeOrderQbo = (id: string) => apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}/qbo/retry`, { method: "POST" });
+export const setChangeOrderQboMapping = (id: string, qbCustomerId: string, qbProjectId: string) => apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}/qbo/mapping`, { method: "POST", body: JSON.stringify({ qb_customer_id: qbCustomerId, qb_project_id: qbProjectId }) });
 
 export async function syncSignedChangeOrder(id: string): Promise<{
   id: string;

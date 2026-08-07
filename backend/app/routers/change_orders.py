@@ -16,6 +16,7 @@ from uuid import UUID
 from xml.etree import ElementTree
 
 from fastapi import APIRouter
+from fastapi import BackgroundTasks
 from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
@@ -33,13 +34,18 @@ from pydantic import ValidationError
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.database import AsyncSessionLocal
 from app.models.sales import ChangeOrder as ChangeOrderModel
 from app.models.sales import ChangeOrderLineItem as ChangeOrderLineItemModel
 from app.models.sales import ChangeOrderStatus
 from app.services.box import file_change_order_pdf
 from app.services.change_orders.pdf import render_change_order_pdf
 from app.services.docusign import get_signed_pdf
-from app.services.docusign import send_for_signature
+from app.services.change_order_payments import send_payment_email
+from app.services.change_order_payments import send_to_docusign
+from app.services.change_order_payments import prepare_for_signature
+from app.services.change_order_payments import save_payment_link_and_send
+from app.services import quickbooks
 from app.services.extraction.claude_provider import ClaudeProvider
 
 
@@ -93,6 +99,14 @@ class ChangeOrderOut(ChangeOrderDraft):
     gst: Decimal = Decimal("0")
     total: Decimal = Decimal("0")
     docusign_envelope_id: str | None = None
+    plooto_payment_link: str | None = None
+    plooto_status: Literal["not_started", "awaiting_link", "link_received"] = "not_started"
+    qb_invoice_id: str | None = None
+    qb_invoice_status: Literal["not_created", "created", "synced_error", "paid"] = "not_created"
+    qb_customer_id: str | None = None
+    qb_project_id: str | None = None
+    qb_sync_error: str | None = None
+    payment_email_sent_at: datetime | None = None
     box_file_id: str | None = None
     box_file_url: str | None = None
     box_unfiled: bool = False
@@ -118,6 +132,15 @@ class ChangeOrderStatusRequest(BaseModel):
 class ChangeOrderSignatureRequest(BaseModel):
     signer_email: str = ""
     signer_name: str = ""
+
+
+class PlootoLinkRequest(BaseModel):
+    plooto_payment_link: str = Field(min_length=1)
+
+
+class QboMappingRequest(BaseModel):
+    qb_customer_id: str = Field(min_length=1)
+    qb_project_id: str = Field(min_length=1)
 
 
 class ChangeOrderUpdate(BaseModel):
@@ -217,27 +240,23 @@ async def docusign_webhook(
         logger.info("No change order found for DocuSign envelope %s", envelope_id)
         return {"status": "ignored"}
 
-    signed_pdf = await asyncio.to_thread(get_signed_pdf, envelope_id)
-    if signed_pdf:
-        box_file_id, box_file_url, box_unfiled = file_change_order_pdf(
-            address=change_order.address,
-            pdf_bytes=signed_pdf,
-            signed=True,
-        )
-        if box_file_id:
-            change_order.box_file_id = box_file_id
-            change_order.box_file_url = box_file_url
-            change_order.box_unfiled = box_unfiled
-            if box_unfiled:
-                logger.warning("Signed change order %s filed to Unfiled Change Orders", change_order.id)
-            logger.info("Filed signed change order %s to Box file %s", change_order.id, box_file_id)
-        else:
-            logger.warning("Signed change order %s was not filed to Box", change_order.id)
-    else:
-        logger.warning("No signed PDF returned for DocuSign envelope %s", envelope_id)
-
     change_order.status = "signed"
     await db.commit()
+    try:
+        signed_pdf = await asyncio.to_thread(get_signed_pdf, envelope_id)
+        if signed_pdf:
+            box_file_id, box_file_url, box_unfiled = await asyncio.to_thread(file_change_order_pdf, address=change_order.address, pdf_bytes=signed_pdf, signed=True)
+            if box_file_id:
+                change_order.box_file_id, change_order.box_file_url, change_order.box_unfiled = box_file_id, box_file_url, box_unfiled
+                await db.commit()
+        else:
+            logger.warning("No signed PDF returned for DocuSign envelope %s", envelope_id)
+    except Exception:
+        logger.exception("Signed change order %s Box filing failed", change_order.id)
+    try:
+        await send_payment_email(db, change_order)
+    except Exception:
+        logger.exception("Signed change order %s payment email failed", change_order.id)
     return {"status": "ok"}
 
 
@@ -370,37 +389,12 @@ async def send_change_order_for_signature(
     db: AsyncSession = Depends(get_db),
 ) -> ChangeOrderSignatureResponse:
     change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
-    test_recipient_email = settings.docusign_test_recipient_email.strip()
-    test_recipient_name = settings.docusign_test_recipient_name.strip()
-    client_email = test_recipient_email or (change_order.customer_email or "").strip()
-    client_name = test_recipient_name or request.signer_name.strip() or change_order.client_name
-    if not client_email:
-        raise HTTPException(
-            status_code=422,
-            detail="No client email on file. Please add the client email before sending for signature.",
-        )
-    _validate_email(client_email)
-
-    pdf_bytes = render_change_order_pdf(change_order)
-    envelope_id, docusign_view_url = await asyncio.to_thread(
-        send_for_signature,
-        change_order_id=str(change_order.id),
-        address=change_order.address,
-        client_name=client_name,
-        client_email=client_email,
-        pdf_bytes=pdf_bytes,
-        co_number=change_order.co_number,
-    )
-    if not envelope_id:
-        raise HTTPException(
-            status_code=502,
-            detail="DocuSign is not configured or the request failed. Check DOCUSIGN_PRIVATE_KEY in .env",
-        )
-    del docusign_view_url
-
-    change_order.docusign_envelope_id = envelope_id
-    change_order.status = "sent"
-    await db.commit()
+    try:
+        envelope_id = await send_to_docusign(db, change_order, signer_name=request.signer_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return ChangeOrderSignatureResponse(
         id=change_order.id,
         status=change_order.status,
@@ -409,11 +403,68 @@ async def send_change_order_for_signature(
         box_file_url=change_order.box_file_url,
         box_unfiled=change_order.box_unfiled,
         message=(
-            f"Change order sent to test recipient {client_email} for signature."
-            if test_recipient_email
-            else f"Change order sent to {client_email} for signature."
+            "Change order sent to DocuSign for signature."
         ),
     )
+
+
+async def _create_qbo_invoice_background(change_order_id: UUID) -> None:
+    async with AsyncSessionLocal() as db:
+        await quickbooks.create_invoice(db, change_order_id)
+
+
+@router.post("/{change_order_id}/prepare-signature", response_model=ChangeOrderOut, dependencies=API_KEY_DEPENDENCIES)
+async def prepare_change_order_signature(change_order_id: UUID, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> ChangeOrderOut:
+    change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
+    try:
+        await prepare_for_signature(db, change_order)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    background_tasks.add_task(_create_qbo_invoice_background, change_order.id)
+    return _change_order_out(change_order)
+
+
+@router.post("/{change_order_id}/payment-link", response_model=ChangeOrderSignatureResponse, dependencies=API_KEY_DEPENDENCIES)
+async def submit_change_order_payment_link(change_order_id: UUID, request: PlootoLinkRequest, db: AsyncSession = Depends(get_db)) -> ChangeOrderSignatureResponse:
+    change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
+    try:
+        envelope_id = await save_payment_link_and_send(db, change_order, request.plooto_payment_link)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ChangeOrderSignatureResponse(id=change_order.id, status=change_order.status, docusign_envelope_id=envelope_id, box_file_id=change_order.box_file_id, box_file_url=change_order.box_file_url, box_unfiled=change_order.box_unfiled, message="Plooto link saved and change order sent to DocuSign.")
+
+
+@router.post("/{change_order_id}/qbo/retry", response_model=ChangeOrderOut, dependencies=API_KEY_DEPENDENCIES)
+async def retry_change_order_qbo(change_order_id: UUID, db: AsyncSession = Depends(get_db)) -> ChangeOrderOut:
+    change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
+    await quickbooks.retry_invoice(db, change_order)
+    return _change_order_out(change_order)
+
+
+@router.post("/{change_order_id}/qbo/mapping", response_model=ChangeOrderOut, dependencies=API_KEY_DEPENDENCIES)
+async def set_change_order_qbo_mapping(change_order_id: UUID, request: QboMappingRequest, db: AsyncSession = Depends(get_db)) -> ChangeOrderOut:
+    change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
+    await quickbooks.set_mapping_and_retry(db, change_order, request.qb_customer_id, request.qb_project_id)
+    return _change_order_out(change_order)
+
+
+@router.get("/qbo/oauth/start", dependencies=API_KEY_DEPENDENCIES)
+async def qbo_oauth_start() -> dict[str, str]:
+    try:
+        return {"auth_url": quickbooks.authorization_url()}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/qbo/oauth/callback")
+async def qbo_oauth_callback(code: str, state: str, realmId: str) -> dict[str, str]:
+    try:
+        await quickbooks.handle_callback(code, state, realmId)
+        return {"status": "connected"}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{change_order_id}/sync-signed", response_model=ChangeOrderSignatureResponse, dependencies=API_KEY_DEPENDENCIES)
@@ -451,6 +502,10 @@ async def sync_signed_change_order(
             logger.warning("Signed change order %s filed to Unfiled Change Orders", change_order.id)
     change_order.status = "signed"
     await db.commit()
+    try:
+        await send_payment_email(db, change_order)
+    except Exception:
+        logger.exception("Signed change order %s payment email failed during manual sync", change_order.id)
     return ChangeOrderSignatureResponse(
         id=change_order.id,
         status=change_order.status,
@@ -541,6 +596,14 @@ def _change_order_out(change_order: ChangeOrderModel) -> ChangeOrderOut:
         gst=change_order.gst,
         total=change_order.total,
         docusign_envelope_id=change_order.docusign_envelope_id,
+        plooto_payment_link=change_order.plooto_payment_link,
+        plooto_status=change_order.plooto_status,
+        qb_invoice_id=change_order.qb_invoice_id,
+        qb_invoice_status=change_order.qb_invoice_status,
+        qb_customer_id=change_order.qb_customer_id,
+        qb_project_id=change_order.qb_project_id,
+        qb_sync_error=change_order.qb_sync_error,
+        payment_email_sent_at=change_order.payment_email_sent_at,
         box_file_id=change_order.box_file_id,
         box_file_url=change_order.box_file_url,
         box_unfiled=change_order.box_unfiled,

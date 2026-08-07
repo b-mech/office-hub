@@ -16,6 +16,12 @@ type Stage = {
 
 const stages: Stage[] = [
   {
+    name: "AWAITING PAYMENT LINK",
+    status: "awaiting_payment_link",
+    color: "var(--ch-warning-border)",
+    description: "Create Plooto request and paste its link",
+  },
+  {
     name: "EXTRACTED",
     status: "draft",
     color: "var(--ch-status-draft-border)",
@@ -114,7 +120,7 @@ export default function PipelineView({ changeOrders, onStatusChange, onSendSigna
   }
 
   return (
-    <section className="grid min-h-[560px] gap-4 xl:grid-cols-4">
+    <section className="grid min-h-[560px] gap-4 xl:grid-cols-5">
       {stages.map((stage) => {
         const stageOrders = changeOrders.filter((order) => order.status === stage.status);
         return (
@@ -169,6 +175,10 @@ export default function PipelineView({ changeOrders, onStatusChange, onSendSigna
                           needs email
                         </span>
                       )}
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        <span className="rounded-full border border-[var(--ch-border)] px-2 py-0.5 text-[10px]">{order.status === "signed" || order.status === "complete" ? "Signed" : "Not signed"}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] ${order.qb_invoice_status === "paid" ? "border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] text-[var(--ch-success-text)]" : "border-[var(--ch-border)]"}`}>{order.qb_invoice_status === "paid" ? "Paid" : "Not paid"}</span>
+                      </div>
 
                       <div className="relative mt-1 flex justify-end">
                         <button
@@ -200,7 +210,7 @@ export default function PipelineView({ changeOrders, onStatusChange, onSendSigna
                                 Send for Signature
                               </button>
                             )}
-                            {nextStage && (
+                            {nextStage && !["draft", "awaiting_payment_link"].includes(order.status) && (
                               <button
                                 type="button"
                                 onClick={() => void handleMove(order, nextStage.status)}
@@ -210,7 +220,7 @@ export default function PipelineView({ changeOrders, onStatusChange, onSendSigna
                                 Move to {nextStage.name}
                               </button>
                             )}
-                            {previousStage && (
+                            {previousStage && order.status !== "sent" && (
                               <button
                                 type="button"
                                 onClick={() => void handleMove(order, previousStage.status)}

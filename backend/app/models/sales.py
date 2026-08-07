@@ -58,7 +58,7 @@ class PartyRole(str, Enum):
     SELLERS_REALTOR = "sellers_realtor"
 
 
-ChangeOrderStatus = Literal["draft", "sent", "signed", "complete"]
+ChangeOrderStatus = Literal["draft", "awaiting_payment_link", "sent", "signed", "complete"]
 
 
 class SalesAgreement(Base):
@@ -232,6 +232,14 @@ class ChangeOrder(Base):
         server_default=text("0"),
     )
     docusign_envelope_id: Mapped[str | None] = mapped_column(Text)
+    plooto_payment_link: Mapped[str | None] = mapped_column(Text)
+    plooto_status: Mapped[str] = mapped_column(Text, nullable=False, default="not_started", server_default=text("'not_started'"))
+    qb_invoice_id: Mapped[str | None] = mapped_column(Text)
+    qb_invoice_status: Mapped[str] = mapped_column(Text, nullable=False, default="not_created", server_default=text("'not_created'"))
+    qb_customer_id: Mapped[str | None] = mapped_column(Text)
+    qb_project_id: Mapped[str | None] = mapped_column(Text)
+    qb_sync_error: Mapped[str | None] = mapped_column(Text)
+    payment_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     box_file_id: Mapped[str | None] = mapped_column(Text)
     box_file_url: Mapped[str | None] = mapped_column(Text)
     box_unfiled: Mapped[bool] = mapped_column(
