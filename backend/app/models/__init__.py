@@ -53,6 +53,8 @@ from app.models.rentals import RentalCompany
 from app.models.rentals import RentalInspection
 from app.models.rentals import RentalInspectionPhoto
 from app.models.rentals import RentalLease
+from app.models.rentals import RentalLeaseImportBatch
+from app.models.rentals import RentalLeaseImportRow
 from app.models.rentals import RentalLeaseTenant
 from app.models.rentals import RentalProperty
 from app.models.rentals import RentalTenant
@@ -113,6 +115,8 @@ __all__ = [
     "RentalInspection",
     "RentalInspectionPhoto",
     "RentalLease",
+    "RentalLeaseImportBatch",
+    "RentalLeaseImportRow",
     "RentalLeaseTenant",
     "RentalProperty",
     "RentalTenant",

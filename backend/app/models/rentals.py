@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, SmallInteger, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -114,3 +114,33 @@ class RentalInspectionPhoto(Base):
     box_folder_path: Mapped[str | None] = mapped_column(String(500))
     caption: Mapped[str | None] = mapped_column(String(255))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class RentalLeaseImportBatch(Base):
+    __tablename__ = "rental_lease_import_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="processing")
+    total_rows: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    rows_pending: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+
+class RentalLeaseImportRow(Base):
+    __tablename__ = "rental_lease_import_rows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey("rental_lease_import_batches.id"), nullable=False)
+    source_row_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    raw_data: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    parsed_data: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    confidence: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    match_type: Mapped[str | None] = mapped_column(String(20))
+    matched_unit_id: Mapped[int | None] = mapped_column(ForeignKey("rental_units.id"))
+    suggested_action: Mapped[str | None] = mapped_column(String(20))
+    existing_lease_id: Mapped[int | None] = mapped_column(ForeignKey("rental_leases.id"))
+    review_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="needs_review")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    committed_lease_id: Mapped[int | None] = mapped_column(ForeignKey("rental_leases.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
