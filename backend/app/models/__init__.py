@@ -49,6 +49,14 @@ from app.models.tendering import TenderPackage
 from app.models.tendering import TenderAward
 from app.models.tendering import TenderBid
 from app.models.tendering import TenderBidDocument
+from app.models.rentals import RentalCompany
+from app.models.rentals import RentalInspection
+from app.models.rentals import RentalInspectionPhoto
+from app.models.rentals import RentalLease
+from app.models.rentals import RentalLeaseTenant
+from app.models.rentals import RentalProperty
+from app.models.rentals import RentalTenant
+from app.models.rentals import RentalUnit
 
 
 __all__ = [
@@ -101,6 +109,14 @@ __all__ = [
     "TenderAward",
     "TenderBid",
     "TenderBidDocument",
+    "RentalCompany",
+    "RentalInspection",
+    "RentalInspectionPhoto",
+    "RentalLease",
+    "RentalLeaseTenant",
+    "RentalProperty",
+    "RentalTenant",
+    "RentalUnit",
     "User",
     "UserRole",
 ]
