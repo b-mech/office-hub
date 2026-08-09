@@ -172,6 +172,18 @@ def upload_file(
     if client is None:
         return None, None
 
+
+def delete_file(file_id: str) -> bool:
+    client = get_box_client()
+    if client is None:
+        return False
+    try:
+        client.file(file_id).delete()
+        return True
+    except Exception as exc:
+        logger.warning("Failed to delete Box file %s: %s", file_id, exc)
+        return False
+
     try:
         folder = client.folder(folder_id)
         existing_file_id: str | None = None

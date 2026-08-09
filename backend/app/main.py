@@ -16,7 +16,7 @@ from app.routers.financing import router as financing_router
 from app.routers.facility_assignments import router as facility_assignments_router
 from app.routers.financial_summaries import router as financial_summaries_router
 from app.routers.lenders import router as lenders_router
-from app.routers.rentals import router as rentals_router
+from app.routers.rentals import inspections_router, router as rentals_router
 from app.routers.tendering import router as tendering_router
 from app.routers.users import router as users_router
 from app.core.config import settings
@@ -66,6 +66,7 @@ app.include_router(facility_assignments_router)
 app.include_router(financial_summaries_router)
 app.include_router(lenders_router)
 app.include_router(rentals_router)
+app.include_router(inspections_router)
 app.include_router(tendering_router)
 app.include_router(costbook_router)
 app.include_router(lots_router)

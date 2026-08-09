@@ -97,6 +97,7 @@ export default function RootLayout({
               >
                 Lease Import
               </Link>
+              <Link href="/rentals/inspections" className="ml-3 rounded-lg border-l border-[var(--ch-sidebar-border)] px-3 py-1.5 text-xs text-[var(--ch-sidebar-text-muted)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]">Inspections</Link>
             </nav>
             <div className="border-t border-[var(--ch-sidebar-border)] pt-3">
               <Link
