@@ -86,7 +86,7 @@ export default function RootLayout({
                 Lenders
               </Link>
               <Link
-                href="/rentals/lease-import"
+                href="/rentals"
                 className="rounded-lg px-3 py-2 text-sm text-[var(--ch-sidebar-text-secondary)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
               >
                 Rentals

@@ -28,6 +28,8 @@ class RentalProperty(Base):
     city: Mapped[str | None] = mapped_column(String(100), server_default="Winnipeg")
     property_type: Mapped[str] = mapped_column(String(30), nullable=False, server_default="residential")
     general_notes: Mapped[str | None] = mapped_column(Text)
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

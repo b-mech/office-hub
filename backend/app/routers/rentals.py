@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from io import BytesIO
 
+from datetime import date
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
+from sqlalchemy import func
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,13 +21,26 @@ router = APIRouter(prefix="/api/rentals/lease-import", tags=["rentals"])
 inspections_router = APIRouter(prefix="/api/rentals", tags=["rentals"])
 
 @inspections_router.get("/units")
-async def rental_units(q:str|None=Query(None),db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
+async def rental_units(q:str|None=Query(None),property_id:int|None=Query(None),db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
     stmt=select(RentalUnit,RentalProperty).join(RentalProperty)
     if q: stmt=stmt.where((RentalProperty.street_address.ilike(f"%{q}%"))|(RentalProperty.group_name.ilike(f"%{q}%")))
+    if property_id is not None: stmt=stmt.where(RentalProperty.id==property_id)
     rows=(await db.execute(stmt.order_by(RentalProperty.group_name,RentalProperty.street_address,RentalUnit.unit_label))).all(); result=[]
     for unit,prop in rows:
         last=await db.scalar(select(RentalInspection).where(RentalInspection.unit_id==unit.id).order_by(RentalInspection.inspection_date.desc(),RentalInspection.id.desc()).limit(1))
         result.append({"id":unit.id,"street_address":prop.street_address,"group_name":prop.group_name,"unit_label":unit.unit_label,"last_inspection":None if not last else {"id":last.id,"inspection_date":last.inspection_date,"inspection_type":last.inspection_type,"status":last.status}})
+    return result
+
+@inspections_router.get("/properties/map")
+async def property_map(db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
+    properties=list((await db.scalars(select(RentalProperty).order_by(RentalProperty.street_address))).all());result=[];today=date.today()
+    for prop in properties:
+        unit_ids=select(RentalUnit.id).where(RentalUnit.property_id==prop.id)
+        unit_count=int(await db.scalar(select(func.count()).select_from(RentalUnit).where(RentalUnit.property_id==prop.id)) or 0)
+        last=await db.scalar(select(func.max(RentalInspection.inspection_date)).where(RentalInspection.unit_id.in_(unit_ids)))
+        age=(today-last).days if last else None
+        status="never" if age is None else "current" if age<=183 else "due" if age<=365 else "overdue"
+        result.append({"property_id":prop.id,"street_address":prop.street_address,"group_name":prop.group_name,"latitude":prop.latitude,"longitude":prop.longitude,"unit_count":unit_count,"last_inspection_date":last,"inspection_status":status})
     return result
 @inspections_router.get("/units/{unit_id}/inspections",response_model=list[InspectionOut])
 async def history(unit_id:int,db:AsyncSession=Depends(get_db))->list[InspectionOut]: return [await _inspection_out(db,x) for x in (await db.scalars(select(RentalInspection).where(RentalInspection.unit_id==unit_id).order_by(RentalInspection.inspection_date.desc()))).all()]

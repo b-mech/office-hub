@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://127.0.0.1:6379/0", alias="REDIS_URL")
     gmail_sender_email: str = Field(default="yana@connectionhomes.ca", alias="GMAIL_SENDER_EMAIL")
     gmail_sender_app_password: str = Field(default="", alias="GMAIL_SENDER_APP_PASSWORD")
+    google_maps_backend_api_key: str = Field(default="", alias="GOOGLE_MAPS_BACKEND_API_KEY")
 
     @property
     def cors_origin_list(self) -> list[str]:
