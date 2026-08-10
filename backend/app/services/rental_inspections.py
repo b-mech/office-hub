@@ -26,11 +26,11 @@ async def upload_photos(db:AsyncSession,item:RentalInspection,files:list[tuple[s
     parts=["PRIVI Inspections",prop.group_name or "Ungrouped",prop.street_address,unit.unit_label or "main",item.inspection_date.isoformat()]
     folder="0"
     for part in parts:
-        folder=await asyncio.to_thread(get_or_create_subfolder,folder,part)
+        folder=await asyncio.to_thread(get_or_create_subfolder,folder,part,raise_errors=True)
         if not folder: raise RuntimeError(f"Could not create Box folder: {part}")
     created=[]
     for index,(filename,content) in enumerate(files):
-        file_id,url=await asyncio.to_thread(upload_file,folder,Path(filename).name,content,"image/jpeg")
+        file_id,url=await asyncio.to_thread(upload_file,folder,Path(filename).name,content,"image/jpeg",raise_errors=True)
         if not file_id: raise RuntimeError(f"Box upload failed for {filename}")
         photo=RentalInspectionPhoto(inspection_id=item.id,box_file_id=file_id,box_folder_path="/".join(parts),caption=captions[index] if index<len(captions) else None)
         db.add(photo); created.append(photo)

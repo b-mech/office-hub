@@ -91,8 +91,8 @@ def handle_oauth_callback(code: str, state: str) -> bool:
 
 
 def get_box_client() -> Client | None:
-    if not settings.box_configured:
-        logger.warning("Box is not configured; unfiled folder ID is missing")
+    if not settings.box_client_id or not settings.box_client_secret:
+        logger.warning("Box is not configured; client credentials are missing")
         return None
 
     tokens = _load_tokens()
@@ -114,7 +114,7 @@ def get_box_client() -> Client | None:
         return None
 
 
-def get_or_create_subfolder(parent_folder_id: str, folder_name: str) -> str | None:
+def get_or_create_subfolder(parent_folder_id: str, folder_name: str, *, raise_errors: bool = False) -> str | None:
     client = get_box_client()
     if client is None:
         return None
@@ -127,6 +127,10 @@ def get_or_create_subfolder(parent_folder_id: str, folder_name: str) -> str | No
         return str(parent.create_subfolder(folder_name).id)
     except Exception as exc:
         logger.warning("Failed to get or create Box folder %s: %s", folder_name, exc)
+        if raise_errors:
+            status = getattr(exc, "status", None)
+            code = getattr(exc, "code", None)
+            raise RuntimeError(f"Box folder error ({status or 'no status'}/{code or type(exc).__name__}): {exc}") from exc
         return None
 
 
@@ -166,23 +170,13 @@ def upload_file(
     filename: str,
     content: bytes,
     content_type: str = "application/pdf",
+    *,
+    raise_errors: bool = False,
 ) -> tuple[str | None, str | None]:
     del content_type
     client = get_box_client()
     if client is None:
         return None, None
-
-
-def delete_file(file_id: str) -> bool:
-    client = get_box_client()
-    if client is None:
-        return False
-    try:
-        client.file(file_id).delete()
-        return True
-    except Exception as exc:
-        logger.warning("Failed to delete Box file %s: %s", file_id, exc)
-        return False
 
     try:
         folder = client.folder(folder_id)
@@ -202,7 +196,23 @@ def delete_file(file_id: str) -> bool:
         return box_file_id, f"https://app.box.com/file/{box_file_id}"
     except Exception as exc:
         logger.warning("Failed to upload Box file %s: %s", filename, exc)
+        if raise_errors:
+            status = getattr(exc, "status", None)
+            code = getattr(exc, "code", None)
+            raise RuntimeError(f"Box upload error ({status or 'no status'}/{code or type(exc).__name__}): {exc}") from exc
         return None, None
+
+
+def delete_file(file_id: str) -> bool:
+    client = get_box_client()
+    if client is None:
+        return False
+    try:
+        client.file(file_id).delete()
+        return True
+    except Exception as exc:
+        logger.warning("Failed to delete Box file %s: %s", file_id, exc)
+        return False
 
 
 def file_change_order_pdf(
