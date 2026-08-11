@@ -70,7 +70,7 @@ async def delete_lender(
 ) -> Response:
     try:
         deleted = await lenders.delete_lender(db, lender_id)
-    except lenders.LinkedFacilitiesError as exc:
+    except (lenders.LinkedFacilitiesError, lenders.LinkedProgramsError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not deleted:
         raise HTTPException(status_code=404, detail="Lender not found")

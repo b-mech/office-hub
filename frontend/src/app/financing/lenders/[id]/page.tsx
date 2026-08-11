@@ -6,8 +6,11 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Building2, Trash2 } from "lucide-react";
 
 import { deleteLender, getLender, updateLender } from "@/lib/api/lenders";
+import { getLenderPrograms } from "@/lib/api/program-allocations";
 import type { LenderDetail, LenderPayload } from "@/types/lenders";
+import type { ProgramDetail } from "@/types/program-allocations";
 import { LenderForm } from "../LenderForm";
+import { ProgramCapacityPanel } from "../ProgramCapacityPanel";
 
 
 export default function LenderDetailPage() {
@@ -18,6 +21,9 @@ export default function LenderDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [programs, setPrograms] = useState<ProgramDetail[]>([]);
+  const [programsLoading, setProgramsLoading] = useState(true);
+  const [programsError, setProgramsError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -36,6 +42,23 @@ export default function LenderDetailPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    let active = true;
+    getLenderPrograms(id)
+      .then((result) => {
+        if (active) setPrograms(result);
+      })
+      .catch((loadError) => {
+        if (active) setProgramsError(loadError instanceof Error ? loadError.message : "Could not load lender programs.");
+      })
+      .finally(() => {
+        if (active) setProgramsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
   async function save(payload: LenderPayload) {
     const updated = await updateLender(id, payload);
     setLender(updated);
@@ -43,7 +66,7 @@ export default function LenderDetailPage() {
   }
 
   async function remove() {
-    if (!lender || lender.facilities.length > 0) return;
+    if (!lender || lender.facilities.length > 0 || programs.length > 0) return;
     if (!window.confirm(`Delete ${lender.name}? This cannot be undone.`)) return;
     setDeleting(true);
     setError(null);
@@ -66,6 +89,8 @@ export default function LenderDetailPage() {
 
   const deleteDisabledReason = lender.facilities.length > 0
     ? `Cannot delete while ${lender.facilities.length} linked facilit${lender.facilities.length === 1 ? "y exists" : "ies exist"}.`
+    : programs.length > 0
+      ? `Cannot delete while ${programs.length} lender program${programs.length === 1 ? " exists" : "s exist"}.`
     : null;
 
   return (
@@ -139,6 +164,8 @@ export default function LenderDetailPage() {
             </div>
           )}
         </section>
+
+        <ProgramCapacityPanel programs={programs} loading={programsLoading} error={programsError} />
 
         <section className="rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-surface)] p-5">
           <h2 className="font-semibold">Delete lender</h2>

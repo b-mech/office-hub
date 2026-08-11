@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 import app.models  # noqa: F401
+import app.models.program_allocations  # noqa: F401
 from app.core.config import settings
 from app.core.database import Base
 

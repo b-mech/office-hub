@@ -27,6 +27,15 @@ class LinkedFacilitiesError(ValueError):
         )
 
 
+class LinkedProgramsError(ValueError):
+    def __init__(self, count: int) -> None:
+        self.count = count
+        super().__init__(
+            f"This lender cannot be deleted because {count} "
+            f"linked program{' exists' if count == 1 else 's exist'}."
+        )
+
+
 async def list_lenders(db: AsyncSession) -> list[LenderListItem]:
     rows = (
         await db.execute(
@@ -180,6 +189,14 @@ async def delete_lender(db: AsyncSession, lender_id: UUID) -> bool:
     ).scalar_one()
     if linked_count:
         raise LinkedFacilitiesError(linked_count)
+    program_count = (
+        await db.execute(
+            text("SELECT count(*) FROM financing.lender_programs WHERE lender_id = :lender_id"),
+            {"lender_id": lender_id},
+        )
+    ).scalar_one()
+    if program_count:
+        raise LinkedProgramsError(program_count)
     deleted = (
         await db.execute(
             text("DELETE FROM core.lenders WHERE id = :lender_id RETURNING id"),
