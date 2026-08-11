@@ -66,6 +66,17 @@ class LotTriggerType(str, Enum):
     SHOWHOME = "showhome"
 
 
+class DevelopmentType(str, Enum):
+    MUNICIPALITY = "municipality"
+    COMMUNITY = "community"
+    SUBDIVISION = "subdivision"
+
+
+class LegalDescriptionVerificationStatus(str, Enum):
+    TITLE_CONFIRMED = "title_confirmed"
+    PERMIT_AGREEMENT_CONFIRMED = "permit_agreement_confirmed"
+
+
 class Org(Base):
     __tablename__ = "orgs"
     __table_args__ = {"schema": "core"}
@@ -158,7 +169,6 @@ class Contact(Base):
 
 class Development(Base):
     __tablename__ = "developments"
-    __table_args__ = {"schema": "core"}
 
     id: Mapped[UUID] = _uuid_pk()
     org_id: Mapped[UUID] = mapped_column(
@@ -170,7 +180,23 @@ class Development(Base):
         PGUUID(as_uuid=True),
         ForeignKey("core.contacts.id"),
     )
+    parent_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("core.developments.id", ondelete="RESTRICT"),
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    development_type: Mapped[DevelopmentType] = mapped_column(
+        SqlEnum(
+            DevelopmentType,
+            name="development_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=_enum_values,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
     municipality: Mapped[str | None] = mapped_column(Text)
     province: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
@@ -184,6 +210,19 @@ class Development(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+    __table_args__ = (
+        Index("idx_core_developments_parent_id", "parent_id"),
+        Index(
+            "uq_core_developments_sibling_name",
+            "org_id",
+            "parent_id",
+            "name_normalized",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
+        {"schema": "core"},
     )
 
 
@@ -236,6 +275,18 @@ class Lot(Base):
     lot_number: Mapped[str | None] = mapped_column(Text)
     block: Mapped[str | None] = mapped_column(Text)
     plan: Mapped[str | None] = mapped_column(Text)
+    legal_description_verification_status: Mapped[LegalDescriptionVerificationStatus | None] = mapped_column(
+        SqlEnum(
+            LegalDescriptionVerificationStatus,
+            name="legal_description_verification_status",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=_enum_values,
+            validate_strings=True,
+        )
+    )
+    legal_description_source: Mapped[str | None] = mapped_column(Text)
+    legal_description_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[LotStatus] = mapped_column(
         SqlEnum(
             LotStatus,

@@ -2,6 +2,8 @@ from app.models.core import AuditLog
 from app.models.core import Contact
 from app.models.core import ContactType
 from app.models.core import Development
+from app.models.core import DevelopmentType
+from app.models.core import LegalDescriptionVerificationStatus
 from app.models.core import Lot
 from app.models.core import LotStatus
 from app.models.core import LotTriggerType
@@ -72,6 +74,7 @@ __all__ = [
     "ChangeOrderLineItem",
     "DepositSchedule",
     "Development",
+    "DevelopmentType",
     "DocType",
     "Document",
     "DocumentStatus",
@@ -81,6 +84,7 @@ __all__ = [
     "FacilityTransaction",
     "Ingestion",
     "Lot",
+    "LegalDescriptionVerificationStatus",
     "LotStatus",
     "LotTriggerType",
     "LotTerms",

@@ -39,6 +39,7 @@ from app.models.sales import PartyRole
 from app.models.sales import SalesAgreement
 from app.models.sales import SalesAgreementStatus
 from app.models.sales import SalesDepositSchedule
+from app.services.developments import DevelopmentService
 
 
 @dataclass(slots=True)
@@ -300,16 +301,23 @@ class PromotionService:
         source_document_id: UUID | None = None,
         review_id: UUID | None = None,
     ) -> UUID:
-        normalized_name = self._normalize_text(name)
-        if not normalized_name:
+        if not self._normalize_text(name):
             raise ValueError("Development name is required for promotion")
+        if not self._normalize_text(municipality):
+            raise ValueError("Municipality is required for promotion")
+        if self._org_id is None:
+            raise ValueError("Organization context is not available for development upsert")
 
-        existing = await self.db.scalar(
-            select(Development).where(func.lower(func.trim(Development.name)) == normalized_name)
+        resolution = await DevelopmentService(self.db).resolve_for_promotion(
+            org_id=self._org_id,
+            development_name=name,
+            municipality_name=municipality,
+            developer_contact_id=developer_contact_id,
         )
-        if existing is not None:
+        development = resolution.development
+        if not resolution.created:
             await self._apply_development_guidelines(
-                development=existing,
+                development=development,
                 development_guidelines=development_guidelines,
                 source_document_id=source_document_id,
                 review_id=review_id,
@@ -317,34 +325,24 @@ class PromotionService:
             await self._write_audit_log(
                 schema_name="core",
                 table_name="developments",
-                record_id=existing.id,
+                record_id=development.id,
                 action="MATCHED_EXISTING",
-                new_data={"name": existing.name},
+                new_data={"name": development.name, "parent_id": str(development.parent_id)},
             )
-            return existing.id
+            return development.id
 
-        if self._org_id is None:
-            raise ValueError("Organization context is not available for development upsert")
-
-        development = Development(
-            org_id=self._org_id,
-            developer_contact_id=developer_contact_id,
-            name=name,
-            municipality=municipality or None,
-            metadata_=self._build_development_metadata(
-                development_guidelines=development_guidelines,
-                source_document_id=source_document_id,
-                review_id=review_id,
-            ),
+        await self._apply_development_guidelines(
+            development=development,
+            development_guidelines=development_guidelines,
+            source_document_id=source_document_id,
+            review_id=review_id,
         )
-        self.db.add(development)
-        await self.db.flush()
         await self._write_audit_log(
             schema_name="core",
             table_name="developments",
             record_id=development.id,
             action="INSERT",
-            new_data={"name": development.name},
+            new_data={"name": development.name, "parent_id": str(development.parent_id)},
         )
         return development.id
 
@@ -543,32 +541,22 @@ class PromotionService:
     async def _upsert_sale_development(self, agreement: dict[str, Any]) -> UUID:
         civic_address = self._as_text(agreement.get("civic_address"))
         development_name = self._extract_development_name(civic_address)
-        normalized_name = self._normalize_text(development_name)
-        existing = await self.db.scalar(
-            select(Development).where(func.lower(func.trim(Development.name)) == normalized_name)
+        if self._org_id is None:
+            raise ValueError("Organization context is not available for development upsert")
+        resolution = await DevelopmentService(self.db).resolve_municipality(
+            org_id=self._org_id,
+            name=development_name,
         )
-        if existing is not None:
+        development = resolution.development
+        if not resolution.created:
             await self._write_audit_log(
                 schema_name="core",
                 table_name="developments",
-                record_id=existing.id,
+                record_id=development.id,
                 action="MATCHED_EXISTING",
-                new_data={"name": existing.name},
+                new_data={"name": development.name},
             )
-            return existing.id
-
-        if self._org_id is None:
-            raise ValueError("Organization context is not available for development upsert")
-
-        development = Development(
-            org_id=self._org_id,
-            developer_contact_id=None,
-            name=development_name,
-            municipality=development_name,
-            province=None,
-        )
-        self.db.add(development)
-        await self.db.flush()
+            return development.id
         await self._write_audit_log(
             schema_name="core",
             table_name="developments",
