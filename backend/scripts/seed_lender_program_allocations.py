@@ -32,12 +32,12 @@ class SeedRequest:
 
 
 REQUESTS = (
-    SeedRequest("22 Oak Meadow", "Lot/Land", Decimal("107900"), Decimal("86320"), Decimal("84000"), "approved", "lot_purchase_price"),
-    SeedRequest("24 Oak Meadow", "Lot/Land", Decimal("108900"), Decimal("87120"), Decimal("84000"), "approved", "lot_purchase_price"),
-    SeedRequest("27 MG", "Spec", Decimal("562374"), Decimal("449899"), None, "requested", "appraisal"),
+    SeedRequest("22 Oak Meadow Drive", "Lot/Land", Decimal("107900"), Decimal("86320"), Decimal("84000"), "approved", "lot_purchase_price"),
+    SeedRequest("24 Oak Meadow Drive", "Lot/Land", Decimal("108900"), Decimal("87120"), Decimal("84000"), "approved", "lot_purchase_price"),
+    SeedRequest("27 Morning Glory Way", "Spec", Decimal("562374"), Decimal("449899"), None, "requested", "appraisal"),
     SeedRequest("245 Blossom Way", "Spec", Decimal("576694"), Decimal("461355"), None, "requested", "appraisal"),
-    SeedRequest("256 Middle Church", "Spec", Decimal("576694"), Decimal("461355"), None, "requested", "appraisal"),
-    SeedRequest("187 Middle Church", "Spec", Decimal("710997"), Decimal("568798"), None, "requested", "appraisal"),
+    SeedRequest("256 Middlechurch Gate", "Spec", Decimal("576694"), Decimal("461355"), None, "requested", "appraisal"),
+    SeedRequest("187 Middlechurch Gate", "Spec", Decimal("710997"), Decimal("568798"), None, "requested", "appraisal"),
     SeedRequest("87 Grove Crescent", "Spec", Decimal("1100000"), Decimal("880000"), None, "requested", "appraisal"),
     SeedRequest("14 Grove Crescent", "Spec", Decimal("1300000"), Decimal("1040000"), None, "requested", "appraisal"),
 )
