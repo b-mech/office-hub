@@ -2,6 +2,7 @@ import type {
   ClientDrawRequest,
   ClientDrawSchedule,
   ClientPrepDrawPackage,
+  ConstructionMilestone,
   FacilityPayload,
   FacilityAssignmentPayload,
   FacilityRecord,
@@ -11,6 +12,7 @@ import type {
   LenderStatement,
   LenderStatementDetail,
   ProFacility,
+  ProDrawRequest,
   ProLedger,
   UploadResponse,
 } from "@/types/financing";
@@ -61,6 +63,58 @@ export function getFinancingProperty(id: string): Promise<FinancingProperty> {
   return apiFetch<FinancingProperty>(`/api/v1/financing/properties/${id}`);
 }
 
+export function getProDrawRequests(propertyId?: string): Promise<ProDrawRequest[]> {
+  const query = propertyId ? `?property_id=${propertyId}` : "";
+  return apiFetch<ProDrawRequest[]>(`/api/v1/financing/pro-draw-requests${query}`);
+}
+
+export function createProDrawRequest(
+  propertyId: string,
+  amount?: string | number | null,
+): Promise<ProDrawRequest> {
+  return apiFetch<ProDrawRequest>(`/api/v1/financing/properties/${propertyId}/pro-draw-requests`, {
+    method: "POST",
+    body: JSON.stringify({ amount: amount ?? null }),
+  });
+}
+
+export function createProDrawRequestBatch(propertyIds: string[]): Promise<ProDrawRequest[]> {
+  return apiFetch<ProDrawRequest[]>("/api/v1/financing/pro-draw-requests/batch", {
+    method: "POST",
+    body: JSON.stringify({ property_ids: propertyIds }),
+  });
+}
+
+export function updateProDrawRequest(
+  requestId: string,
+  status: string,
+): Promise<ProDrawRequest> {
+  return apiFetch<ProDrawRequest>(`/api/v1/financing/pro-draw-requests/${requestId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function updateProDrawRequestBatch(
+  batchId: string,
+  status: string,
+): Promise<ProDrawRequest[]> {
+  return apiFetch<ProDrawRequest[]>(`/api/v1/financing/pro-draw-request-batches/${batchId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function updateConstructionMilestone(
+  id: string,
+  payload: { achieved_on: string; note?: string | null },
+): Promise<ConstructionMilestone> {
+  return apiFetch<ConstructionMilestone>(`/api/v1/financing/milestones/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getClientOtpSchedule(propertyId: string): Promise<ClientDrawSchedule | null> {
   return apiFetch<ClientDrawSchedule | null>(`/api/v1/financing/properties/${propertyId}/otp`);
 }
@@ -80,6 +134,15 @@ export function reviewClientOtp(scheduleId: string, values: {
   extraction_notes?: string | null;
 }): Promise<ClientDrawSchedule> {
   return apiFetch<ClientDrawSchedule>(`/api/v1/financing/otp/${scheduleId}/review`, { method: "PATCH", body: JSON.stringify(values) });
+}
+
+export function prepareOfficialOtpReview(
+  scheduleId: string,
+): Promise<{ document_id: string }> {
+  return apiFetch<{ document_id: string }>(
+    `/api/v1/financing/otp/${scheduleId}/prepare-official-review`,
+    { method: "POST" },
+  );
 }
 
 export function prepClientDraw(propertyId: string): Promise<ClientPrepDrawPackage> {
@@ -153,6 +216,33 @@ export function getLenderStatements(lender?: string): Promise<LenderStatement[]>
 
 export function getLenderStatement(id: string): Promise<LenderStatementDetail> {
   return apiFetch<LenderStatementDetail>(`/api/v1/financing/statements/${id}`);
+}
+
+export function retryLenderStatement(id: string): Promise<LenderStatementDetail> {
+  return apiFetch<LenderStatementDetail>(
+    `/api/v1/financing/statements/${id}/retry`,
+    { method: "POST" },
+  );
+}
+
+export function createManualStatementSnapshot(
+  statementId: string,
+  payload: {
+    facility_id: string;
+    reported_period_end_date: string;
+    reported_period_end_balance: string;
+    draws: Array<{
+      txn_date: string;
+      amount: string;
+      reference?: string | null;
+    }>;
+    note?: string | null;
+  },
+): Promise<LenderStatementDetail> {
+  return apiFetch<LenderStatementDetail>(
+    `/api/v1/financing/statements/${statementId}/manual-snapshots`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
 }
 
 export function approveStatementDraws(snapshotId: string): Promise<FacilityStatementSnapshot> {

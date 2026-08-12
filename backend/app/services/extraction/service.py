@@ -7,7 +7,7 @@ from app.services.extraction.claude_provider import ClaudeProvider
 from app.services.extraction.openai_provider import OpenAIProvider
 
 
-VERSION = "v2"
+VERSION = "v3"
 
 
 class ExtractionService:

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { AlertTriangle, Columns, LayoutList, MoreVertical, RefreshCw } from "lucide-react";
 
 import PipelineView from "@/app/projects/change-orders/PipelineView";
@@ -74,7 +73,6 @@ function StatusPill({ status }: { status: string }) {
 type ViewMode = "list" | "pipeline";
 
 export default function ProjectChangeOrdersPage() {
-  const router = useRouter();
   const [changeOrders, setChangeOrders] = useState<ChangeOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +85,15 @@ export default function ProjectChangeOrdersPage() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [paymentOrder, setPaymentOrder] = useState<ChangeOrder | null>(null);
   const [paymentLink, setPaymentLink] = useState("");
+  const sentOrderIds = useMemo(
+    () => changeOrders
+      .filter((order) => order.status === "sent" && order.docusign_envelope_id)
+      .map((order) => order.id)
+      .sort()
+      .join(","),
+    [changeOrders],
+  );
+
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       const params = new URLSearchParams(window.location.search);
@@ -112,8 +119,66 @@ export default function ProjectChangeOrdersPage() {
   }, [includeArchived]);
 
   useEffect(() => {
+    if (!sentOrderIds) return;
+    const orderIds = sentOrderIds.split(",");
+    let cancelled = false;
+    let syncing = false;
+
+    async function syncSentOrders() {
+      if (syncing || document.visibilityState === "hidden") return;
+      syncing = true;
+      try {
+        const results = await Promise.allSettled(
+          orderIds.map((orderId) => syncSignedChangeOrder(orderId)),
+        );
+        if (cancelled) return;
+
+        const signedResults = new Map(
+          results.flatMap((result, index) =>
+            result.status === "fulfilled" && result.value.status === "signed"
+              ? [[orderIds[index], result.value] as const]
+              : [],
+          ),
+        );
+        if (signedResults.size === 0) return;
+
+        setChangeOrders((current) =>
+          current.map((order) => {
+            const result = signedResults.get(order.id);
+            return result
+              ? {
+                  ...order,
+                  status: "signed",
+                  box_file_id: result.box_file_id ?? order.box_file_id,
+                  box_file_url: result.box_file_url ?? order.box_file_url,
+                  box_unfiled: result.box_unfiled ?? order.box_unfiled,
+                }
+              : order;
+          }),
+        );
+        setActionMessage("Signed change order status updated from DocuSign.");
+      } finally {
+        syncing = false;
+      }
+    }
+
+    void syncSentOrders();
+    const intervalId = window.setInterval(() => void syncSentOrders(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [sentOrderIds]);
+
+  useEffect(() => {
     if (!openMenuId) return;
-    function closeMenu() {
+    function closeMenu(event: MouseEvent) {
+      if (
+        event.target instanceof Element
+        && event.target.closest("[data-change-order-menu]")
+      ) {
+        return;
+      }
       setOpenMenuId(null);
     }
     document.addEventListener("mousedown", closeMenu);
@@ -232,11 +297,6 @@ export default function ProjectChangeOrdersPage() {
     } finally {
       setBusyOrderId(null);
     }
-  }
-
-  function handleEdit(order: ChangeOrder) {
-    setOpenMenuId(null);
-    router.push(`/change-orders/${order.id}/edit`);
   }
 
   async function handleDelete(order: ChangeOrder) {
@@ -453,7 +513,7 @@ export default function ProjectChangeOrdersPage() {
                         />
                       </span>
                     )}
-                    <div className="relative" onMouseDown={(event) => event.stopPropagation()}>
+                    <div className="relative" data-change-order-menu>
                       <button
                         type="button"
                         onClick={() => setOpenMenuId((current) => (current === order.id ? null : order.id))}
@@ -466,13 +526,12 @@ export default function ProjectChangeOrdersPage() {
                         <div className="absolute right-0 top-full z-10 mt-1 min-w-[160px] rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] py-1 shadow-lg">
                           {order.status === "draft" && (
                             <>
-                              <button
-                                type="button"
-                                onClick={() => handleEdit(order)}
+                              <a
+                                href={`/change-orders/${order.id}/edit`}
                                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-[var(--ch-text-primary)] hover:bg-[var(--ch-page-bg)] disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Edit
-                              </button>
+                              </a>
                               <button
                                 type="button"
                                 onClick={() => void handleDelete(order)}

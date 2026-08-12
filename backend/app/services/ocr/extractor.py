@@ -61,6 +61,21 @@ class PDFExtractor:
             tesseract_result = self._extract_page_tesseract(page_number=page_number, page=page)
             if tesseract_result.text.strip():
                 return tesseract_result
+        elif self._should_supplement_with_image_ocr(plumber_result.text):
+            # Fillable OTP PDFs often expose the printed form through pdfplumber while
+            # handwritten payment amounts exist only in the rendered page image.
+            image_result = self._extract_page_tesseract(page_number=page_number, page=page)
+            if image_result.text.strip():
+                return PageResult(
+                    page_number=page_number,
+                    text=(
+                        f"{plumber_result.text}\n\n"
+                        "IMAGE OCR SUPPLEMENT (use for handwritten entries)\n"
+                        f"{image_result.text}"
+                    ),
+                    confidence=min(plumber_result.confidence, image_result.confidence),
+                    method="tesseract",
+                )
         return plumber_result
 
     def _extract_page_pdfplumber(
@@ -163,6 +178,20 @@ class PDFExtractor:
             plumber_result.confidence < 0.5
             or not plumber_result.text.strip()
             or self._is_low_signal_pdf_text(plumber_result.text)
+        )
+
+    def _should_supplement_with_image_ocr(self, text: str) -> bool:
+        normalized = " ".join(text.lower().split())
+        payment_signals = (
+            "deposit",
+            "basement stage",
+            "roof stage",
+            "drywall stage",
+            "possession date",
+        )
+        return (
+            ("payments" in normalized or "purchase price paid as follows" in normalized)
+            and sum(signal in normalized for signal in payment_signals) >= 3
         )
 
     def _is_low_signal_pdf_text(self, text: str) -> bool:

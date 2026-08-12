@@ -1,7 +1,7 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const CHANGE_ORDER_API = "/api/change-orders";
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${CHANGE_ORDER_API}${path}`, {
     ...options,
     credentials: "include",
     headers: {
@@ -57,46 +57,46 @@ export interface ChangeOrder extends ChangeOrderDraft {
 }
 
 export async function extractChangeOrder(emailBody: string): Promise<ChangeOrderDraft> {
-  return apiFetch<ChangeOrderDraft>("/api/v1/change-orders/extract", {
+  return apiFetch<ChangeOrderDraft>("/extract", {
     method: "POST",
     body: JSON.stringify({ email_body: emailBody }),
   });
 }
 
 export async function saveDraft(draft: ChangeOrderDraft): Promise<{ id: string }> {
-  return apiFetch<{ id: string }>("/api/v1/change-orders/draft", {
+  return apiFetch<{ id: string }>("/draft", {
     method: "POST",
     body: JSON.stringify(draft),
   });
 }
 
 export async function getChangeOrders(includeArchived = false): Promise<ChangeOrder[]> {
-  return apiFetch<ChangeOrder[]>(`/api/v1/change-orders${includeArchived ? "?include_archived=true" : ""}`);
+  return apiFetch<ChangeOrder[]>(includeArchived ? "?include_archived=true" : "");
 }
 
 export async function getChangeOrder(id: string): Promise<ChangeOrder> {
-  return apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}`);
+  return apiFetch<ChangeOrder>(`/${id}`);
 }
 
 export async function updateChangeOrderStatus(
   id: string,
   status: ChangeOrder["status"],
 ): Promise<ChangeOrder> {
-  return apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}/status`, {
+  return apiFetch<ChangeOrder>(`/${id}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
 }
 
 export async function updateChangeOrder(id: string, draft: Partial<ChangeOrderDraft>): Promise<ChangeOrder> {
-  return apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}`, {
+  return apiFetch<ChangeOrder>(`/${id}`, {
     method: "PATCH",
     body: JSON.stringify(draft),
   });
 }
 
 export async function downloadChangeOrderPdf(id: string): Promise<Blob> {
-  const res = await fetch(`${BASE}/api/v1/change-orders/${id}/pdf`, {
+  const res = await fetch(`${CHANGE_ORDER_API}/${id}/pdf`, {
     credentials: "include",
   });
   if (!res.ok) {
@@ -107,7 +107,7 @@ export async function downloadChangeOrderPdf(id: string): Promise<Blob> {
 }
 
 export async function archiveChangeOrder(id: string): Promise<ChangeOrder> {
-  return apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}`, {
+  return apiFetch<ChangeOrder>(`/${id}`, {
     method: "DELETE",
   });
 }
@@ -124,16 +124,16 @@ export async function sendChangeOrderForSignature(
   box_unfiled?: boolean;
   message: string;
 }> {
-  return apiFetch(`/api/v1/change-orders/${id}/send-signature`, {
+  return apiFetch(`/${id}/send-signature`, {
     method: "POST",
     body: JSON.stringify(signer || {}),
   });
 }
 
-export const prepareChangeOrderSignature = (id: string) => apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}/prepare-signature`, { method: "POST" });
-export const submitChangeOrderPaymentLink = (id: string, plootoPaymentLink: string) => apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}/payment-link`, { method: "POST", body: JSON.stringify({ plooto_payment_link: plootoPaymentLink }) });
-export const retryChangeOrderQbo = (id: string) => apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}/qbo/retry`, { method: "POST" });
-export const setChangeOrderQboMapping = (id: string, qbCustomerId: string, qbProjectId: string) => apiFetch<ChangeOrder>(`/api/v1/change-orders/${id}/qbo/mapping`, { method: "POST", body: JSON.stringify({ qb_customer_id: qbCustomerId, qb_project_id: qbProjectId }) });
+export const prepareChangeOrderSignature = (id: string) => apiFetch<ChangeOrder>(`/${id}/prepare-signature`, { method: "POST" });
+export const submitChangeOrderPaymentLink = (id: string, plootoPaymentLink: string) => apiFetch<ChangeOrder>(`/${id}/payment-link`, { method: "POST", body: JSON.stringify({ plooto_payment_link: plootoPaymentLink }) });
+export const retryChangeOrderQbo = (id: string) => apiFetch<ChangeOrder>(`/${id}/qbo/retry`, { method: "POST" });
+export const setChangeOrderQboMapping = (id: string, qbCustomerId: string, qbProjectId: string) => apiFetch<ChangeOrder>(`/${id}/qbo/mapping`, { method: "POST", body: JSON.stringify({ qb_customer_id: qbCustomerId, qb_project_id: qbProjectId }) });
 
 export async function syncSignedChangeOrder(id: string): Promise<{
   id: string;
@@ -144,7 +144,7 @@ export async function syncSignedChangeOrder(id: string): Promise<{
   box_unfiled?: boolean;
   message: string;
 }> {
-  return apiFetch(`/api/v1/change-orders/${id}/sync-signed`, {
+  return apiFetch(`/${id}/sync-signed`, {
     method: "POST",
   });
 }

@@ -33,6 +33,11 @@ def delete_financing_document(*, key: str) -> None:
     _s3_client().delete_object(Bucket=FINANCING_BUCKET, Key=key)
 
 
+def get_financing_document(*, key: str) -> bytes:
+    response = _s3_client().get_object(Bucket=FINANCING_BUCKET, Key=key)
+    return response["Body"].read()
+
+
 def _s3_client():
     return boto3.client(
         "s3",

@@ -22,3 +22,15 @@ class InspectionOut(BaseModel):
     front_yard_score:int|None; front_yard_notes:str|None; back_yard_score:int|None; back_yard_notes:str|None
     building_condition:str|None; building_notes:str|None; occupancy_flag:str|None; general_notes:str|None; status:str
     photos:list[PhotoOut]=Field(default_factory=list)
+
+class ReportCreate(BaseModel):
+    title:str=Field(min_length=1,max_length=200)
+    inspection_ids:list[int]=Field(min_length=1)
+    expires_in_days:int=Field(default=7,ge=1,le=30)
+
+class ReportSend(BaseModel):
+    recipient_email:str=Field(min_length=3,max_length=255)
+    public_base_url:str=Field(min_length=1,max_length=500)
+
+class ReportNotePatch(BaseModel):
+    notes:str=Field(max_length=5000)

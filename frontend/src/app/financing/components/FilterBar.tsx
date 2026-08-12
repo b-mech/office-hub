@@ -7,6 +7,7 @@ export interface FinancingFilters {
   possessionFrom: string;
   possessionTo: string;
   search: string;
+  drawAvailableOnly: boolean;
 }
 
 const stages = ["FOUNDATION", "LOCKUP", "DRYWALL", "CABINETRY", "COMPLETED"];
@@ -27,6 +28,7 @@ export function FilterBar({
     filters.possessionFrom,
     filters.possessionTo,
     filters.search,
+    filters.drawAvailableOnly,
   ].filter(Boolean).length;
 
   return (
@@ -69,6 +71,15 @@ export function FilterBar({
         className="rounded-md border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 py-2 text-sm"
       />
       <div className="flex items-center gap-3 lg:col-span-5">
+        <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-[var(--ch-text-secondary)]">
+          <input
+            type="checkbox"
+            checked={filters.drawAvailableOnly}
+            onChange={(event) => onChange({ ...filters, drawAvailableOnly: event.target.checked })}
+            className="size-4 accent-[var(--ch-accent)]"
+          />
+          Draw available only
+        </label>
         <span className="rounded-full bg-[var(--ch-accent-soft)] px-2 py-1 text-xs font-medium text-[var(--ch-accent)]">
           {activeCount} active
         </span>

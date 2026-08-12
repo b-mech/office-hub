@@ -7,6 +7,25 @@ export interface LenderSummary {
   flagged: number;
 }
 
+export interface ConstructionMilestone {
+  id: string;
+  stage: string;
+  achieved_at: string;
+  source: string;
+  confirmed_at?: string | null;
+  confirmation_note?: string | null;
+  revisions: ConstructionMilestoneRevision[];
+}
+
+export interface ConstructionMilestoneRevision {
+  id: string;
+  previous_achieved_at: string;
+  achieved_at: string;
+  action: "confirmed" | "date_corrected" | string;
+  note?: string | null;
+  created_at: string;
+}
+
 export interface FinancingProperty {
   property_id: string;
   address: string;
@@ -14,6 +33,8 @@ export interface FinancingProperty {
   sold_or_spec?: string | null;
   stage?: string | null;
   stage_is_estimate: boolean;
+  milestone_achieved_at?: string | null;
+  milestone_history: ConstructionMilestone[];
   possession_date?: string | null;
   build_start?: string | null;
   client_name?: string | null;
@@ -34,6 +55,7 @@ export interface FinancingProperty {
   account_type?: string | null;
   current_balance?: string | number | null;
   outstanding_balance?: string | number | null;
+  accrued_interest?: string | number | null;
   account_currency?: string | null;
   maturity_date?: string | null;
   member_number?: string | null;
@@ -54,6 +76,31 @@ export interface FinancingProperty {
   flag: DrawFlag;
   formula: string;
   facility_id?: string | null;
+}
+
+export interface ProDrawRequest {
+  id: string;
+  batch_id: string;
+  property_id: string;
+  property_address?: string | null;
+  facility_id?: string | null;
+  amount: string | number;
+  stage?: string | null;
+  status: "prepared" | "sent" | "acknowledged" | "lawyer_processing" | "funded" | "closed" | "cancelled" | string;
+  initial_recipient: string;
+  intermediary_email: string;
+  email_subject: string;
+  email_body: string;
+  last_email_at?: string | null;
+  last_email_from?: string | null;
+  sent_at?: string | null;
+  acknowledged_at?: string | null;
+  lawyer_processing_at?: string | null;
+  funded_at?: string | null;
+  closed_at?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ClientDrawSchedule {

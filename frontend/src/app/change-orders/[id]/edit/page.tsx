@@ -1,18 +1,21 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 
 import { ChangeOrderForm } from "@/app/change-orders/new/page";
 import { getChangeOrder, type ChangeOrderDraft } from "@/lib/api/change-orders";
 
 
-export default function EditChangeOrderPage({ params }: { params: { id: string } }) {
+export default function EditChangeOrderPage() {
+  const params = useParams<{ id: string }>();
+  const changeOrderId = params.id;
   const [draft, setDraft] = useState<ChangeOrderDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    getChangeOrder(params.id)
+    getChangeOrder(changeOrderId)
       .then((order) => {
         if (!active) return;
         setDraft({
@@ -32,7 +35,7 @@ export default function EditChangeOrderPage({ params }: { params: { id: string }
     return () => {
       active = false;
     };
-  }, [params.id]);
+  }, [changeOrderId]);
 
   if (error) {
     return (
@@ -54,7 +57,7 @@ export default function EditChangeOrderPage({ params }: { params: { id: string }
 
   return (
     <Suspense fallback={null}>
-      <ChangeOrderForm changeOrderId={params.id} initialDraft={draft} />
+      <ChangeOrderForm changeOrderId={changeOrderId} initialDraft={draft} />
     </Suspense>
   );
 }

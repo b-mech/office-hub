@@ -68,6 +68,11 @@ class LenderFacility(Base):
     opening_balance = Column(Numeric(12, 2))
     rate = Column(Numeric(7, 4))
     already_drawn = Column(Numeric(12, 2), nullable=False, default=0)
+    draw_eligible_override = Column(Numeric(12, 2))
+    requested_draw_amount = Column(Numeric(15, 2))
+    requested_draw_as_of = Column(Date)
+    commitment_source = Column(Text)
+    commitment_confirmed_at = Column(DateTime(timezone=True))
     last_draw_date = Column(Date)
     last_draw_amount = Column(Numeric(12, 2))
     account_number = Column(String(50))
@@ -149,6 +154,51 @@ class ConstructionStageHistory(Base):
     new_stage = Column(Text, nullable=False)
     changed_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     synced_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ConstructionStageMilestone(Base):
+    __tablename__ = "construction_stage_milestones"
+    __table_args__ = (
+        UniqueConstraint(
+            "property_id",
+            "stage",
+            "achieved_at",
+            name="uq_construction_stage_milestones_event",
+        ),
+        {"schema": "documents"},
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    property_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("core.properties.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    stage = Column(String(50), nullable=False)
+    achieved_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    source = Column(String(30), nullable=False, server_default="sheet_sync")
+    confirmed_at = Column(DateTime(timezone=True))
+    confirmation_note = Column(Text)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ConstructionStageMilestoneRevision(Base):
+    __tablename__ = "construction_stage_milestone_revisions"
+    __table_args__ = {"schema": "documents"}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    milestone_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.construction_stage_milestones.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    previous_achieved_at = Column(DateTime(timezone=True), nullable=False)
+    achieved_at = Column(DateTime(timezone=True), nullable=False)
+    action = Column(String(30), nullable=False)
+    note = Column(Text)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class LenderFacilityDocument(Base):

@@ -46,6 +46,9 @@ export function LenderSummaryCards({
             <p className="mt-2 text-base font-semibold">
               {item.total_drawable === null ? "Review" : money.format(Number(item.total_drawable))}
             </p>
+            <p className={selected ? "text-[10px] font-medium uppercase opacity-80" : "text-[10px] font-medium uppercase text-[var(--ch-text-muted)]"}>
+              {item.total_drawable === null ? "Manual review" : "Draw now"}
+            </p>
             <p className={selected ? "text-xs opacity-80" : "text-xs text-[var(--ch-text-muted)]"}>{item.properties} properties</p>
           </button>
         );

@@ -48,6 +48,7 @@ class PromotionResult:
     document_id: UUID
     lots_created: int
     lots_matched: int
+    project_ids: list[UUID]
     agreement_id: UUID
     promoted_at: datetime
 
@@ -62,6 +63,7 @@ class PromotionService:
         self._agreement_date: date | None = None
         self._lots_created = 0
         self._lots_matched = 0
+        self._project_ids: list[UUID] = []
 
     async def promote(self, review_id: UUID) -> PromotionResult:
         row = await self.db.execute(
@@ -82,6 +84,7 @@ class PromotionService:
         self._reviewed_by = review.reviewed_by
         self._lots_created = 0
         self._lots_matched = 0
+        self._project_ids = []
 
         try:
             payload = review.reviewed_payload
@@ -126,6 +129,7 @@ class PromotionService:
                 document_id=document.id,
                 lots_created=self._lots_created,
                 lots_matched=self._lots_matched,
+                project_ids=self._project_ids,
                 agreement_id=agreement_id,
                 promoted_at=promoted_at,
             )
@@ -214,6 +218,7 @@ class PromotionService:
         notable_clauses = payload.get("notable_clauses", [])
 
         lot_id = await self._match_sale_lot(agreement_payload)
+        self._project_ids = [lot_id]
         agreement_id = await self._insert_sales_agreement(
             agreement=agreement_payload,
             conditions=self._build_sales_conditions_payload(payload),
@@ -420,6 +425,8 @@ class PromotionService:
         )
         if existing is not None:
             self._lots_matched += 1
+            if existing.id not in self._project_ids:
+                self._project_ids.append(existing.id)
             await self._write_audit_log(
                 schema_name="core",
                 table_name="lots",
@@ -444,6 +451,7 @@ class PromotionService:
         self.db.add(lot_record)
         await self.db.flush()
         self._lots_created += 1
+        self._project_ids.append(lot_record.id)
         await self._write_audit_log(
             schema_name="core",
             table_name="lots",

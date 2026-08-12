@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import { Cog } from "lucide-react";
+import MobileNavigation from "./MobileNavigation";
 import "./globals.css";
 
 const USER_NAME = process.env.USER_NAME || "Nicholas";
@@ -98,6 +99,7 @@ export default function RootLayout({
                 Lease Import
               </Link>
               <Link href="/rentals/inspections" className="ml-3 rounded-lg border-l border-[var(--ch-sidebar-border)] px-3 py-1.5 text-xs text-[var(--ch-sidebar-text-muted)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]">Inspections</Link>
+              <Link href="/rentals/reports" className="ml-3 rounded-lg border-l border-[var(--ch-sidebar-border)] px-3 py-1.5 text-xs text-[var(--ch-sidebar-text-muted)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]">Inspection Reports</Link>
             </nav>
             <div className="border-t border-[var(--ch-sidebar-border)] pt-3">
               <Link
@@ -112,7 +114,10 @@ export default function RootLayout({
               </Link>
             </div>
           </aside>
-          <div className="min-w-0 flex-1">{children}</div>
+          <div className="min-w-0 flex-1">
+            <MobileNavigation />
+            {children}
+          </div>
         </div>
       </body>
     </html>

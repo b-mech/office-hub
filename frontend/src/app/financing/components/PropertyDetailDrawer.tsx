@@ -8,6 +8,8 @@ import { DocumentUploadPanel } from "./DocumentUploadPanel";
 import { FacilityAssignmentModal } from "./FacilityAssignmentModal";
 import { FinancialOverview } from "./FinancialOverview";
 import { LenderFacilityForm } from "./LenderFacilityForm";
+import { MilestoneTimeline } from "./MilestoneTimeline";
+import { ProDrawRequestPanel } from "./ProDrawRequestPanel";
 
 const money = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 });
 
@@ -98,7 +100,12 @@ export function PropertyDetailDrawer({
         </div>
 
         <div className="mb-4 grid gap-3 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4 sm:grid-cols-2">
-          <Info label="Stage" value={`${property.stage || "NA"}${property.stage_is_estimate ? " (est.)" : ""}`} />
+          <Info
+            label="Stage"
+            value={`${property.stage || "NA"}${property.stage_is_estimate ? " (est.)" : ""}${
+              property.milestone_achieved_at ? ` · ${formatShortDate(property.milestone_achieved_at)}` : ""
+            }`}
+          />
           <Info label="Possession" value={property.possession_date || "-"} />
           <Info label="Build start" value={property.build_start || "-"} />
           <Info label="Sold / Spec" value={property.sold_or_spec || "-"} />
@@ -108,6 +115,12 @@ export function PropertyDetailDrawer({
 
         <FinancialOverview key={`${property.property_id}:${property.facility_id || "none"}`} property={property} onAssign={() => setAssignmentOpen(true)} />
 
+        <MilestoneTimeline
+          currentStage={property.stage}
+          achievedAt={property.milestone_achieved_at}
+          history={property.milestone_history || []}
+          onUpdated={onUpdated}
+        />
 
         <div id="draw-details" className="mb-4 scroll-mt-4 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold">Draw Calculation</h3>
@@ -121,7 +134,20 @@ export function PropertyDetailDrawer({
           {property.lender_type === "CLIENT" ? <p className="mt-3 text-sm text-[var(--ch-text-secondary)]">CLIENT — use Prep Draw to match the reviewed OTP schedule to the current stage.</p> : null}
         </div>
 
+        {property.lender_type === "PRO" && property.commitment_source ? (
+          <div className="mb-4 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
+            <h3 className="mb-3 text-sm font-semibold">Official ProAuto Commitment</h3>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Info label="Commitment" value={property.total_facility == null ? "-" : money.format(num(property.total_facility))} strong />
+              <Info label="Schedule request" value={property.requested_draw_amount == null ? "-" : money.format(num(property.requested_draw_amount))} />
+              <Info label="Request as of" value={property.requested_draw_as_of || "Date not supplied"} />
+            </div>
+            <p className="mt-3 text-xs text-[var(--ch-text-muted)]">{property.commitment_source}</p>
+          </div>
+        ) : null}
+
         <ClientOtpPanel property={property} onUpdated={onUpdated} />
+        {property.lender_type === "PRO" ? <ProDrawRequestPanel property={property} /> : null}
 
         {property.flag === "NEEDS_LINK" && property.facility_id ? (
           <div className="mb-4 rounded-lg border border-[var(--ch-warning-border)] bg-[var(--ch-surface)] p-4">
@@ -184,8 +210,9 @@ export function PropertyDetailDrawer({
 
         <div className="mb-4 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
           <h3 className="mb-3 text-sm font-semibold">Interest Projection</h3>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-4">
             <Info label="Outstanding balance" value={property.outstanding_balance == null ? "-" : money.format(num(property.outstanding_balance))} />
+            <Info label="Accrued unpaid interest" value={property.accrued_interest == null ? "-" : money.format(num(property.accrued_interest))} strong />
             <Info label="Rate" value={property.rate == null ? "-" : `${property.rate}%`} />
             <Info label="Next payment" value={property.next_payment_date || property.next_interest_payment_date || "-"} />
             <Info label="Daily estimate" value={property.daily_interest_estimate == null ? "-" : money.format(num(property.daily_interest_estimate))} strong />
@@ -219,6 +246,13 @@ export function PropertyDetailDrawer({
       ) : null}
     </div>
   );
+}
+
+function formatShortDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "short", day: "numeric" }).format(date);
 }
 
 function Info({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {

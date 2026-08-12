@@ -3,6 +3,7 @@ import asyncio
 from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.config import settings
 from app.models.rentals import RentalInspection, RentalInspectionPhoto, RentalProperty, RentalUnit
 from app.schemas.rental_inspections import InspectionCreate, InspectionPatch
 from app.services.box import delete_file, get_or_create_subfolder, upload_file
@@ -24,7 +25,9 @@ async def upload_photos(db:AsyncSession,item:RentalInspection,files:list[tuple[s
     unit=await db.get(RentalUnit,item.unit_id); prop=await db.get(RentalProperty,unit.property_id) if unit else None
     if not unit or not prop: raise ValueError("Inspection unit/property not found")
     parts=["PRIVI Inspections",prop.group_name or "Ungrouped",prop.street_address,unit.unit_label or "main",item.inspection_date.isoformat()]
-    folder="0"
+    folder=settings.box_rental_properties_folder_id
+    if not folder:
+        raise RuntimeError("BOX_RENTAL_PROPERTIES_FOLDER_ID is not configured")
     for part in parts:
         folder=await asyncio.to_thread(get_or_create_subfolder,folder,part,raise_errors=True)
         if not folder: raise RuntimeError(f"Could not create Box folder: {part}")

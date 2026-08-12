@@ -147,7 +147,10 @@ class ChangeOrderUpdate(BaseModel):
     address: str | None = None
     client_name: str | None = None
     customer_email: str | None = None
+    co_number: str | None = None
+    date: str | None = None
     line_items: list[ChangeOrderLineItem] | None = None
+    payment_method: Literal["add_to_mortgage", "due_upon_receipt"] | None = None
     notes: str | None = None
 
 
@@ -286,18 +289,13 @@ async def update_change_order(
     db: AsyncSession = Depends(get_db),
 ) -> ChangeOrderOut:
     change_order = await _get_change_order_model(change_order_id=change_order_id, db=db)
-    if change_order.archived_at is not None:
-        raise HTTPException(status_code=409, detail="Archived change orders cannot be edited.")
-    if change_order.status in {"signed", "complete"}:
-        raise HTTPException(status_code=409, detail="Signed or complete change orders are immutable.")
-
+    refresh_box_pdf = change_order.status == "draft" and change_order.box_file_id is not None
     updates = request.model_dump(exclude_unset=True)
-    if change_order.status == "sent" and "line_items" in updates:
-        if _line_items_changed(change_order.line_items, request.line_items or []):
-            raise HTTPException(
-                status_code=409,
-                detail="Sent change orders cannot have line items or amounts edited. Void and resend instead.",
-            )
+    _ensure_change_order_editable(
+        change_order,
+        updates=updates,
+        incoming_line_items=request.line_items,
+    )
 
     if request.address is not None:
         change_order.address = request.address.strip()
@@ -308,6 +306,12 @@ async def update_change_order(
         if email:
             _validate_email(email)
         change_order.customer_email = email or None
+    if request.co_number is not None:
+        change_order.co_number = request.co_number.strip() or None
+    if request.date is not None:
+        change_order.date = _parse_date(request.date)
+    if request.payment_method is not None:
+        change_order.payment_method = request.payment_method
     if request.notes is not None:
         change_order.notes = request.notes.strip() or None
     if request.line_items is not None and change_order.status == "draft":
@@ -324,6 +328,24 @@ async def update_change_order(
             )
             for index, item in enumerate(request.line_items)
         ]
+
+    if refresh_box_pdf:
+        pdf_bytes = render_change_order_pdf(change_order)
+        box_file_id, box_file_url, box_unfiled = await asyncio.to_thread(
+            file_change_order_pdf,
+            address=change_order.address,
+            pdf_bytes=pdf_bytes,
+            signed=False,
+        )
+        if box_file_id is None:
+            await db.rollback()
+            raise HTTPException(
+                status_code=502,
+                detail="The change order could not be updated in Box. No changes were saved.",
+            )
+        change_order.box_file_id = box_file_id
+        change_order.box_file_url = box_file_url
+        change_order.box_unfiled = box_unfiled
 
     await db.commit()
     await db.refresh(change_order)
@@ -679,6 +701,27 @@ def _line_items_changed(existing: list[ChangeOrderLineItemModel], incoming: list
         for item in incoming
     ]
     return existing_values != incoming_values
+
+
+def _ensure_change_order_editable(
+    change_order: ChangeOrderModel,
+    *,
+    updates: dict[str, Any],
+    incoming_line_items: list[ChangeOrderLineItem] | None,
+) -> None:
+    if change_order.archived_at is not None:
+        raise HTTPException(status_code=409, detail="Archived change orders cannot be edited.")
+    if change_order.status in {"signed", "complete"}:
+        raise HTTPException(status_code=409, detail="Signed or complete change orders are immutable.")
+    if (
+        change_order.status == "sent"
+        and "line_items" in updates
+        and _line_items_changed(change_order.line_items, incoming_line_items or [])
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Sent change orders cannot have line items or amounts edited. Void and resend instead.",
+        )
 
 
 def _parse_date(value: str) -> date | None:

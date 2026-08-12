@@ -43,6 +43,10 @@ class Settings(BaseSettings):
         alias="BOX_REDIRECT_URI",
     )
     box_unfiled_folder_id: str = Field(default="", alias="BOX_UNFILED_FOLDER_ID")
+    box_rental_properties_folder_id: str = Field(
+        default="",
+        alias="BOX_RENTAL_PROPERTIES_FOLDER_ID",
+    )
     box_token_file: str = Field(default=".box_token.json", alias="BOX_TOKEN_FILE")
     docusign_integration_key: str = Field(
         default="f799edf4-90bc-4c55-9f66-e52ca8dcaad6",

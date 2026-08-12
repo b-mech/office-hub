@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -87,6 +87,7 @@ const lotFieldLabels: Array<[string, string]> = [
 
 const paymentScheduleFieldLabels: Array<[string, string]> = [
   ["stage", "Stage"],
+  ["percent", "Percent"],
   ["amount", "Amount"],
   ["due_date", "Due Date"],
   ["trigger", "Trigger"],
@@ -292,6 +293,7 @@ function isBlankValue(value: ReviewValue | undefined): boolean {
 
 export default function DocumentReviewPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const documentId = params.id;
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -454,6 +456,7 @@ export default function DocumentReviewPage() {
     const defaults: Record<typeof section, ReviewObject> = {
       payment_schedule: {
         stage: null,
+        percent: null,
         amount: null,
         due_date: null,
         trigger: null,
@@ -523,6 +526,11 @@ export default function DocumentReviewPage() {
       });
 
       setSuccess(response);
+      if (decision === "approved" && response.promotion) {
+        const [projectId] = response.promotion.project_ids;
+        router.push(projectId ? `/projects?project=${projectId}` : "/projects");
+        return;
+      }
       setDetail((current) =>
         current
           ? {

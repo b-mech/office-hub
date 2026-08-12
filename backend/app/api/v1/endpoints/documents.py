@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from datetime import timezone
 from typing import Any
@@ -17,6 +18,7 @@ from fastapi import Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic import Field
+from sqlalchemy import delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +41,10 @@ class ReviewCreateRequest(BaseModel):
     edited_fields: list[str] = Field(default_factory=list)
     decision: Literal["approved", "rejected", "deferred"]
     rejection_reason: str | None = None
+
+
+class DocumentBulkDeleteRequest(BaseModel):
+    document_ids: list[UUID] = Field(min_length=1, max_length=100)
 
 
 @router.get("")
@@ -78,6 +84,89 @@ async def list_documents(
         }
         for document in documents
     ]
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_documents(
+    request: DocumentBulkDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    document_ids = list(dict.fromkeys(request.document_ids))
+    result = await db.execute(select(Document).where(Document.id.in_(document_ids)))
+    documents = list(result.scalars().all())
+
+    found_ids = {document.id for document in documents}
+    missing_ids = [str(document_id) for document_id in document_ids if document_id not in found_ids]
+    if missing_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Documents not found: {', '.join(missing_ids)}",
+        )
+
+    protected = [
+        document.original_filename or str(document.id)
+        for document in documents
+        if document.status == DocumentStatus.APPROVED
+    ]
+    if protected:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Approved documents cannot be deleted because they may already be linked "
+                f"to operational data: {', '.join(protected)}"
+            ),
+        )
+
+    ingestion_ids = list(
+        (
+            await db.scalars(
+                select(Ingestion.id).where(Ingestion.document_id.in_(document_ids))
+            )
+        ).all()
+    )
+    extraction_ids = (
+        list(
+            (
+                await db.scalars(
+                    select(Extraction.id).where(Extraction.ingestion_id.in_(ingestion_ids))
+                )
+            ).all()
+        )
+        if ingestion_ids
+        else []
+    )
+
+    if extraction_ids:
+        await db.execute(delete(Review).where(Review.extraction_id.in_(extraction_ids)))
+        await db.execute(delete(Extraction).where(Extraction.id.in_(extraction_ids)))
+    if ingestion_ids:
+        await db.execute(delete(Ingestion).where(Ingestion.id.in_(ingestion_ids)))
+    await db.execute(delete(Document).where(Document.id.in_(document_ids)))
+    await db.commit()
+
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=settings.minio_url,
+        aws_access_key_id=settings.minio_root_user,
+        aws_secret_access_key=settings.minio_root_password,
+        region_name="us-east-1",
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+    storage_failures: list[str] = []
+    for document in documents:
+        try:
+            await asyncio.to_thread(
+                s3_client.delete_object,
+                Bucket=document.minio_bucket,
+                Key=document.minio_key,
+            )
+        except (ClientError, BotoCoreError):
+            storage_failures.append(str(document.id))
+
+    return {
+        "deleted_ids": [str(document.id) for document in documents],
+        "storage_cleanup_failed_ids": storage_failures,
+    }
 
 
 @router.get("/{document_id}")
@@ -222,6 +311,7 @@ async def create_document_review(
                 "agreement_id": promotion_result.agreement_id,
                 "lots_created": promotion_result.lots_created,
                 "lots_matched": promotion_result.lots_matched,
+                "project_ids": promotion_result.project_ids,
                 "promoted_at": promotion_result.promoted_at,
             },
         }

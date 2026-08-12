@@ -13,6 +13,8 @@ from app.models.core import User
 from app.models.core import UserRole
 from app.models.financing import ConstructionStageSync
 from app.models.financing import ConstructionStageHistory
+from app.models.financing import ConstructionStageMilestone
+from app.models.financing import ConstructionStageMilestoneRevision
 from app.models.financing import FacilityAlias
 from app.models.financing import FacilityStatementSnapshot
 from app.models.financing import FacilityTransaction
@@ -54,6 +56,8 @@ from app.models.tendering import TenderBidDocument
 from app.models.rentals import RentalCompany
 from app.models.rentals import RentalInspection
 from app.models.rentals import RentalInspectionPhoto
+from app.models.rentals import RentalInspectionReport
+from app.models.rentals import RentalInspectionReportItem
 from app.models.rentals import RentalLease
 from app.models.rentals import RentalLeaseImportBatch
 from app.models.rentals import RentalLeaseImportRow
@@ -70,6 +74,8 @@ __all__ = [
     "ContactType",
     "ConstructionStageSync",
     "ConstructionStageHistory",
+    "ConstructionStageMilestone",
+    "ConstructionStageMilestoneRevision",
     "ChangeOrder",
     "ChangeOrderLineItem",
     "DepositSchedule",

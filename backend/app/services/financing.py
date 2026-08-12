@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import shutil
@@ -11,7 +12,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from uuid import UUID
+from uuid import uuid4
 
+from sqlalchemy import bindparam
 from sqlalchemy import text
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,12 +38,16 @@ from app.schemas.financing import FinancingPropertyOut
 from app.schemas.financing import LenderStatementDetailOut
 from app.schemas.financing import LenderStatementOut
 from app.schemas.financing import LenderSummary
+from app.schemas.financing import ManualStatementSnapshotCreate
 from app.schemas.financing import ProFacilityOut
 from app.schemas.financing import ProLedgerEventOut
 from app.schemas.financing import ProLedgerOut
+from app.schemas.financing import ProDrawRequestOut
 from app.schemas.financing import ClientDrawScheduleOut
 from app.schemas.financing import ClientPrepDrawOut
 from app.schemas.financing import ClientDrawRequestOut
+from app.schemas.financing import ConstructionMilestoneOut
+from app.schemas.financing import ConstructionMilestoneUpdate
 from app.financing.engines.pro import ProFacility
 from app.financing.engines.pro import ProTransaction
 from app.financing.engines.pro import balance_on
@@ -51,6 +58,8 @@ from app.financing.parsers.pro_statement import parse_statement_text
 from app.services.ocr.extractor import PDFExtractor
 from app.services.financing_calculator import calculate_draw
 from app.services.document_extractor import extract_client_otp_document
+from app.services.extraction.service import get_extraction_service
+from app.services.minio_financing import get_financing_document
 from app.services.construction_stage_history import record_stage_change
 
 
@@ -125,6 +134,19 @@ async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
         incoming_stage=row.get("stage_clean"),
         synced_at=datetime.now(timezone.utc),
     )
+    previous_stage = (
+        await db.execute(
+            text(
+                """
+                SELECT stage_clean
+                FROM documents.construction_stage_sync
+                WHERE address_raw = :address_raw
+                FOR UPDATE
+                """
+            ),
+            {"address_raw": row["address_raw"]},
+        )
+    ).scalar_one_or_none()
     await db.execute(
         text(
             """
@@ -150,6 +172,20 @@ async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
         ),
         {**row, "property_id": property_id},
     )
+    next_stage = row.get("stage_clean")
+    excluded_stages = {None, "", "NA", "SYNC_CONFLICT"}
+    if next_stage not in excluded_stages and next_stage != previous_stage:
+        await db.execute(
+            text(
+                """
+                INSERT INTO documents.construction_stage_milestones (
+                    property_id, stage, achieved_at, source
+                )
+                VALUES (:property_id, :stage, now(), 'sheet_sync')
+                """
+            ),
+            {"property_id": property_id, "stage": next_stage},
+        )
     return created
 
 
@@ -183,6 +219,11 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
                     lf.opening_balance,
                     lf.rate,
                     lf.already_drawn,
+                    lf.draw_eligible_override,
+                    lf.requested_draw_amount,
+                    lf.requested_draw_as_of,
+                    lf.commitment_source,
+                    lf.commitment_confirmed_at,
                     lf.last_draw_date,
                     lf.last_draw_amount,
                     lf.account_number,
@@ -208,18 +249,25 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
                  AND COALESCE(lf.lender, lf.lender_type) <> 'PRO'
                 WHERE NOT (
                     COALESCE(css.lender_type, '') = 'PRO'
-                    AND EXISTS (
-                        SELECT 1
-                        FROM core.lender_facilities pro_lf
-                        WHERE COALESCE(pro_lf.lender, pro_lf.lender_type) = 'PRO'
-                          AND (
-                              pro_lf.property_id = p.id
-                              OR (
-                                  pro_lf.property_id IS NULL
-                                  AND pro_lf.canonical_address_key IS NOT NULL
-                                  AND pro_lf.canonical_address_key = p.canonical_address_key
+                    AND (
+                        EXISTS (
+                            SELECT 1
+                            FROM core.lender_facilities pro_lf
+                            WHERE COALESCE(pro_lf.lender, pro_lf.lender_type) = 'PRO'
+                              AND (
+                                  pro_lf.property_id = p.id
+                                  OR (
+                                      pro_lf.property_id IS NULL
+                                      AND pro_lf.canonical_address_key IS NOT NULL
+                                      AND pro_lf.canonical_address_key = p.canonical_address_key
+                                  )
                               )
-                          )
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM core.lender_facilities official_pro
+                            WHERE official_pro.commitment_source IS NOT NULL
+                        )
                     )
                 )
                 UNION ALL
@@ -248,6 +296,11 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
                     lf.opening_balance,
                     lf.rate,
                     lf.already_drawn,
+                    lf.draw_eligible_override,
+                    lf.requested_draw_amount,
+                    lf.requested_draw_as_of,
+                    lf.commitment_source,
+                    lf.commitment_confirmed_at,
                     lf.last_draw_date,
                     lf.last_draw_amount,
                     lf.account_number,
@@ -276,25 +329,51 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
                   )
                 LEFT JOIN documents.construction_stage_sync css ON css.property_id = p.id
                 WHERE COALESCE(lf.lender, lf.lender_type) = 'PRO'
+                  AND COALESCE(lf.status, 'active') <> 'statement_only'
+                  AND (
+                      COALESCE(css.lender_type, '') = 'PRO'
+                      OR lf.commitment_source IS NOT NULL
+                  )
                 ORDER BY address
                 """
             )
         )
     ).mappings().all()
 
+    milestone_history = await _milestone_history_by_property(
+        db,
+        {row["property_id"] for row in rows if row["property_id"] is not None},
+    )
     properties: list[FinancingPropertyOut] = []
     today = date.today()
     for row in rows:
         pro_balance = None
         pro_principal = None
-        if row["facility_id"] and (row["lender_type"] or "").upper() == "PRO" and row["facility_key"]:
+        if (
+            row["facility_id"]
+            and (row["lender_type"] or "").upper() == "PRO"
+            and row["facility_key"]
+            and row["original_advance_date"] is not None
+            and row["original_advance_amount"] is not None
+        ):
             transactions = await _pro_transactions(db, row["facility_id"])
             pro_balance = balance_on(_pro_facility_from_row(row), transactions, today)
             pro_principal = (row["original_advance_amount"] or Decimal("0")) + sum(
-                (txn.amount for txn in transactions if txn.txn_type == "draw"),
+                (
+                    txn.amount if txn.txn_type == "draw" else -txn.amount
+                    for txn in transactions
+                    if txn.txn_type in {"draw", "repayment"}
+                ),
                 Decimal("0"),
             )
-        properties.append(_property_from_row(row, pro_balance=pro_balance, pro_principal=pro_principal))
+        properties.append(
+            _property_from_row(
+                row,
+                pro_balance=pro_balance,
+                pro_principal=pro_principal,
+                milestone_history=milestone_history.get(row["property_id"], []),
+            )
+        )
     properties = _dedupe_dashboard_properties(properties)
     properties.sort(key=lambda item: item.draw_eligible or Decimal("0"), reverse=True)
     last_synced = max((row["last_synced_at"] for row in rows if row["last_synced_at"]), default=None)
@@ -303,7 +382,10 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
         summary=_summary(properties),
         properties=properties,
     )
-    pro_row_total = sum((item.already_drawn or Decimal("0") for item in properties if item.lender_type == "PRO"), Decimal("0"))
+    pro_row_total = sum(
+        (item.draw_eligible or Decimal("0") for item in properties if item.lender_type == "PRO"),
+        Decimal("0"),
+    )
     assert dashboard.summary.PRO.total_drawable == pro_row_total
     _assert_no_duplicate_pro_properties(properties)
     return dashboard
@@ -312,6 +394,275 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
 async def get_property_detail(db: AsyncSession, property_id: UUID) -> FinancingPropertyOut | None:
     dashboard = await get_dashboard(db)
     return next((item for item in dashboard.properties if item.property_id == property_id), None)
+
+
+async def list_pro_draw_requests(
+    db: AsyncSession,
+    property_id: UUID | None = None,
+) -> list[ProDrawRequestOut]:
+    where = "WHERE request.property_id = :property_id" if property_id else ""
+    rows = (
+        await db.execute(
+            text(
+                f"""
+                SELECT request.*, property.address AS property_address
+                FROM documents.pro_draw_requests request
+                JOIN core.properties property ON property.id = request.property_id
+                {where}
+                ORDER BY request.created_at DESC
+                """
+            ),
+            {"property_id": property_id} if property_id else {},
+        )
+    ).mappings().all()
+    return [ProDrawRequestOut(**row) for row in rows]
+
+
+async def create_pro_draw_request(
+    db: AsyncSession,
+    property_id: UUID,
+    *,
+    amount: Decimal | None,
+    notes: str | None,
+) -> ProDrawRequestOut:
+    property_detail = await get_property_detail(db, property_id)
+    if property_detail is None:
+        raise ValueError("Property not found")
+    if property_detail.lender_type != "PRO":
+        raise ValueError("Draw requests from this workflow are only available for PRO")
+    request_amount = amount if amount is not None else property_detail.draw_eligible
+    if request_amount is None or request_amount <= Decimal("0"):
+        raise ValueError("No PRO draw is currently available for this property")
+
+    request_id = uuid4()
+    reference = f"OH-PRO-{str(request_id).split('-')[0].upper()}"
+    subject = f"{reference} | PRO draw request | {property_detail.address}"
+    body = "\n".join(
+        [
+            "Hi Michaela,",
+            "",
+            "We would like to request the following:",
+            "",
+            f"Total requested amount: ${request_amount:,.2f}",
+            "",
+            f"- {property_detail.address} {property_detail.stage or ''} - ${request_amount:,.2f}",
+            "",
+            "Much appreciated!",
+            "",
+            "Thank You,",
+            "",
+            "Robert Wieler",
+            "Connection Homes",
+            "",
+            f"Office Hub reference: {reference}",
+            "",
+            "Please keep the Office Hub reference in the subject so funding progress remains linked.",
+        ]
+    )
+    row = (
+        await db.execute(
+            text(
+                """
+                INSERT INTO documents.pro_draw_requests (
+                    id, batch_id, property_id, facility_id, amount, stage, status,
+                    initial_recipient, intermediary_email, email_subject,
+                    email_body, notes
+                )
+                VALUES (
+                    :id, :id, :property_id, :facility_id, :amount, :stage, 'prepared',
+                    'nicholas@connectionhomes.ca', 'robert@connectionhomes.ca',
+                    :email_subject, :email_body, :notes
+                )
+                RETURNING *
+                """
+            ),
+            {
+                "id": request_id,
+                "property_id": property_id,
+                "facility_id": property_detail.facility_id,
+                "amount": request_amount,
+                "stage": property_detail.stage,
+                "email_subject": subject,
+                "email_body": body,
+                "notes": notes,
+            },
+        )
+    ).mappings().one()
+    await db.commit()
+    return ProDrawRequestOut(**row)
+
+
+async def create_pro_draw_request_batch(
+    db: AsyncSession,
+    property_ids: list[UUID],
+) -> list[ProDrawRequestOut]:
+    selected_ids = set(property_ids)
+    dashboard = await get_dashboard(db)
+    properties = [
+        item
+        for item in dashboard.properties
+        if item.property_id in selected_ids
+        and item.lender_type == "PRO"
+        and item.draw_eligible is not None
+        and item.draw_eligible > Decimal("0")
+    ]
+    if len(properties) != len(selected_ids):
+        raise ValueError("Every selected property must be PRO with a positive Draw Now amount")
+
+    properties.sort(key=lambda item: item.address)
+    batch_id = uuid4()
+    reference = f"OH-PRO-{str(batch_id).split('-')[0].upper()}"
+    total = sum((item.draw_eligible or Decimal("0") for item in properties), Decimal("0"))
+    lines = [
+        f"- {item.address} {item.stage or ''} - ${(item.draw_eligible or Decimal('0')):,.2f}"
+        for item in properties
+    ]
+    subject = f"{reference} | PRO draw request | {len(properties)} properties"
+    body = "\n".join(
+        [
+            "Hi Michaela,",
+            "",
+            "We would like to request the following:",
+            "",
+            f"Total requested amount: ${total:,.2f}",
+            "",
+            *lines,
+            "",
+            "Much appreciated!",
+            "",
+            "Thank You,",
+            "",
+            "Robert Wieler",
+            "Connection Homes",
+            "",
+            f"Office Hub reference: {reference}",
+            "",
+            "Please keep the Office Hub reference in the subject so funding progress remains linked.",
+        ]
+    )
+    created: list[ProDrawRequestOut] = []
+    for item in properties:
+        row = (
+            await db.execute(
+                text(
+                    """
+                    INSERT INTO documents.pro_draw_requests (
+                        id, batch_id, property_id, facility_id, amount, stage, status,
+                        initial_recipient, intermediary_email, email_subject, email_body
+                    )
+                    VALUES (
+                        :id, :batch_id, :property_id, :facility_id, :amount, :stage,
+                        'prepared', 'nicholas@connectionhomes.ca',
+                        'robert@connectionhomes.ca', :email_subject, :email_body
+                    )
+                    RETURNING *
+                    """
+                ),
+                {
+                    "id": uuid4(),
+                    "batch_id": batch_id,
+                    "property_id": item.property_id,
+                    "facility_id": item.facility_id,
+                    "amount": item.draw_eligible,
+                    "stage": item.stage,
+                    "email_subject": subject,
+                    "email_body": body,
+                },
+            )
+        ).mappings().one()
+        created.append(ProDrawRequestOut(**row))
+    await db.commit()
+    return created
+
+
+async def update_pro_draw_request_status(
+    db: AsyncSession,
+    request_id: UUID,
+    *,
+    status: str,
+    notes: str | None,
+) -> ProDrawRequestOut | None:
+    timestamps = {
+        "sent": "sent_at",
+        "acknowledged": "acknowledged_at",
+        "lawyer_processing": "lawyer_processing_at",
+        "funded": "funded_at",
+        "closed": "closed_at",
+    }
+    if status not in {
+        "prepared",
+        "sent",
+        "acknowledged",
+        "lawyer_processing",
+        "funded",
+        "closed",
+        "cancelled",
+    }:
+        raise ValueError("Invalid PRO draw request status")
+    timestamp_sql = f", {timestamps[status]} = COALESCE({timestamps[status]}, now())" if status in timestamps else ""
+    row = (
+        await db.execute(
+            text(
+                f"""
+                UPDATE documents.pro_draw_requests
+                SET status = :status,
+                    notes = COALESCE(:notes, notes),
+                    updated_at = now()
+                    {timestamp_sql}
+                WHERE id = :request_id
+                RETURNING *
+                """
+            ),
+            {"request_id": request_id, "status": status, "notes": notes},
+        )
+    ).mappings().one_or_none()
+    await db.commit()
+    return ProDrawRequestOut(**row) if row else None
+
+
+async def update_pro_draw_batch_status(
+    db: AsyncSession,
+    batch_id: UUID,
+    *,
+    status: str,
+    notes: str | None,
+) -> list[ProDrawRequestOut]:
+    timestamps = {
+        "sent": "sent_at",
+        "acknowledged": "acknowledged_at",
+        "lawyer_processing": "lawyer_processing_at",
+        "funded": "funded_at",
+        "closed": "closed_at",
+    }
+    if status not in {
+        "prepared",
+        "sent",
+        "acknowledged",
+        "lawyer_processing",
+        "funded",
+        "closed",
+        "cancelled",
+    }:
+        raise ValueError("Invalid PRO draw request status")
+    timestamp_sql = f", {timestamps[status]} = COALESCE({timestamps[status]}, now())" if status in timestamps else ""
+    rows = (
+        await db.execute(
+            text(
+                f"""
+                UPDATE documents.pro_draw_requests
+                SET status = :status,
+                    notes = COALESCE(:notes, notes),
+                    updated_at = now()
+                    {timestamp_sql}
+                WHERE batch_id = :batch_id
+                RETURNING *
+                """
+            ),
+            {"batch_id": batch_id, "status": status, "notes": notes},
+        )
+    ).mappings().all()
+    await db.commit()
+    return [ProDrawRequestOut(**row) for row in rows]
 
 
 async def get_active_client_draw_schedule(db: AsyncSession, property_id: UUID) -> ClientDrawScheduleOut | None:
@@ -564,6 +915,11 @@ async def extract_client_otp_schedule_background(
                 low_confidence_fields=[] if normalized["extraction_confidence"] == "high" else ["schedule"],
             )
             db.add(extraction)
+            await _prepare_sale_otp_review_extraction(
+                db,
+                document_id=document_id,
+                content=content,
+            )
             await db.execute(
                 text(
                     """
@@ -616,6 +972,187 @@ async def extract_client_otp_schedule_background(
                 {"document_id": document_id},
             )
         await db.commit()
+
+
+async def _prepare_sale_otp_review_extraction(
+    db: AsyncSession,
+    *,
+    document_id: UUID,
+    content: bytes,
+) -> None:
+    existing_id = (
+        await db.execute(
+            text(
+                """
+                SELECT extraction.id
+                FROM documents.extractions extraction
+                JOIN documents.ingestions ingestion
+                    ON ingestion.id = extraction.ingestion_id
+                WHERE ingestion.document_id = :document_id
+                  AND extraction.extracted_payload::jsonb ? 'agreement'
+                LIMIT 1
+                """
+            ),
+            {"document_id": document_id},
+        )
+    ).scalar_one_or_none()
+    if existing_id:
+        existing = await db.get(Extraction, existing_id)
+        if existing is not None:
+            await _apply_sale_otp_financing_context(
+                db,
+                document_id=document_id,
+                extraction=existing,
+            )
+        return
+
+    started_at = datetime.now(timezone.utc)
+    ingestion = Ingestion(
+        document_id=document_id,
+        ocr_method="manual",
+        ocr_text=None,
+        ocr_confidence=None,
+        page_count=None,
+        started_at=started_at,
+        completed_at=None,
+        error_message=None,
+    )
+    db.add(ingestion)
+    await db.flush()
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp:
+        temp.write(content)
+        temp_path = Path(temp.name)
+    try:
+        ocr_result = await asyncio.to_thread(PDFExtractor().extract, temp_path)
+        extraction_result = await asyncio.to_thread(
+            get_extraction_service().extract,
+            DocType.SALE_OTP.value,
+            ocr_result.raw_text,
+        )
+        ingestion.ocr_method = (
+            ocr_result.method_used
+            if ocr_result.method_used in {"pdfplumber", "tesseract"}
+            else "manual"
+        )
+        ingestion.ocr_text = ocr_result.raw_text
+        ingestion.ocr_confidence = Decimal(
+            str(max(0, min(1, ocr_result.overall_confidence)))
+        ).quantize(Decimal("0.001"))
+        ingestion.page_count = ocr_result.total_pages
+        ingestion.completed_at = datetime.now(timezone.utc)
+        extraction = Extraction(
+            ingestion_id=ingestion.id,
+            model_provider=extraction_result.model_provider,
+            model_version=extraction_result.model_version,
+            prompt_version=extraction_result.prompt_version,
+            extracted_payload=extraction_result.extracted_payload,
+            field_confidences=extraction_result.field_confidences,
+            low_confidence_fields=extraction_result.low_confidence_fields,
+        )
+        db.add(extraction)
+        await db.flush()
+        await _apply_sale_otp_financing_context(
+            db,
+            document_id=document_id,
+            extraction=extraction,
+        )
+    except Exception as exc:
+        ingestion.completed_at = datetime.now(timezone.utc)
+        ingestion.error_message = f"Official OTP extraction failed: {exc}"
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+async def _apply_sale_otp_financing_context(
+    db: AsyncSession,
+    *,
+    document_id: UUID,
+    extraction: Extraction,
+) -> None:
+    context = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    property.address,
+                    schedule.client_name,
+                    schedule.purchase_price,
+                    schedule.otp_date
+                FROM documents.client_draw_schedules schedule
+                JOIN core.properties property ON property.id = schedule.property_id
+                WHERE schedule.document_id = :document_id
+                ORDER BY schedule.created_at DESC
+                LIMIT 1
+                """
+            ),
+            {"document_id": document_id},
+        )
+    ).mappings().one_or_none()
+    if context is None:
+        return
+
+    payload = dict(extraction.extracted_payload or {})
+    agreement = dict(payload.get("agreement") or {})
+    contextual_fields: dict[str, Any] = {
+        "civic_address": context["address"],
+        "purchaser_names": (
+            [context["client_name"]] if context["client_name"] else None
+        ),
+        "purchase_price_total": context["purchase_price"],
+        "agreement_date": context["otp_date"],
+    }
+    confidences = dict(extraction.field_confidences or {})
+    low_confidence = set(extraction.low_confidence_fields or [])
+    for field, value in contextual_fields.items():
+        if value is None or agreement.get(field):
+            continue
+        agreement[field] = value
+        path = f"agreement.{field}"
+        confidences[path] = 1.0
+        low_confidence.discard(path)
+    payload["agreement"] = _json_safe(agreement)
+    extraction.extracted_payload = _json_safe(payload)
+    extraction.field_confidences = confidences
+    extraction.low_confidence_fields = sorted(low_confidence)
+
+
+async def prepare_client_otp_official_review(
+    db: AsyncSession,
+    schedule_id: UUID,
+) -> UUID | None:
+    schedule = (
+        await db.execute(
+            text(
+                """
+                SELECT document_id, minio_object_key
+                FROM documents.client_draw_schedules
+                WHERE id = :schedule_id
+                """
+            ),
+            {"schedule_id": schedule_id},
+        )
+    ).mappings().one_or_none()
+    if schedule is None:
+        return None
+    content = get_financing_document(key=schedule["minio_object_key"])
+    await _prepare_sale_otp_review_extraction(
+        db,
+        document_id=schedule["document_id"],
+        content=content,
+    )
+    await db.execute(
+        text(
+            """
+            UPDATE documents.documents
+            SET status = 'in_review'
+            WHERE id = :document_id
+            """
+        ),
+        {"document_id": schedule["document_id"]},
+    )
+    await db.commit()
+    return schedule["document_id"]
 
 
 async def review_client_draw_schedule(
@@ -829,7 +1366,9 @@ async def create_facility(db: AsyncSession, data: FacilityCreate) -> FacilityOut
                 """
                 INSERT INTO core.lender_facilities (
                     property_id, lender_type, lender_name, total_facility, opening_balance,
-                    rate, already_drawn, last_draw_date, last_draw_amount,
+                    rate, already_drawn, draw_eligible_override, requested_draw_amount,
+                    requested_draw_as_of, commitment_source, commitment_confirmed_at,
+                    last_draw_date, last_draw_amount,
                     account_number, account_title, account_type, current_balance, outstanding_balance,
                     account_currency, maturity_date, member_number, next_interest_payment_date,
                     next_payment_date, account_nickname, open_date, original_loan_amount,
@@ -837,7 +1376,9 @@ async def create_facility(db: AsyncSession, data: FacilityCreate) -> FacilityOut
                 )
                 VALUES (
                     :property_id, :lender_type, :lender_name, :total_facility, :opening_balance,
-                    :rate, :already_drawn, :last_draw_date, :last_draw_amount,
+                    :rate, :already_drawn, :draw_eligible_override, :requested_draw_amount,
+                    :requested_draw_as_of, :commitment_source, :commitment_confirmed_at,
+                    :last_draw_date, :last_draw_amount,
                     :account_number, :account_title, :account_type, :current_balance, :outstanding_balance,
                     :account_currency, :maturity_date, :member_number, :next_interest_payment_date,
                     :next_payment_date, :account_nickname, :open_date, :original_loan_amount,
@@ -1174,6 +1715,195 @@ async def parse_and_reconcile_statement(db: AsyncSession, statement_id: UUID, co
             {"statement_id": statement_id, "payload": json.dumps({"error": str(exc)})},
         )
     await db.commit()
+
+
+async def retry_statement_parse(
+    db: AsyncSession,
+    statement_id: UUID,
+) -> LenderStatementDetailOut | None:
+    statement = (
+        await db.execute(
+            text(
+                """
+                SELECT minio_object_key
+                FROM documents.lender_statements
+                WHERE id = :statement_id
+                """
+            ),
+            {"statement_id": statement_id},
+        )
+    ).mappings().one_or_none()
+    if statement is None:
+        return None
+    content = get_financing_document(key=statement["minio_object_key"])
+    await parse_and_reconcile_statement(db, statement_id, content)
+    return await get_statement(db, statement_id)
+
+
+async def create_manual_statement_snapshot(
+    db: AsyncSession,
+    statement_id: UUID,
+    data: ManualStatementSnapshotCreate,
+) -> LenderStatementDetailOut | None:
+    statement_exists = (
+        await db.execute(
+            text(
+                "SELECT 1 FROM documents.lender_statements WHERE id = :statement_id"
+            ),
+            {"statement_id": statement_id},
+        )
+    ).scalar_one_or_none()
+    if not statement_exists:
+        return None
+    facility = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    id,
+                    property_name,
+                    canonical_address_key,
+                    facility_key,
+                    borrower,
+                    annual_rate,
+                    original_advance_date,
+                    original_advance_amount
+                FROM core.lender_facilities
+                WHERE id = :facility_id
+                  AND COALESCE(lender, lender_type) = 'PRO'
+                """
+            ),
+            {"facility_id": data.facility_id},
+        )
+    ).mappings().one_or_none()
+    if facility is None:
+        raise ValueError("PRO facility not found")
+
+    transactions = await _pro_transactions(db, data.facility_id)
+    computed_balance = balance_on(
+        _pro_facility_from_row(facility),
+        transactions,
+        data.reported_period_end_date,
+    )
+    delta = money(computed_balance - data.reported_period_end_balance)
+    proposed: list[dict[str, Any]] = []
+    for draw in data.draws:
+        exists = (
+            await db.execute(
+                text(
+                    """
+                    SELECT 1
+                    FROM core.facility_transactions
+                    WHERE facility_id = :facility_id
+                      AND txn_date = :txn_date
+                      AND amount = :amount
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "facility_id": data.facility_id,
+                    "txn_date": draw.txn_date,
+                    "amount": draw.amount,
+                },
+            )
+        ).scalar_one_or_none()
+        if not exists:
+            proposed.append(
+                {
+                    "date": draw.txn_date.isoformat(),
+                    "amount": str(draw.amount),
+                    "reference": draw.reference,
+                }
+            )
+    status = (
+        "new_draws_detected"
+        if proposed
+        else "matched"
+        if abs(delta) <= Decimal("0.02")
+        else "balance_mismatch"
+    )
+    payload = {
+        "source": "manual",
+        "draws": proposed,
+        "note": data.note,
+    }
+    snapshot_id = (
+        await db.execute(
+            text(
+                """
+                INSERT INTO documents.facility_statement_snapshots (
+                    statement_id,
+                    facility_id,
+                    matched_property_name,
+                    canonical_address_key,
+                    reported_period_end_date,
+                    reported_period_end_balance,
+                    computed_balance,
+                    delta,
+                    reconciliation_status,
+                    parse_payload,
+                    new_draws_detected
+                )
+                VALUES (
+                    :statement_id,
+                    :facility_id,
+                    :matched_property_name,
+                    :canonical_address_key,
+                    :reported_period_end_date,
+                    :reported_period_end_balance,
+                    :computed_balance,
+                    :delta,
+                    :reconciliation_status,
+                    CAST(:parse_payload AS jsonb),
+                    CAST(:new_draws_detected AS jsonb)
+                )
+                ON CONFLICT ON CONSTRAINT uq_statement_snapshot_property
+                DO UPDATE SET
+                    facility_id = EXCLUDED.facility_id,
+                    canonical_address_key = EXCLUDED.canonical_address_key,
+                    reported_period_end_date = EXCLUDED.reported_period_end_date,
+                    reported_period_end_balance = EXCLUDED.reported_period_end_balance,
+                    computed_balance = EXCLUDED.computed_balance,
+                    delta = EXCLUDED.delta,
+                    reconciliation_status = EXCLUDED.reconciliation_status,
+                    parse_payload = EXCLUDED.parse_payload,
+                    new_draws_detected = EXCLUDED.new_draws_detected
+                RETURNING id
+                """
+            ),
+            {
+                "statement_id": statement_id,
+                "facility_id": data.facility_id,
+                "matched_property_name": facility["property_name"],
+                "canonical_address_key": facility["canonical_address_key"],
+                "reported_period_end_date": data.reported_period_end_date,
+                "reported_period_end_balance": data.reported_period_end_balance,
+                "computed_balance": computed_balance,
+                "delta": delta,
+                "reconciliation_status": status,
+                "parse_payload": json.dumps(payload),
+                "new_draws_detected": json.dumps(proposed),
+            },
+        )
+    ).scalar_one()
+    await db.execute(
+        text(
+            """
+            UPDATE documents.lender_statements
+            SET
+                status = 'parsed',
+                parsed_at = COALESCE(parsed_at, now()),
+                parse_payload = COALESCE(parse_payload, '{}'::jsonb)
+                    || jsonb_build_object('manual_entry', true)
+            WHERE id = :statement_id
+            """
+        ),
+        {"statement_id": statement_id},
+    )
+    await db.commit()
+    if snapshot_id is None:
+        return None
+    return await get_statement(db, statement_id)
 
 
 async def approve_snapshot_draws(db: AsyncSession, snapshot_id: UUID) -> FacilityStatementSnapshotOut | None:
@@ -1562,10 +2292,183 @@ def _pro_facility_from_row(row: Any) -> ProFacility:
     )
 
 
-def _property_from_row(row: Any, *, pro_balance: Decimal | None = None, pro_principal: Decimal | None = None) -> FinancingPropertyOut:
+async def _milestone_history_by_property(
+    db: AsyncSession,
+    property_ids: set[UUID],
+) -> dict[UUID, list[ConstructionMilestoneOut]]:
+    if not property_ids:
+        return {}
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    milestone.id,
+                    milestone.property_id,
+                    milestone.stage,
+                    milestone.achieved_at,
+                    milestone.source,
+                    milestone.confirmed_at,
+                    milestone.confirmation_note,
+                    COALESCE(
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'id', revision.id,
+                                'previous_achieved_at', revision.previous_achieved_at,
+                                'achieved_at', revision.achieved_at,
+                                'action', revision.action,
+                                'note', revision.note,
+                                'created_at', revision.created_at
+                            )
+                            ORDER BY revision.created_at
+                        ) FILTER (WHERE revision.id IS NOT NULL),
+                        '[]'::jsonb
+                    ) AS revisions
+                FROM documents.construction_stage_milestones milestone
+                LEFT JOIN documents.construction_stage_milestone_revisions revision
+                    ON revision.milestone_id = milestone.id
+                WHERE milestone.property_id IN :property_ids
+                GROUP BY milestone.id
+                ORDER BY milestone.achieved_at, milestone.created_at
+                """
+            ).bindparams(bindparam("property_ids", expanding=True)),
+            {"property_ids": list(property_ids)},
+        )
+    ).mappings().all()
+    history: dict[UUID, list[ConstructionMilestoneOut]] = {}
+    for row in rows:
+        history.setdefault(row["property_id"], []).append(ConstructionMilestoneOut(**row))
+    return history
+
+
+async def update_construction_milestone(
+    db: AsyncSession,
+    milestone_id: UUID,
+    data: ConstructionMilestoneUpdate,
+) -> ConstructionMilestoneOut | None:
+    milestone = (
+        await db.execute(
+            text(
+                """
+                SELECT id, achieved_at
+                FROM documents.construction_stage_milestones
+                WHERE id = :milestone_id
+                FOR UPDATE
+                """
+            ),
+            {"milestone_id": milestone_id},
+        )
+    ).mappings().one_or_none()
+    if milestone is None:
+        return None
+
+    achieved_at = datetime(
+        data.achieved_on.year,
+        data.achieved_on.month,
+        data.achieved_on.day,
+        12,
+        tzinfo=timezone.utc,
+    )
+    action = (
+        "confirmed"
+        if milestone["achieved_at"].date() == data.achieved_on
+        else "date_corrected"
+    )
+    note = data.note.strip() if data.note and data.note.strip() else None
+    await db.execute(
+        text(
+            """
+            INSERT INTO documents.construction_stage_milestone_revisions (
+                milestone_id,
+                previous_achieved_at,
+                achieved_at,
+                action,
+                note
+            )
+            VALUES (
+                :milestone_id,
+                :previous_achieved_at,
+                :achieved_at,
+                :action,
+                :note
+            )
+            """
+        ),
+        {
+            "milestone_id": milestone_id,
+            "previous_achieved_at": milestone["achieved_at"],
+            "achieved_at": achieved_at,
+            "action": action,
+            "note": note,
+        },
+    )
+    updated = (
+        await db.execute(
+            text(
+                """
+                UPDATE documents.construction_stage_milestones
+                SET
+                    achieved_at = :achieved_at,
+                    confirmed_at = now(),
+                    confirmation_note = :note
+                WHERE id = :milestone_id
+                RETURNING property_id
+                """
+            ),
+            {
+                "milestone_id": milestone_id,
+                "achieved_at": achieved_at,
+                "note": note,
+            },
+        )
+    ).mappings().one()
+    await db.commit()
+    history = await _milestone_history_by_property(db, {updated["property_id"]})
+    return next(
+        (
+            event
+            for event in history.get(updated["property_id"], [])
+            if event.id == milestone_id
+        ),
+        None,
+    )
+
+
+def _property_from_row(
+    row: Any,
+    *,
+    pro_balance: Decimal | None = None,
+    pro_principal: Decimal | None = None,
+    milestone_history: list[ConstructionMilestoneOut] | None = None,
+) -> FinancingPropertyOut:
+    history = milestone_history or []
+    current_stage = row["stage_clean"]
+    achieved_at = next(
+        (event.achieved_at for event in reversed(history) if event.stage == current_stage),
+        None,
+    )
     lender_type = row["lender_type"] or "OTHER"
     if lender_type == "PRO" and pro_balance is not None:
         rate = (row["annual_rate"] * Decimal("100")) if row["annual_rate"] is not None else None
+        facility_total = row["total_facility"] or pro_principal
+        principal_drawn = pro_principal or Decimal("0")
+        accrued_interest = max(Decimal("0"), pro_balance - principal_drawn)
+        interest = _interest_estimates(pro_balance, rate)
+        calc = calculate_draw(
+            lender_type="PRO",
+            stage=row["stage_clean"],
+            total_facility=facility_total,
+            opening_balance=row["opening_balance"],
+            already_drawn=principal_drawn,
+        )
+        draw_eligible = row["draw_eligible_override"]
+        if draw_eligible is None:
+            draw_eligible = calc.draw_eligible
+        cumulative_entitled = (
+            principal_drawn + draw_eligible
+            if row["draw_eligible_override"] is not None
+            else calc.cumulative_entitled
+        )
         return FinancingPropertyOut(
             property_id=row["property_id"],
             address=row["address"],
@@ -1573,22 +2476,29 @@ def _property_from_row(row: Any, *, pro_balance: Decimal | None = None, pro_prin
             sold_or_spec=row["sold_or_spec"],
             stage=row["stage_clean"],
             stage_is_estimate=False,
+            milestone_achieved_at=achieved_at,
+            milestone_history=history,
             possession_date=row["possession_date"],
             build_start=row["build_start"],
             client_name=row["client_name"],
             banker_raw=row["banker_raw"],
             lender_name=row["lender_name"] or "ProAuto",
-            total_facility=pro_principal,
+            total_facility=facility_total,
             opening_balance=row["original_advance_amount"],
-            already_drawn=pro_balance,
+            already_drawn=principal_drawn,
             last_draw_date=row["last_draw_date"],
             last_draw_amount=row["last_draw_amount"],
+            requested_draw_amount=row["requested_draw_amount"],
+            requested_draw_as_of=row["requested_draw_as_of"],
+            commitment_source=row["commitment_source"],
+            commitment_confirmed_at=row["commitment_confirmed_at"],
             rate=rate,
             account_number=row["account_number"],
             account_title=row["account_title"],
             account_type=row["account_type"],
             current_balance=pro_balance,
             outstanding_balance=pro_balance,
+            accrued_interest=accrued_interest,
             account_currency=row["account_currency"] or "CAD",
             maturity_date=row["maturity_date"],
             member_number=row["member_number"],
@@ -1599,18 +2509,46 @@ def _property_from_row(row: Any, *, pro_balance: Decimal | None = None, pro_prin
             original_loan_amount=row["original_advance_amount"],
             payment_schedule=row["payment_schedule"],
             term_length_days=row["term_length_days"],
-            daily_interest_estimate=None,
-            monthly_interest_estimate=None,
-            annual_interest_estimate=None,
+            daily_interest_estimate=interest["daily"],
+            monthly_interest_estimate=interest["monthly"],
+            annual_interest_estimate=interest["annual"],
             notes=row["notes"],
-            draw_eligible=None,
-            cumulative_entitled=None,
-            funds_remaining=None,
-            flag="NEEDS_LINK" if row["status"] == "needs_link" else None,
-            formula="PRO compounding engine balance as of today.",
+            draw_eligible=draw_eligible,
+            cumulative_entitled=cumulative_entitled,
+            funds_remaining=(
+                max(Decimal("0"), facility_total - principal_drawn)
+                if facility_total is not None
+                else None
+            ),
+            flag=(
+                "NEEDS_LINK"
+                if row["status"] == "needs_link"
+                else None if row["draw_eligible_override"] is not None else calc.flag
+            ),
+            formula=(
+                "Lender-confirmed PRO draw availability override."
+                if row["draw_eligible_override"] is not None
+                else calc.formula
+            ),
             facility_id=row["facility_id"],
         )
     if lender_type == "PRO":
+        principal_drawn = row["already_drawn"] or Decimal("0")
+        calc = calculate_draw(
+            lender_type="PRO",
+            stage=row["stage_clean"],
+            total_facility=row["total_facility"],
+            opening_balance=row["opening_balance"],
+            already_drawn=principal_drawn,
+        )
+        draw_eligible = row["draw_eligible_override"]
+        if draw_eligible is None:
+            draw_eligible = calc.draw_eligible
+        cumulative_entitled = (
+            principal_drawn + draw_eligible
+            if row["draw_eligible_override"] is not None
+            else calc.cumulative_entitled
+        )
         return FinancingPropertyOut(
             property_id=row["property_id"],
             address=row["address"],
@@ -1618,6 +2556,8 @@ def _property_from_row(row: Any, *, pro_balance: Decimal | None = None, pro_prin
             sold_or_spec=row["sold_or_spec"],
             stage=row["stage_clean"],
             stage_is_estimate=False,
+            milestone_achieved_at=achieved_at,
+            milestone_history=history,
             possession_date=row["possession_date"],
             build_start=row["build_start"],
             client_name=row["client_name"],
@@ -1625,9 +2565,13 @@ def _property_from_row(row: Any, *, pro_balance: Decimal | None = None, pro_prin
             lender_name=row["lender_name"],
             total_facility=row["total_facility"],
             opening_balance=row["opening_balance"],
-            already_drawn=row["already_drawn"] or Decimal("0"),
+            already_drawn=principal_drawn,
             last_draw_date=row["last_draw_date"],
             last_draw_amount=row["last_draw_amount"],
+            requested_draw_amount=row["requested_draw_amount"],
+            requested_draw_as_of=row["requested_draw_as_of"],
+            commitment_source=row["commitment_source"],
+            commitment_confirmed_at=row["commitment_confirmed_at"],
             rate=row["rate"],
             account_number=row["account_number"],
             account_title=row["account_title"],
@@ -1648,11 +2592,19 @@ def _property_from_row(row: Any, *, pro_balance: Decimal | None = None, pro_prin
             monthly_interest_estimate=None,
             annual_interest_estimate=None,
             notes=row["notes"],
-            draw_eligible=None,
-            cumulative_entitled=None,
-            funds_remaining=None,
-            flag="NO_STATEMENT",
-            formula="PRO row from sheet sync has no matching statement facility.",
+            draw_eligible=draw_eligible,
+            cumulative_entitled=cumulative_entitled,
+            funds_remaining=(
+                max(Decimal("0"), row["total_facility"] - principal_drawn)
+                if row["total_facility"] is not None
+                else None
+            ),
+            flag=None if row["draw_eligible_override"] is not None else calc.flag or "NO_STATEMENT",
+            formula=(
+                "Lender-confirmed PRO draw availability override."
+                if row["draw_eligible_override"] is not None
+                else calc.formula
+            ),
             facility_id=row["facility_id"],
         )
     calc = calculate_draw(
@@ -1672,6 +2624,8 @@ def _property_from_row(row: Any, *, pro_balance: Decimal | None = None, pro_prin
         sold_or_spec=row["sold_or_spec"],
         stage=row["stage_clean"],
         stage_is_estimate=calc.stage_is_estimate,
+        milestone_achieved_at=achieved_at,
+        milestone_history=history,
         possession_date=row["possession_date"],
         build_start=row["build_start"],
         client_name=row["client_name"],
@@ -1682,6 +2636,10 @@ def _property_from_row(row: Any, *, pro_balance: Decimal | None = None, pro_prin
         already_drawn=drawn,
         last_draw_date=row["last_draw_date"],
         last_draw_amount=row["last_draw_amount"],
+        requested_draw_amount=row["requested_draw_amount"],
+        requested_draw_as_of=row["requested_draw_as_of"],
+        commitment_source=row["commitment_source"],
+        commitment_confirmed_at=row["commitment_confirmed_at"],
         rate=row["rate"],
         account_number=row["account_number"],
         account_title=row["account_title"],
@@ -2000,10 +2958,7 @@ def _summary(properties: list[FinancingPropertyOut]) -> DashboardSummary:
         if item.flag:
             data[lender]["flagged"] += 1
         if data[lender]["total_drawable"] is not None:
-            if lender == "PRO":
-                data[lender]["total_drawable"] += item.already_drawn or Decimal("0")
-            elif item.flag is None:
-                data[lender]["total_drawable"] += item.draw_eligible or Decimal("0")
+            data[lender]["total_drawable"] += item.draw_eligible or Decimal("0")
 
     return DashboardSummary(
         **{key: LenderSummary(**value) for key, value in data.items()}

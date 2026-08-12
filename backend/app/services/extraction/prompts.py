@@ -215,6 +215,7 @@ Rules:
    legal description is the durable lot matching key.
 10. For payment_schedule, return an array of objects with:
    - stage
+   - percent
    - amount
    - due_date
    - trigger
@@ -240,6 +241,21 @@ Rules:
    - text
    - category
 14. The payment schedule may be listed on page 1 under paragraph 5 and the trigger text may span multiple wrapped lines. Preserve the real due trigger wording when it is readable.
+14a. Treat the payment table as a row-by-row accounting schedule. Extract every labeled
+   row in its printed order, including Deposit, Additional Deposit, Land Payment,
+   Basement Stage, Roof Stage, Drywall Stage, and Possession Date when present.
+14b. Handwritten or overlaid entries may appear only in an IMAGE OCR SUPPLEMENT. Match
+   those entries to the printed row labels. A dash means no amount is stated: use null,
+   never invent zero.
+14c. Put a printed or handwritten percentage in percent as a numeric value (for example,
+   20% becomes 20). Do not fold the percentage into stage or amount.
+14d. due_date is only for a date explicitly attached to that payment row. Never copy the
+   agreement date, condition date, acceptance date, or occupancy date into due_date.
+   Wording such as "due upon conditions 7a, 7b, 7c being fulfilled" belongs in trigger.
+14e. Before returning, reconcile all non-null payment amounts against the printed TOTAL.
+   Re-read ambiguous handwriting when the sum does not match. Do not change a legible
+   amount merely to force a match; lower that field's confidence and preserve the printed
+   total in the relevant source field.
 15. Pages with floor plans or drawings may be low signal. That is acceptable. Prefer structured contractual and schedule sections over illustrated plan pages.
 16. Standard specs in Schedule C are development-level defaults, not purchaser-specific upgrades.
 17. Upgrades in Schedule D are purchaser-specific and included in the purchase price.
@@ -292,6 +308,7 @@ Output shape:
   "payment_schedule": [
     {
       "stage": null,
+      "percent": null,
       "amount": null,
       "due_date": null,
       "trigger": null,

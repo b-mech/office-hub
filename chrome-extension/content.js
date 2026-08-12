@@ -1,15 +1,16 @@
 // content.js
 const OFFICE_HUB_API = "http://localhost:8000";
 const OFFICE_HUB_APP = "http://localhost:3000";
-const OFFICE_HUB_EXTENSION_VERSION = "0.1.5";
+const OFFICE_HUB_EXTENSION_VERSION = "0.1.9";
 const INGEST_RESPONSE_TIMEOUT_MS = 620000;
 const SCAN_DEBOUNCE_MS = 1000;
 const OFFICE_HUB_ICON_URL = chrome.runtime.getURL("favicon.png");
 const KRISTY_EMAIL = "kristy@connectionhomes.ca";
 const KRISTY_NAME = "kristy unrau";
-
-let observer = null;
 let scanTimer = null;
+let scanInProgress = false;
+let scanPending = false;
+let navigationScanTimers = [];
 let currentMessageKey = "";
 let processedAttachmentKeys = new Set();
 let selectedAttachmentKeys = new Set();
@@ -18,6 +19,7 @@ let panelExpanded = false;
 let renderedChangeOrderBannerKey = "";
 let dismissedChangeOrderBannerKeys = new Set();
 let scannerStatus = "Starting";
+let expandedThreadKeys = new Set();
 
 init();
 
@@ -25,23 +27,23 @@ function init() {
   console.info(`Office Hub extension ${OFFICE_HUB_EXTENSION_VERSION} content script loaded`);
   removeOfficeHubUi();
   renderPanel([], null);
-  observeGmail();
-  runScan();
-
+  window.addEventListener("hashchange", scheduleNavigationScan, { passive: true });
+  window.addEventListener("popstate", scheduleNavigationScan, { passive: true });
+  scheduleNavigationScan();
 }
 
-function observeGmail() {
-  if (observer) observer.disconnect();
-  observer = new MutationObserver((mutations) => {
-    if (mutations.every(isOfficeHubMutation)) {
-      return;
-    }
-    scheduleScan();
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
+function scheduleNavigationScan() {
+  navigationScanTimers.forEach((timerId) => window.clearTimeout(timerId));
+  navigationScanTimers = [0, 750, 2000, 5000].map((delay) =>
+    window.setTimeout(scheduleScan, delay)
+  );
 }
 
 function scheduleScan() {
+  if (scanInProgress) {
+    scanPending = true;
+    return;
+  }
   if (scanTimer) {
     return;
   }
@@ -52,6 +54,11 @@ function scheduleScan() {
 async function runScan() {
   window.clearTimeout(scanTimer);
   scanTimer = null;
+  if (scanInProgress) {
+    scanPending = true;
+    return;
+  }
+  scanInProgress = true;
 
   try {
     await scanOpenEmail();
@@ -59,22 +66,13 @@ async function runScan() {
     scannerStatus = `Scan error: ${error instanceof Error ? error.message : "unknown error"}`;
     renderPanel([], null);
     console.error("Office Hub Gmail scan failed", error);
-  }
-}
-
-function isOfficeHubMutation(mutation) {
-  const target = mutation.target;
-  if (target instanceof Element && target.closest(".office-hub-panel, .office-hub-co-banner, .office-hub-summary")) {
-    return true;
-  }
-
-  const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
-  return changedNodes.length > 0 && changedNodes.every((node) => {
-    if (!(node instanceof Element)) {
-      return false;
+  } finally {
+    scanInProgress = false;
+    if (scanPending) {
+      scanPending = false;
+      scheduleScan();
     }
-    return Boolean(node.closest(".office-hub-panel, .office-hub-co-banner, .office-hub-summary"));
-  });
+  }
 }
 
 async function scanOpenEmail() {
@@ -91,8 +89,7 @@ async function scanOpenEmail() {
     return;
   }
 
-  const messageKey = getMessageKey(messageRoot);
-  scannerStatus = `Reading email: ${getEmailSubject() || "subject unavailable"}`;
+  const messageKey = getThreadKey();
   if (messageKey !== currentMessageKey) {
     currentMessageKey = messageKey;
     processedAttachmentKeys = new Set();
@@ -104,6 +101,18 @@ async function scanOpenEmail() {
     removeChangeOrderBanners();
   }
 
+  const conversation = document.querySelector('div[role="main"]');
+  if (panelExpanded && conversation && !expandedThreadKeys.has(messageKey)) {
+    const expandedCount = expandCollapsedThreadMessages(conversation);
+    expandedThreadKeys.add(messageKey);
+    if (expandedCount > 0) {
+      scannerStatus = `Loading ${expandedCount} earlier thread message${expandedCount === 1 ? "" : "s"}…`;
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+      navigationScanTimers.push(window.setTimeout(scheduleScan, 1500));
+    }
+  }
+
+  scannerStatus = `Reading thread: ${getEmailSubject() || "subject unavailable"}`;
   renderChangeOrderBannerIfNeeded(messageRoot, messageKey);
 
   const attachments = findPdfAttachments(messageRoot);
@@ -134,6 +143,38 @@ function findOpenMessageRoot() {
   return expandedMessages.at(-1);
 }
 
+function getThreadKey() {
+  const subject = getEmailSubject();
+  const permanentId =
+    document.querySelector("h2[data-thread-perm-id]")?.getAttribute("data-thread-perm-id") || "";
+  return `${location.href.split("#")[1] || location.href}|${permanentId}|${subject}`;
+}
+
+function getThreadMessageRoots(conversation) {
+  const listItems = Array.from(conversation.querySelectorAll("div[role='listitem']"))
+    .filter((node) => node.querySelector(".gE, .a3s, [download_url]"));
+  if (listItems.length > 0) return listItems;
+
+  const messageCards = Array.from(conversation.querySelectorAll(".adn"))
+    .filter((node) => node.querySelector(".gE, .a3s, [download_url]"));
+  if (messageCards.length > 0) return messageCards;
+
+  return Array.from(conversation.querySelectorAll("[data-message-id], [role='article']"))
+    .filter((node) => node.querySelector(".a3s, [download_url]"));
+}
+
+function expandCollapsedThreadMessages(conversation) {
+  let expandedCount = 0;
+  for (const root of getThreadMessageRoots(conversation)) {
+    if (root.querySelector(".a3s")) continue;
+    const header = root.querySelector(".gE");
+    if (!(header instanceof HTMLElement)) continue;
+    header.click();
+    expandedCount++;
+  }
+  return expandedCount;
+}
+
 function findVisibleReadingPane(conversation) {
   const subject = getEmailSubject();
   if (!subject) {
@@ -155,7 +196,7 @@ function findVisibleReadingPane(conversation) {
 }
 
 function findExpandedMessageRoots(conversation) {
-  const roots = Array.from(conversation.querySelectorAll('div[role="listitem"], .adn'));
+  const roots = getThreadMessageRoots(conversation);
   const expanded = roots.filter((node) => node.querySelector(".a3s"));
   if (expanded.length > 0) {
     return expanded;
@@ -218,7 +259,9 @@ function findPdfAttachments(messageRoot) {
     }
   }
 
-  // Fallback: href-based links for attachments without download_url
+  // Gmail's download_url is canonical and substantially cheaper than walking
+  // every link in a long thread. Use the href fallback only when Gmail exposes
+  // no canonical PDF marker at all.
   if (byUrl.size === 0) {
     const links = roots.flatMap((root) => Array.from(root.querySelectorAll("a[href]")));
     for (const link of links) {
@@ -239,10 +282,13 @@ function findPdfAttachments(messageRoot) {
 }
 
 function getAttachmentSearchRoots(messageRoot) {
-  const scopedRoot =
-    messageRoot.closest("[data-message-id], [role='article'], div[role='listitem'], .adn, .gs") ||
-    messageRoot;
-  return [scopedRoot].filter(Boolean);
+  const conversation =
+    messageRoot.closest('div[role="main"]') ||
+    document.querySelector('div[role="main"]');
+  if (!conversation) return [messageRoot].filter(Boolean);
+
+  const threadRoots = getThreadMessageRoots(conversation);
+  return threadRoots.length > 0 ? threadRoots : [conversation];
 }
 
 function parseGmailDownloadUrl(raw) {
@@ -480,7 +526,11 @@ function containsKristyIdentity(text) {
 
 function getVisibleThreadText() {
   const main = document.querySelector('div[role="main"]');
-  return normalizeEmailText(main?.textContent || document.body.textContent || "");
+  if (!main) return "";
+  const messageBodies = Array.from(main.querySelectorAll(".a3s"));
+  return normalizeEmailText(
+    messageBodies.map((body) => body.textContent || "").join("\n\n")
+  );
 }
 
 function getSenderEmail(messageRoot) {

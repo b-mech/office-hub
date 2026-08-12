@@ -1,5 +1,10 @@
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+const configuredApiBase = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
+export const API_BASE = configuredApiBase.endsWith("/api/v1")
+  ? configuredApiBase
+  : `${configuredApiBase}/api/v1`;
 
 export interface Document {
   id: string;
@@ -50,6 +55,7 @@ export interface ReviewResponse {
     agreement_id: string;
     lots_created: number;
     lots_matched: number;
+    project_ids: string[];
     promoted_at: string;
   };
 }
@@ -94,6 +100,16 @@ export async function listDocuments(
 
   const query = params.toString();
   return apiFetch<Document[]>(`/documents${query ? `?${query}` : ""}`);
+}
+
+export async function deleteDocuments(ids: string[]): Promise<{
+  deleted_ids: string[];
+  storage_cleanup_failed_ids: string[];
+}> {
+  return apiFetch("/documents/bulk-delete", {
+    method: "POST",
+    body: JSON.stringify({ document_ids: ids }),
+  });
 }
 
 export async function getDocument(id: string): Promise<DocumentDetail> {

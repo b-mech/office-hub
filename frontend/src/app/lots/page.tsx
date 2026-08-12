@@ -295,7 +295,10 @@ export function LotWorkspace({
     loadLots()
       .then((data) => {
         setLots(data);
-        if (data.length > 0) setSelected(data[0]);
+        if (data.length > 0) {
+          const requestedProjectId = new URLSearchParams(window.location.search).get("project");
+          setSelected(data.find((lot) => lot.id === requestedProjectId) || data[0]);
+        }
       })
       .finally(() => setLoading(false));
   }, [loadLots]);

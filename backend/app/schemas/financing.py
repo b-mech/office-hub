@@ -31,6 +31,7 @@ class FacilityBase(BaseModel):
     account_type: str | None = None
     current_balance: Decimal | None = None
     outstanding_balance: Decimal | None = None
+    accrued_interest: Decimal | None = None
     account_currency: str | None = None
     maturity_date: date | None = None
     member_number: str | None = None
@@ -57,6 +58,11 @@ class FacilityUpdate(BaseModel):
     opening_balance: Decimal | None = None
     rate: Decimal | None = None
     already_drawn: Decimal | None = None
+    draw_eligible_override: Decimal | None = None
+    requested_draw_amount: Decimal | None = None
+    requested_draw_as_of: date | None = None
+    commitment_source: str | None = None
+    commitment_confirmed_at: datetime | None = None
     last_draw_date: date | None = None
     last_draw_amount: Decimal | None = None
     account_number: str | None = None
@@ -86,6 +92,30 @@ class FacilityOut(FacilityBase):
     updated_at: datetime
 
 
+class ConstructionMilestoneRevisionOut(BaseModel):
+    id: UUID
+    previous_achieved_at: datetime
+    achieved_at: datetime
+    action: str
+    note: str | None = None
+    created_at: datetime
+
+
+class ConstructionMilestoneOut(BaseModel):
+    id: UUID
+    stage: str
+    achieved_at: datetime
+    source: str
+    confirmed_at: datetime | None = None
+    confirmation_note: str | None = None
+    revisions: list[ConstructionMilestoneRevisionOut] = Field(default_factory=list)
+
+
+class ConstructionMilestoneUpdate(BaseModel):
+    achieved_on: date
+    note: str | None = Field(default=None, max_length=1000)
+
+
 class FinancingPropertyOut(BaseModel):
     property_id: UUID
     address: str
@@ -93,6 +123,8 @@ class FinancingPropertyOut(BaseModel):
     sold_or_spec: str | None = None
     stage: str | None = None
     stage_is_estimate: bool
+    milestone_achieved_at: datetime | None = None
+    milestone_history: list[ConstructionMilestoneOut] = Field(default_factory=list)
     possession_date: date | None = None
     build_start: date | None = None
     client_name: str | None = None
@@ -103,6 +135,10 @@ class FinancingPropertyOut(BaseModel):
     already_drawn: Decimal | None = None
     last_draw_date: date | None = None
     last_draw_amount: Decimal | None = None
+    requested_draw_amount: Decimal | None = None
+    requested_draw_as_of: date | None = None
+    commitment_source: str | None = None
+    commitment_confirmed_at: datetime | None = None
     rate: Decimal | None = None
     account_number: str | None = None
     account_title: str | None = None
@@ -257,6 +293,20 @@ class LenderStatementDetailOut(LenderStatementOut):
     snapshots: list[FacilityStatementSnapshotOut]
 
 
+class ManualStatementDraw(BaseModel):
+    txn_date: date
+    amount: Decimal = Field(gt=0)
+    reference: str | None = Field(default=None, max_length=255)
+
+
+class ManualStatementSnapshotCreate(BaseModel):
+    facility_id: UUID
+    reported_period_end_date: date
+    reported_period_end_balance: Decimal
+    draws: list[ManualStatementDraw] = Field(default_factory=list)
+    note: str | None = Field(default=None, max_length=1000)
+
+
 class ClientDrawScheduleItem(BaseModel):
     seq: int
     label_raw: str
@@ -328,6 +378,47 @@ class ClientPrepDrawConfirmRequest(BaseModel):
 class ClientDrawStatusRequest(BaseModel):
     status: str
     notes: str | None = None
+
+
+class ProDrawRequestCreate(BaseModel):
+    amount: Decimal | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class ProDrawBatchCreate(BaseModel):
+    property_ids: list[UUID] = Field(min_length=1)
+
+
+class ProDrawRequestStatusUpdate(BaseModel):
+    status: str
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class ProDrawRequestOut(BaseModel):
+    id: UUID
+    batch_id: UUID
+    property_id: UUID
+    property_address: str | None = None
+    facility_id: UUID | None = None
+    amount: Decimal
+    stage: str | None = None
+    status: str
+    initial_recipient: str
+    intermediary_email: str
+    email_subject: str
+    email_body: str
+    gmail_thread_id: str | None = None
+    gmail_message_id: str | None = None
+    last_email_at: datetime | None = None
+    last_email_from: str | None = None
+    sent_at: datetime | None = None
+    acknowledged_at: datetime | None = None
+    lawyer_processing_at: datetime | None = None
+    funded_at: datetime | None = None
+    closed_at: datetime | None = None
+    notes: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ClientPrepDrawOut(BaseModel):

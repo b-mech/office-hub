@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from io import BytesIO
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 _oauth_state: str | None = None
+_download_lock = threading.Lock()
 
 
 def _token_path() -> Path:
@@ -94,7 +96,6 @@ def get_box_client() -> Client | None:
     if not settings.box_client_id or not settings.box_client_secret:
         logger.warning("Box is not configured; client credentials are missing")
         return None
-
     tokens = _load_tokens()
     if tokens is None:
         logger.warning("Box is not authenticated; token file is missing")
@@ -112,6 +113,18 @@ def get_box_client() -> Client | None:
     except Exception as exc:
         logger.warning("Failed to create Box client: %s", exc)
         return None
+
+
+def download_file(file_id: str) -> bytes:
+    """Download a Box file while serializing OAuth refresh-token rotation."""
+    with _download_lock:
+        client = get_box_client()
+        if client is None:
+            raise RuntimeError("Box is unavailable")
+        try:
+            return client.file(file_id).content()
+        except Exception as exc:
+            raise RuntimeError(f"Could not download Box file {file_id}") from exc
 
 
 def get_or_create_subfolder(parent_folder_id: str, folder_name: str, *, raise_errors: bool = False) -> str | None:

@@ -9,17 +9,18 @@ from app.financing.engines.pro import money
 
 
 MONEY_PATTERN = re.compile(r"-?\$?\s*\.?[\d,]+\.\d{2}")
+SCHEDULE_MONEY = r"-?\$?\s*(?:\.?[\d,]+\.\d{2}|\.?0{1,2})"
 SCHEDULE_ROW_PATTERN = re.compile(
     r"^(?P<date>\d{1,2}/\d{1,2}/\d{2,4})\s+"
     r"(?P<days>\d+)\s+"
     r"(?P<pmt>\S+)\s+"
-    r"(?P<payment>-?\$?\s*\.?[\d,]+\.\d{2})\s+"
-    r"(?P<rate>\d+(?:\.\d+)?)\s*%\s+"
-    r"(?P<interest>-?\$?\s*\.?[\d,]+\.\d{2})\s+"
-    r"(?P<principal>-?\$?\s*\.?[\d,]+\.\d{2})\s+"
-    r"(?P<balance>-?\$?\s*\.?[\d,]+\.\d{2})\s+"
-    r"(?P<prepay>-?\$?\s*\.?[\d,]+\.\d{2})\s+"
-    r"(?P<acc_int>-?\$?\s*\.?[\d,]+\.\d{2})"
+    rf"(?P<payment>{SCHEDULE_MONEY})\s+"
+    r"(?P<rate>\d+(?:\.\d+)?)\s*%?\s+"
+    rf"(?P<interest>{SCHEDULE_MONEY})\s+"
+    rf"(?P<principal>{SCHEDULE_MONEY})\s+"
+    rf"(?P<balance>{SCHEDULE_MONEY})\s+"
+    rf"(?P<prepay>{SCHEDULE_MONEY})"
+    rf"(?:\s+(?P<acc_int>{SCHEDULE_MONEY}))?"
     r"(?:\s+(?P<reference>.*))?$"
 )
 
@@ -191,7 +192,20 @@ class _ParsedScheduleRow:
 
 
 def _parse_schedule_row(line: str) -> _ParsedScheduleRow:
-    normalized = re.sub(r"\s+", " ", line).strip()
+    normalized = line.translate(
+        str.maketrans(
+            {
+                "“": "-",
+                "”": "-",
+                "‘": "-",
+                "’": "-",
+                "−": "-",
+                "–": "-",
+                "—": "-",
+            }
+        )
+    )
+    normalized = re.sub(r"\s+", " ", normalized).strip()
     match = SCHEDULE_ROW_PATTERN.match(normalized)
     if not match:
         raise ValueError(f"Could not parse PRO schedule row: {line}")

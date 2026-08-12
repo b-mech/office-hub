@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from io import BytesIO
 
-from datetime import date
+import asyncio
+import secrets
+from datetime import date, datetime, timezone
+from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy import func
 from fastapi.responses import StreamingResponse
@@ -10,15 +13,81 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.rentals import RentalInspection, RentalInspectionPhoto, RentalLeaseImportBatch, RentalLeaseImportRow, RentalProperty, RentalUnit
-from app.schemas.rental_inspections import InspectionCreate, InspectionOut, InspectionPatch, PhotoOut
-from app.services import rental_inspections
+from app.models.rentals import RentalInspection, RentalInspectionPhoto, RentalInspectionReport, RentalInspectionReportItem, RentalLeaseImportBatch, RentalLeaseImportRow, RentalProperty, RentalUnit
+from app.schemas.rental_inspections import InspectionCreate, InspectionOut, InspectionPatch, PhotoOut, ReportCreate, ReportNotePatch, ReportSend
+from app.services import rental_inspections, rental_inspection_reports
+from app.services.box import download_file
 from app.schemas.rentals import BulkApprovalOut, LeaseImportBatchOut, LeaseImportRowOut, LeaseImportRowPatch
 from app.services import rental_lease_imports
 
 
 router = APIRouter(prefix="/api/rentals/lease-import", tags=["rentals"])
 inspections_router = APIRouter(prefix="/api/rentals", tags=["rentals"])
+
+async def _report_payload(db:AsyncSession,report:RentalInspectionReport,token:str|None=None)->dict[str,object]:
+    rows=(await db.execute(select(RentalInspectionReportItem,RentalInspection,RentalUnit,RentalProperty).join(RentalInspection,RentalInspection.id==RentalInspectionReportItem.inspection_id).join(RentalUnit,RentalUnit.id==RentalInspection.unit_id).join(RentalProperty,RentalProperty.id==RentalUnit.property_id).where(RentalInspectionReportItem.report_id==report.id).order_by(RentalInspectionReportItem.sort_order))).all()
+    items=[]
+    for report_item,inspection,unit,prop in rows:
+        photos=list((await db.scalars(select(RentalInspectionPhoto).where(RentalInspectionPhoto.inspection_id==inspection.id).order_by(RentalInspectionPhoto.id))).all())
+        items.append({"id":str(report_item.id),"inspection_id":inspection.id,"address":prop.street_address,"unit_label":unit.unit_label,"inspection_date":inspection.inspection_date,"inspection_type":inspection.inspection_type,"front_yard_score":inspection.front_yard_score,"front_yard_notes":inspection.front_yard_notes,"back_yard_score":inspection.back_yard_score,"back_yard_notes":inspection.back_yard_notes,"building_condition":inspection.building_condition,"building_notes":inspection.building_notes,"occupancy_flag":inspection.occupancy_flag,"general_notes":inspection.general_notes,"notes":report_item.notes,"notes_submitted_at":report_item.notes_submitted_at,"photos":[{"id":photo.id,"caption":photo.caption,"url":f"/api/rentals/reports/public/{token}/photos/{photo.id}" if token else None} for photo in photos]})
+    return {"id":str(report.id),"title":report.title,"status":report.status,"recipient_email":report.recipient_email,"expires_at":report.expires_at,"sent_at":report.sent_at,"items":items}
+
+async def _public_report(db:AsyncSession,token:str)->RentalInspectionReport:
+    report=await db.scalar(select(RentalInspectionReport).where(RentalInspectionReport.token_hash==rental_inspection_reports.token_hash(token)))
+    if not report: raise HTTPException(404,"Report link not found")
+    expires_at=report.expires_at if report.expires_at.tzinfo else report.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at<=datetime.now(timezone.utc): raise HTTPException(410,"This report link has expired")
+    return report
+
+@inspections_router.get("/reports/candidates")
+async def report_candidates(db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
+    rows=(await db.execute(select(RentalInspection,RentalUnit,RentalProperty).join(RentalUnit,RentalUnit.id==RentalInspection.unit_id).join(RentalProperty,RentalProperty.id==RentalUnit.property_id).where(RentalInspection.status=="submitted").order_by(RentalProperty.street_address,RentalInspection.inspection_date.desc(),RentalInspection.id.desc()))).all(); seen=set(); result=[]
+    for inspection,unit,prop in rows:
+        if prop.id in seen: continue
+        seen.add(prop.id); result.append({"inspection_id":inspection.id,"property_id":prop.id,"address":prop.street_address,"unit_label":unit.unit_label,"inspection_date":inspection.inspection_date,"front_yard_score":inspection.front_yard_score,"back_yard_score":inspection.back_yard_score})
+    return result
+
+@inspections_router.post("/reports")
+async def create_report(data:ReportCreate,db:AsyncSession=Depends(get_db))->dict[str,object]:
+    try: report,_=await rental_inspection_reports.create_report(db,data.title,data.inspection_ids,data.expires_in_days)
+    except ValueError as exc: raise HTTPException(422,str(exc)) from exc
+    return await _report_payload(db,report)
+
+@inspections_router.get("/reports")
+async def list_reports(db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
+    reports=list((await db.scalars(select(RentalInspectionReport).order_by(RentalInspectionReport.created_at.desc()))).all())
+    return [await _report_payload(db,report) for report in reports]
+
+@inspections_router.post("/reports/{report_id}/send")
+async def send_report(report_id:UUID,data:ReportSend,db:AsyncSession=Depends(get_db))->dict[str,object]:
+    report=await db.get(RentalInspectionReport,report_id)
+    if not report: raise HTTPException(404,"Report not found")
+    token=secrets.token_urlsafe(32); report.token_hash=rental_inspection_reports.token_hash(token)
+    public_url=f"{data.public_base_url.rstrip('/')}/rentals/reports/{token}"
+    try: await rental_inspection_reports.send_report_email(db,report,data.recipient_email,public_url)
+    except RuntimeError as exc:
+        await db.rollback()
+        raise HTTPException(503,str(exc)) from exc
+    return {"report":await _report_payload(db,report),"public_url":public_url}
+
+@inspections_router.get("/reports/public/{token}")
+async def public_report(token:str,db:AsyncSession=Depends(get_db))->dict[str,object]: return await _report_payload(db,await _public_report(db,token),token)
+
+@inspections_router.patch("/reports/public/{token}/items/{item_id}")
+async def save_report_note(token:str,item_id:UUID,data:ReportNotePatch,db:AsyncSession=Depends(get_db))->dict[str,object]:
+    report=await _public_report(db,token); item=await db.get(RentalInspectionReportItem,item_id)
+    if not item or item.report_id!=report.id: raise HTTPException(404,"Report item not found")
+    item.notes=data.notes.strip() or None; item.notes_submitted_at=datetime.now(timezone.utc); await db.commit()
+    return {"id":str(item.id),"notes":item.notes,"notes_submitted_at":item.notes_submitted_at}
+
+@inspections_router.get("/reports/public/{token}/photos/{photo_id}")
+async def public_report_photo(token:str,photo_id:int,db:AsyncSession=Depends(get_db))->StreamingResponse:
+    report=await _public_report(db,token)
+    photo=await db.scalar(select(RentalInspectionPhoto).join(RentalInspectionReportItem,RentalInspectionReportItem.inspection_id==RentalInspectionPhoto.inspection_id).where(RentalInspectionReportItem.report_id==report.id,RentalInspectionPhoto.id==photo_id))
+    if not photo or not photo.box_file_id: raise HTTPException(404,"Photo not found")
+    try: content=await asyncio.to_thread(download_file,photo.box_file_id)
+    except RuntimeError as exc: raise HTTPException(502,"Could not load photo from Box") from exc
+    return StreamingResponse(iter([content]),media_type="image/jpeg")
 
 @inspections_router.get("/units")
 async def rental_units(q:str|None=Query(None),property_id:int|None=Query(None),db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
@@ -27,7 +96,7 @@ async def rental_units(q:str|None=Query(None),property_id:int|None=Query(None),d
     if property_id is not None: stmt=stmt.where(RentalProperty.id==property_id)
     rows=(await db.execute(stmt.order_by(RentalProperty.group_name,RentalProperty.street_address,RentalUnit.unit_label))).all(); result=[]
     for unit,prop in rows:
-        last=await db.scalar(select(RentalInspection).where(RentalInspection.unit_id==unit.id).order_by(RentalInspection.inspection_date.desc(),RentalInspection.id.desc()).limit(1))
+        last=await db.scalar(select(RentalInspection).where(RentalInspection.unit_id==unit.id,RentalInspection.status=="submitted").order_by(RentalInspection.inspection_date.desc(),RentalInspection.id.desc()).limit(1))
         result.append({"id":unit.id,"street_address":prop.street_address,"group_name":prop.group_name,"unit_label":unit.unit_label,"last_inspection":None if not last else {"id":last.id,"inspection_date":last.inspection_date,"inspection_type":last.inspection_type,"status":last.status}})
     return result
 
@@ -37,7 +106,7 @@ async def property_map(db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
     for prop in properties:
         unit_ids=select(RentalUnit.id).where(RentalUnit.property_id==prop.id)
         unit_count=int(await db.scalar(select(func.count()).select_from(RentalUnit).where(RentalUnit.property_id==prop.id)) or 0)
-        last=await db.scalar(select(func.max(RentalInspection.inspection_date)).where(RentalInspection.unit_id.in_(unit_ids)))
+        last=await db.scalar(select(func.max(RentalInspection.inspection_date)).where(RentalInspection.unit_id.in_(unit_ids),RentalInspection.status=="submitted"))
         age=(today-last).days if last else None
         status="never" if age is None else "current" if age<=183 else "due" if age<=365 else "overdue"
         result.append({"property_id":prop.id,"street_address":prop.street_address,"group_name":prop.group_name,"latitude":prop.latitude,"longitude":prop.longitude,"unit_count":unit_count,"last_inspection_date":last,"inspection_status":status})

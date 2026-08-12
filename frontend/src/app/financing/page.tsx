@@ -1,16 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getFinancingDashboard, refreshFinancingFromSheet } from "@/lib/api/financing";
+import { createProDrawRequestBatch, getFinancingDashboard, refreshFinancingFromSheet } from "@/lib/api/financing";
 import type { FinancingDashboard, FinancingProperty, LenderStatementDetail, LenderType } from "@/types/financing";
 import { FilterBar, type FinancingFilters } from "./components/FilterBar";
 import { FinancingStatementImport } from "./components/FinancingStatementImport";
 import { LenderSummaryCards } from "./components/LenderSummaryCards";
+import { LenderDrawActivity } from "./components/LenderDrawActivity";
 import { MasterPropertyDrawTable } from "./components/MasterPropertyDrawTable";
 import { MasterSummaryBar } from "./components/MasterSummaryBar";
 import { PropertyDetailDrawer } from "./components/PropertyDetailDrawer";
 import { RefreshButton } from "./components/RefreshButton";
 import { StatementsPanel } from "./components/StatementsPanel";
+
+const money = new Intl.NumberFormat("en-CA", {
+  style: "currency",
+  currency: "CAD",
+  maximumFractionDigits: 0,
+});
 
 const emptyFilters: FinancingFilters = {
   lender: null,
@@ -19,6 +26,7 @@ const emptyFilters: FinancingFilters = {
   possessionFrom: "",
   possessionTo: "",
   search: "",
+  drawAvailableOnly: false,
 };
 
 export default function FinancingPage() {
@@ -30,6 +38,8 @@ export default function FinancingPage() {
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDrawIds, setSelectedDrawIds] = useState<Set<string>>(new Set());
+  const [preparingBatch, setPreparingBatch] = useState(false);
 
   async function load() {
     setError(null);
@@ -72,9 +82,17 @@ export default function FinancingPage() {
       if (filters.possessionFrom && (!item.possession_date || item.possession_date < filters.possessionFrom)) return false;
       if (filters.possessionTo && (!item.possession_date || item.possession_date > filters.possessionTo)) return false;
       if (filters.search && !item.address.toLowerCase().includes(filters.search.toLowerCase())) return false;
+      if (filters.drawAvailableOnly && Number(item.draw_eligible || 0) <= 0) return false;
       return true;
     });
   }, [dashboard, filters]);
+
+  const selectedDrawTotal = useMemo(
+    () => (dashboard?.properties || [])
+      .filter((item) => selectedDrawIds.has(item.property_id))
+      .reduce((total, item) => total + Number(item.draw_eligible || 0), 0),
+    [dashboard, selectedDrawIds],
+  );
 
   async function refresh() {
     setSyncing(true);
@@ -93,6 +111,50 @@ export default function FinancingPage() {
 
   function setLender(lender: LenderType | null) {
     setFilters((current) => ({ ...current, lender }));
+  }
+
+  function toggleDraw(propertyId: string) {
+    setSelectedDrawIds((current) => {
+      const next = new Set(current);
+      if (next.has(propertyId)) next.delete(propertyId);
+      else next.add(propertyId);
+      return next;
+    });
+  }
+
+  function toggleAllDraws() {
+    const ids = filtered
+      .filter((item) => item.lender_type === "PRO" && Number(item.draw_eligible || 0) > 0)
+      .map((item) => item.property_id);
+    setSelectedDrawIds((current) => {
+      const allSelected = ids.length > 0 && ids.every((id) => current.has(id));
+      const next = new Set(current);
+      ids.forEach((id) => allSelected ? next.delete(id) : next.add(id));
+      return next;
+    });
+  }
+
+  async function prepareBatch() {
+    setPreparingBatch(true);
+    setError(null);
+    try {
+      const requests = await createProDrawRequestBatch([...selectedDrawIds]);
+      const email = requests[0];
+      const params = new URLSearchParams({
+        view: "cm",
+        fs: "1",
+        to: email.initial_recipient,
+        su: email.email_subject,
+        body: email.email_body,
+      });
+      window.open(`https://mail.google.com/mail/?${params.toString()}`, "_blank", "noopener,noreferrer");
+      setNotice(`Saved a consolidated PRO request for ${requests.length} properties.`);
+      setSelectedDrawIds(new Set());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not prepare consolidated request");
+    } finally {
+      setPreparingBatch(false);
+    }
   }
 
   if (loading) {
@@ -120,8 +182,33 @@ export default function FinancingPage() {
 
         <MasterSummaryBar properties={dashboard?.properties || []} />
         {dashboard ? <LenderSummaryCards summary={dashboard.summary} active={filters.lender} onSelect={setLender} /> : null}
+        {filters.lender === "PRO" ? <LenderDrawActivity /> : null}
         <FilterBar filters={filters} onChange={setFilters} onClear={() => setFilters(emptyFilters)} />
-        <MasterPropertyDrawTable properties={filtered} onSelect={setSelected} />
+        {selectedDrawIds.size ? (
+          <div className="flex items-center justify-between rounded-lg border border-[var(--ch-accent)] bg-[var(--ch-accent-soft)] px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold">{selectedDrawIds.size} PRO draws selected</p>
+              <p className="mt-1 text-lg font-bold text-[var(--ch-accent)]">
+                Total requested: {money.format(selectedDrawTotal)}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={preparingBatch}
+              onClick={prepareBatch}
+              className="rounded-md bg-[var(--ch-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {preparingBatch ? "Preparing…" : "Create consolidated request"}
+            </button>
+          </div>
+        ) : null}
+        <MasterPropertyDrawTable
+          properties={filtered}
+          onSelect={setSelected}
+          selectedIds={selectedDrawIds}
+          onToggle={toggleDraw}
+          onToggleAll={toggleAllDraws}
+        />
         <StatementsPanel selected={selectedStatement} onSelect={setSelectedStatement} />
       </div>
       <PropertyDetailDrawer property={selected} properties={dashboard?.properties || []} onClose={() => setSelected(null)} onUpdated={load} />

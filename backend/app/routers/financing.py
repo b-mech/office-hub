@@ -24,6 +24,8 @@ from app.schemas.financing import ClientDrawScheduleReviewRequest
 from app.schemas.financing import ClientDrawStatusRequest
 from app.schemas.financing import ClientPrepDrawConfirmRequest
 from app.schemas.financing import ClientPrepDrawOut
+from app.schemas.financing import ConstructionMilestoneOut
+from app.schemas.financing import ConstructionMilestoneUpdate
 from app.schemas.financing import ConfirmDocumentRequest
 from app.schemas.financing import DocumentUploadOut
 from app.schemas.financing import FacilityCreate
@@ -35,8 +37,13 @@ from app.schemas.financing import FinancingDashboardOut
 from app.schemas.financing import FinancingPropertyOut
 from app.schemas.financing import LenderStatementDetailOut
 from app.schemas.financing import LenderStatementOut
+from app.schemas.financing import ManualStatementSnapshotCreate
 from app.schemas.financing import ProFacilityOut
 from app.schemas.financing import ProLedgerOut
+from app.schemas.financing import ProDrawRequestCreate
+from app.schemas.financing import ProDrawBatchCreate
+from app.schemas.financing import ProDrawRequestOut
+from app.schemas.financing import ProDrawRequestStatusUpdate
 from app.schemas.financing import SyncResult
 from app.services import financing
 from app.services.document_extractor import extract_financing_document
@@ -76,6 +83,101 @@ async def property_detail(property_id: UUID, db: AsyncSession = Depends(get_db))
     if item is None:
         raise HTTPException(status_code=404, detail="Property not found")
     return item
+
+
+@router.get("/pro-draw-requests", response_model=list[ProDrawRequestOut])
+async def pro_draw_requests(
+    property_id: UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> list[ProDrawRequestOut]:
+    return await financing.list_pro_draw_requests(db, property_id)
+
+
+@router.post("/properties/{property_id}/pro-draw-requests", response_model=ProDrawRequestOut)
+async def create_pro_draw_request(
+    property_id: UUID,
+    data: ProDrawRequestCreate,
+    db: AsyncSession = Depends(get_db),
+) -> ProDrawRequestOut:
+    try:
+        return await financing.create_pro_draw_request(
+            db,
+            property_id,
+            amount=data.amount,
+            notes=data.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/pro-draw-requests/batch", response_model=list[ProDrawRequestOut])
+async def create_pro_draw_request_batch(
+    data: ProDrawBatchCreate,
+    db: AsyncSession = Depends(get_db),
+) -> list[ProDrawRequestOut]:
+    try:
+        return await financing.create_pro_draw_request_batch(db, data.property_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/pro-draw-requests/{request_id}", response_model=ProDrawRequestOut)
+async def update_pro_draw_request(
+    request_id: UUID,
+    data: ProDrawRequestStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> ProDrawRequestOut:
+    try:
+        result = await financing.update_pro_draw_request_status(
+            db,
+            request_id,
+            status=data.status,
+            notes=data.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="PRO draw request not found")
+    return result
+
+
+@router.patch("/pro-draw-request-batches/{batch_id}", response_model=list[ProDrawRequestOut])
+async def update_pro_draw_request_batch(
+    batch_id: UUID,
+    data: ProDrawRequestStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> list[ProDrawRequestOut]:
+    try:
+        rows = await financing.update_pro_draw_batch_status(
+            db,
+            batch_id,
+            status=data.status,
+            notes=data.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not rows:
+        raise HTTPException(status_code=404, detail="PRO draw request batch not found")
+    return rows
+
+
+@router.patch(
+    "/milestones/{milestone_id}",
+    response_model=ConstructionMilestoneOut,
+)
+async def update_milestone(
+    milestone_id: UUID,
+    data: ConstructionMilestoneUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> ConstructionMilestoneOut:
+    milestone = await financing.update_construction_milestone(
+        db,
+        milestone_id,
+        data,
+    )
+    if milestone is None:
+        raise HTTPException(status_code=404, detail="Construction milestone not found")
+    return milestone
 
 
 @router.post("/properties/{property_id}/otp", response_model=ClientDrawScheduleOut)
@@ -131,6 +233,20 @@ async def review_client_otp(
     if reviewed is None:
         raise HTTPException(status_code=404, detail="OTP schedule not found")
     return reviewed
+
+
+@router.post("/otp/{schedule_id}/prepare-official-review")
+async def prepare_official_otp_review(
+    schedule_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, UUID]:
+    document_id = await financing.prepare_client_otp_official_review(
+        db,
+        schedule_id,
+    )
+    if document_id is None:
+        raise HTTPException(status_code=404, detail="OTP schedule not found")
+    return {"document_id": document_id}
 
 
 @router.get("/properties/{property_id}/draw-requests", response_model=list[ClientDrawRequestOut])
@@ -268,6 +384,42 @@ async def statements(lender: str | None = None, db: AsyncSession = Depends(get_d
 @router.get("/statements/{statement_id}", response_model=LenderStatementDetailOut)
 async def statement_detail(statement_id: UUID, db: AsyncSession = Depends(get_db)) -> LenderStatementDetailOut:
     statement = await financing.get_statement(db, statement_id)
+    if statement is None:
+        raise HTTPException(status_code=404, detail="Statement not found")
+    return statement
+
+
+@router.post(
+    "/statements/{statement_id}/retry",
+    response_model=LenderStatementDetailOut,
+)
+async def retry_statement(
+    statement_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> LenderStatementDetailOut:
+    statement = await financing.retry_statement_parse(db, statement_id)
+    if statement is None:
+        raise HTTPException(status_code=404, detail="Statement not found")
+    return statement
+
+
+@router.post(
+    "/statements/{statement_id}/manual-snapshots",
+    response_model=LenderStatementDetailOut,
+)
+async def create_manual_snapshot(
+    statement_id: UUID,
+    data: ManualStatementSnapshotCreate,
+    db: AsyncSession = Depends(get_db),
+) -> LenderStatementDetailOut:
+    try:
+        statement = await financing.create_manual_statement_snapshot(
+            db,
+            statement_id,
+            data,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if statement is None:
         raise HTTPException(status_code=404, detail="Statement not found")
     return statement
