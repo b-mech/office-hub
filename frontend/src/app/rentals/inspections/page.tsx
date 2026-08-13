@@ -25,6 +25,8 @@ export default function Page() {
   const [query, setQuery] = useState("");
   const [unit, setUnit] = useState<api.Unit | null>(null);
   const [item, setItem] = useState<api.Inspection | null>(null);
+  const [history, setHistory] = useState<api.Inspection[]>([]);
+  const [editingSubmitted, setEditingSubmitted] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -35,24 +37,27 @@ export default function Page() {
     setError("");
     setUnit(selected);
     const history = await api.history(selected.id);
+    setHistory(history);
     const today = new Date().toISOString().slice(0, 10);
     const existing = history.find((inspection) => inspection.inspection_date === today);
     setItem(existing || await api.create(selected.id));
+    setEditingSubmitted(false);
   }
 
   async function save() {
-    if (item && item.status !== "submitted") setItem(await api.patch(item.id, item));
+    if (item && (item.status !== "submitted" || editingSubmitted)) setItem(await api.patch(item.id, item));
   }
 
   if (item && unit) {
-    const readOnly = item.status === "submitted";
+    const readOnly = item.status === "submitted" && !editingSubmitted;
     return (
       <main className="mx-auto max-w-xl pb-28">
         <header className="sticky top-0 z-10 bg-[var(--ch-sidebar-bg)] p-4 text-white">
           <button onClick={() => { setItem(null); setUnit(null); setError(""); }}>← Units</button>
           <h1 className="mt-2 text-xl font-bold">{unit.street_address} {unit.unit_label || ""}</h1>
         </header>
-        {readOnly ? <p className="m-4 rounded-xl bg-[var(--ch-success-bg)] p-3 text-sm font-semibold text-[var(--ch-success-text)]">Submitted inspection · read only</p> : null}
+        {history.length ? <label className="mx-4 mt-4 block text-sm font-semibold">Open another inspection<select value={item.id} onChange={(event) => { const selectedInspection=history.find((inspection)=>inspection.id===Number(event.target.value));if(selectedInspection){setItem(selectedInspection);setEditingSubmitted(false);setError("");} }} className="mt-1 w-full rounded-xl border bg-[var(--ch-surface)] p-3 text-[var(--ch-text-primary)]"><option value={item.id}>{item.inspection_date} · {item.status}</option>{history.filter((inspection)=>inspection.id!==item.id).map((inspection)=><option key={inspection.id} value={inspection.id}>{inspection.inspection_date} · {inspection.status}</option>)}</select></label> : null}
+        {readOnly ? <div className="m-4 flex items-center justify-between gap-3 rounded-xl bg-[var(--ch-success-bg)] p-3 text-sm font-semibold text-[var(--ch-success-text)]"><span>Submitted inspection</span><button onClick={() => setEditingSubmitted(true)} className="rounded-lg border px-3 py-2">Edit inspection</button></div> : null}
         <fieldset disabled={readOnly} className="space-y-5 p-4 disabled:opacity-80">
           {error ? <p className="text-[var(--ch-error-text)]">{error}</p> : null}
           <label className="block">Type
@@ -87,8 +92,9 @@ export default function Page() {
           </section>
         </fieldset>
         {!readOnly ? <footer className="fixed bottom-0 left-0 right-0 flex gap-2 border-t bg-[var(--ch-surface)] p-4 lg:left-56">
-          <button onClick={save} className="flex-1 rounded-xl border p-4 font-bold">Save Draft</button>
-          <button onClick={() => save().then(() => api.submit(item.id)).then(() => { setItem(null); setUnit(null); }).catch((cause) => setError(cause.message))} className="flex-1 rounded-xl bg-[var(--ch-accent)] p-4 font-bold text-white">Submit</button>
+          <button onClick={() => { if (window.confirm("Delete this inspection and its photos? This cannot be undone.")) api.deleteInspection(item.id).then(() => { setItem(null); setUnit(null); }).catch((cause) => setError(cause.message)); }} className="rounded-xl border border-[var(--ch-error-text)] p-4 font-bold text-[var(--ch-error-text)]">Delete</button>
+          <button onClick={() => save().then(() => { if (item.status === "submitted") setEditingSubmitted(false); })} className="flex-1 rounded-xl border p-4 font-bold">{item.status === "submitted" ? "Save changes" : "Save Draft"}</button>
+          {item.status !== "submitted" ? <button onClick={() => save().then(() => api.submit(item.id)).then(() => { setItem(null); setUnit(null); }).catch((cause) => setError(cause.message))} className="flex-1 rounded-xl bg-[var(--ch-accent)] p-4 font-bold text-white">Submit</button> : null}
         </footer> : null}
       </main>
     );

@@ -34,3 +34,7 @@ class ReportSend(BaseModel):
 
 class ReportNotePatch(BaseModel):
     notes:str=Field(max_length=5000)
+
+class ReportCommentCreate(BaseModel):
+    author_name:str=Field(min_length=1,max_length=100)
+    body:str=Field(min_length=1,max_length=5000)

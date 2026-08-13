@@ -13,8 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.rentals import RentalInspection, RentalInspectionPhoto, RentalInspectionReport, RentalInspectionReportItem, RentalLeaseImportBatch, RentalLeaseImportRow, RentalProperty, RentalUnit
-from app.schemas.rental_inspections import InspectionCreate, InspectionOut, InspectionPatch, PhotoOut, ReportCreate, ReportNotePatch, ReportSend
+from app.models.rentals import RentalInspection, RentalInspectionPhoto, RentalInspectionReport, RentalInspectionReportComment, RentalInspectionReportItem, RentalLeaseImportBatch, RentalLeaseImportRow, RentalProperty, RentalUnit
+from app.schemas.rental_inspections import InspectionCreate, InspectionOut, InspectionPatch, PhotoOut, ReportCommentCreate, ReportCreate, ReportNotePatch, ReportSend
 from app.services import rental_inspections, rental_inspection_reports
 from app.services.box import download_file
 from app.schemas.rentals import BulkApprovalOut, LeaseImportBatchOut, LeaseImportRowOut, LeaseImportRowPatch
@@ -29,7 +29,8 @@ async def _report_payload(db:AsyncSession,report:RentalInspectionReport,token:st
     items=[]
     for report_item,inspection,unit,prop in rows:
         photos=list((await db.scalars(select(RentalInspectionPhoto).where(RentalInspectionPhoto.inspection_id==inspection.id).order_by(RentalInspectionPhoto.id))).all())
-        items.append({"id":str(report_item.id),"inspection_id":inspection.id,"address":prop.street_address,"unit_label":unit.unit_label,"inspection_date":inspection.inspection_date,"inspection_type":inspection.inspection_type,"front_yard_score":inspection.front_yard_score,"front_yard_notes":inspection.front_yard_notes,"back_yard_score":inspection.back_yard_score,"back_yard_notes":inspection.back_yard_notes,"building_condition":inspection.building_condition,"building_notes":inspection.building_notes,"occupancy_flag":inspection.occupancy_flag,"general_notes":inspection.general_notes,"notes":report_item.notes,"notes_submitted_at":report_item.notes_submitted_at,"photos":[{"id":photo.id,"caption":photo.caption,"url":f"/api/rentals/reports/public/{token}/photos/{photo.id}" if token else None} for photo in photos]})
+        comments=list((await db.scalars(select(RentalInspectionReportComment).where(RentalInspectionReportComment.report_item_id==report_item.id).order_by(RentalInspectionReportComment.created_at,RentalInspectionReportComment.id))).all())
+        items.append({"id":str(report_item.id),"inspection_id":inspection.id,"address":prop.street_address,"unit_label":unit.unit_label,"inspection_date":inspection.inspection_date,"inspection_type":inspection.inspection_type,"front_yard_score":inspection.front_yard_score,"front_yard_notes":inspection.front_yard_notes,"back_yard_score":inspection.back_yard_score,"back_yard_notes":inspection.back_yard_notes,"building_condition":inspection.building_condition,"building_notes":inspection.building_notes,"occupancy_flag":inspection.occupancy_flag,"general_notes":inspection.general_notes,"notes":report_item.notes,"notes_submitted_at":report_item.notes_submitted_at,"comments":[{"id":str(comment.id),"author_name":comment.author_name,"body":comment.body,"created_at":comment.created_at} for comment in comments],"photos":[{"id":photo.id,"caption":photo.caption,"url":f"/api/rentals/reports/public/{token}/photos/{photo.id}" if token else None} for photo in photos]})
     return {"id":str(report.id),"title":report.title,"status":report.status,"recipient_email":report.recipient_email,"expires_at":report.expires_at,"sent_at":report.sent_at,"items":items}
 
 async def _public_report(db:AsyncSession,token:str)->RentalInspectionReport:
@@ -58,6 +59,13 @@ async def list_reports(db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
     reports=list((await db.scalars(select(RentalInspectionReport).order_by(RentalInspectionReport.created_at.desc()))).all())
     return [await _report_payload(db,report) for report in reports]
 
+@inspections_router.delete("/reports/{report_id}",status_code=204)
+async def delete_report(report_id:UUID,db:AsyncSession=Depends(get_db))->Response:
+    report=await db.get(RentalInspectionReport,report_id)
+    if not report: raise HTTPException(404,"Report not found")
+    await db.delete(report); await db.commit()
+    return Response(status_code=204)
+
 @inspections_router.post("/reports/{report_id}/send")
 async def send_report(report_id:UUID,data:ReportSend,db:AsyncSession=Depends(get_db))->dict[str,object]:
     report=await db.get(RentalInspectionReport,report_id)
@@ -79,6 +87,14 @@ async def save_report_note(token:str,item_id:UUID,data:ReportNotePatch,db:AsyncS
     if not item or item.report_id!=report.id: raise HTTPException(404,"Report item not found")
     item.notes=data.notes.strip() or None; item.notes_submitted_at=datetime.now(timezone.utc); await db.commit()
     return {"id":str(item.id),"notes":item.notes,"notes_submitted_at":item.notes_submitted_at}
+
+@inspections_router.post("/reports/public/{token}/items/{item_id}/comments",status_code=201)
+async def add_report_comment(token:str,item_id:UUID,data:ReportCommentCreate,db:AsyncSession=Depends(get_db))->dict[str,object]:
+    report=await _public_report(db,token); item=await db.get(RentalInspectionReportItem,item_id)
+    if not item or item.report_id!=report.id: raise HTTPException(404,"Report item not found")
+    comment=RentalInspectionReportComment(report_item_id=item.id,author_name=data.author_name.strip(),body=data.body.strip())
+    db.add(comment); await db.commit(); await db.refresh(comment)
+    return {"id":str(comment.id),"author_name":comment.author_name,"body":comment.body,"created_at":comment.created_at}
 
 @inspections_router.get("/reports/public/{token}/photos/{photo_id}")
 async def public_report_photo(token:str,photo_id:int,db:AsyncSession=Depends(get_db))->StreamingResponse:
@@ -127,6 +143,12 @@ async def patch_inspection(inspection_id:int,data:InspectionPatch,db:AsyncSessio
 async def submit_inspection(inspection_id:int,db:AsyncSession=Depends(get_db))->InspectionOut:
     try:return await _inspection_out(db,await rental_inspections.submit(db,await _inspection(db,inspection_id)))
     except ValueError as exc:raise HTTPException(422,str(exc)) from exc
+@inspections_router.delete("/inspections/{inspection_id}",status_code=204)
+async def delete_inspection(inspection_id:int,db:AsyncSession=Depends(get_db))->Response:
+    try: await rental_inspections.delete(db,await _inspection(db,inspection_id))
+    except ValueError as exc: raise HTTPException(409,str(exc)) from exc
+    except RuntimeError as exc: raise HTTPException(502,str(exc)) from exc
+    return Response(status_code=204)
 @inspections_router.post("/inspections/{inspection_id}/photos",response_model=list[PhotoOut])
 async def photos(inspection_id:int,files:list[UploadFile]=File(...),caption:list[str]=Form(default=[]),db:AsyncSession=Depends(get_db))->list[PhotoOut]:
     try:

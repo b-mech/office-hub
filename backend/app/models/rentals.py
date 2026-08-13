@@ -144,6 +144,20 @@ class RentalInspectionReportItem(Base):
     notes_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class RentalInspectionReportComment(Base):
+    __tablename__ = "rental_inspection_report_comments"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, server_default=func.gen_random_uuid())
+    report_item_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rental_inspection_report_items.id", ondelete="CASCADE"), nullable=False
+    )
+    author_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class RentalLeaseImportBatch(Base):
     __tablename__ = "rental_lease_import_batches"
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
-from app.models.rentals import RentalInspection, RentalInspectionPhoto, RentalProperty, RentalUnit
+from app.models.rentals import RentalInspection, RentalInspectionPhoto, RentalInspectionReportItem, RentalProperty, RentalUnit
 from app.schemas.rental_inspections import InspectionCreate, InspectionPatch
 from app.services.box import delete_file, get_or_create_subfolder, upload_file
 
@@ -13,7 +13,6 @@ async def create(db:AsyncSession,data:InspectionCreate)->RentalInspection:
     if data.inspection_type not in {"exterior","interior"}: raise ValueError("Inspection type must be exterior or interior")
     item=RentalInspection(**data.model_dump(),status="draft"); db.add(item); await db.commit(); await db.refresh(item); return item
 async def patch(db:AsyncSession,item:RentalInspection,data:InspectionPatch)->RentalInspection:
-    if item.status=="submitted": raise ValueError("Submitted inspections are read-only")
     if data.inspection_type is not None and data.inspection_type not in {"exterior","interior"}: raise ValueError("Inspection type must be exterior or interior")
     for key,value in data.model_dump(exclude_unset=True).items(): setattr(item,key,value)
     await db.commit(); await db.refresh(item); return item
@@ -43,3 +42,14 @@ async def upload_photos(db:AsyncSession,item:RentalInspection,files:list[tuple[s
 async def remove_photo(db:AsyncSession,photo:RentalInspectionPhoto)->None:
     if photo.box_file_id and not await asyncio.to_thread(delete_file,photo.box_file_id): raise RuntimeError("Could not delete photo from Box")
     await db.delete(photo); await db.commit()
+
+async def delete(db:AsyncSession,item:RentalInspection)->None:
+    linked=await db.scalar(select(RentalInspectionReportItem.id).where(RentalInspectionReportItem.inspection_id==item.id).limit(1))
+    if linked is not None:
+        raise ValueError("This inspection is included in an inspection report. Delete that report first.")
+    photos=list((await db.scalars(select(RentalInspectionPhoto).where(RentalInspectionPhoto.inspection_id==item.id))).all())
+    for photo in photos:
+        if photo.box_file_id and not await asyncio.to_thread(delete_file,photo.box_file_id):
+            raise RuntimeError("Could not delete an inspection photo from Box. The inspection was not deleted.")
+    for photo in photos: await db.delete(photo)
+    await db.delete(item); await db.commit()

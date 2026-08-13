@@ -20,5 +20,6 @@ export const detail=(id:number)=>req<Inspection>(`${P}/inspections/${id}`);
 export const create=(unit_id:number)=>req<Inspection>(`${P}/inspections`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({unit_id})});
 export const patch=(id:number,data:Partial<Inspection>)=>req<Inspection>(`${P}/inspections/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
 export const submit=(id:number)=>req<Inspection>(`${P}/inspections/${id}/submit`,{method:"POST"});
+export const deleteInspection=(id:number)=>req<void>(`${P}/inspections/${id}`,{method:"DELETE"});
 export const upload=(id:number,file:File)=>{const body=new FormData();body.append("files",file);return req<Photo[]>(`${P}/inspections/${id}/photos`,{method:"POST",body})};
 export const remove=(id:number,photoId:number)=>req<void>(`${P}/inspections/${id}/photos/${photoId}`,{method:"DELETE"});
