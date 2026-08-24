@@ -291,7 +291,7 @@ async def list_lots(db: AsyncSession = Depends(get_db)):
     return await _list_lots(db, "lots")
 
 
-@router.get("/timeline", response_model=list[TimelineEvent], dependencies=[Depends(verify_api_key)])
+@router.get("/timeline", response_model=list[TimelineEvent])
 async def list_otp_timeline(db: AsyncSession = Depends(get_db)) -> list[TimelineEvent]:
     query = text("""
         WITH base_lots AS (
@@ -420,6 +420,7 @@ async def list_otp_timeline(db: AsyncSession = Depends(get_db)) -> list[Timeline
             FROM base_lots b
             JOIN sales.deposit_schedule sds ON sds.agreement_id = b.sale_agreement_id
             WHERE sds.due_date IS NOT NULL
+              AND sds.paid_at IS NULL
         ),
         land_deposit_events AS (
             SELECT
@@ -441,6 +442,7 @@ async def list_otp_timeline(db: AsyncSession = Depends(get_db)) -> list[Timeline
             FROM base_lots b
             JOIN land.deposit_schedule lds ON lds.lot_id = b.lot_id
             WHERE lds.due_date IS NOT NULL
+              AND lds.paid_at IS NULL
         ),
         milestone_events AS (
             SELECT
