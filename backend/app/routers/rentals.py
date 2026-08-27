@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.rentals import RentalInspection, RentalInspectionPhoto, RentalInspectionReport, RentalInspectionReportComment, RentalInspectionReportItem, RentalLeaseImportBatch, RentalLeaseImportRow, RentalProperty, RentalUnit
 from app.schemas.rental_inspections import InspectionCreate, InspectionOut, InspectionPatch, PhotoOut, ReportCommentCreate, ReportCreate, ReportNotePatch, ReportSend
 from app.services import rental_inspections, rental_inspection_reports
@@ -71,7 +72,7 @@ async def send_report(report_id:UUID,data:ReportSend,db:AsyncSession=Depends(get
     report=await db.get(RentalInspectionReport,report_id)
     if not report: raise HTTPException(404,"Report not found")
     token=secrets.token_urlsafe(32); report.token_hash=rental_inspection_reports.token_hash(token)
-    public_url=f"{data.public_base_url.rstrip('/')}/rentals/reports/{token}"
+    public_url=f"{settings.public_site_url.rstrip('/')}/rentals/reports/{token}"
     try: await rental_inspection_reports.send_report_email(db,report,data.recipient_email,public_url)
     except RuntimeError as exc:
         await db.rollback()

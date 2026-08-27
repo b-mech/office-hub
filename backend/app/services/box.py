@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
+import time
 from io import BytesIO
 from pathlib import Path
 
@@ -30,7 +32,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 _oauth_state: str | None = None
-_download_lock = threading.Lock()
+_box_lock = threading.RLock()
+_BOX_TOKEN_LIFETIME_SECONDS = 3600
+_BOX_REFRESH_MARGIN_SECONDS = 300
 
 
 def _token_path() -> Path:
@@ -41,13 +45,22 @@ def _token_path() -> Path:
 def _store_tokens(access_token: str, refresh_token: str) -> None:
     token_path = _token_path()
     token_path.parent.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(
-        json.dumps({"access_token": access_token, "refresh_token": refresh_token}),
+    temporary_path = token_path.with_suffix(f"{token_path.suffix}.tmp")
+    temporary_path.write_text(
+        json.dumps(
+            {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "expires_at": time.time() + _BOX_TOKEN_LIFETIME_SECONDS,
+            }
+        ),
         encoding="utf-8",
     )
+    temporary_path.chmod(0o600)
+    os.replace(temporary_path, token_path)
 
 
-def _load_tokens() -> dict[str, str] | None:
+def _load_tokens() -> dict[str, str | float] | None:
     token_path = _token_path()
     if not token_path.exists():
         return None
@@ -62,7 +75,12 @@ def _load_tokens() -> dict[str, str] | None:
     if not isinstance(access_token, str) or not isinstance(refresh_token, str):
         logger.warning("Box token file is missing access_token or refresh_token")
         return None
-    return {"access_token": access_token, "refresh_token": refresh_token}
+    expires_at = data.get("expires_at")
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_at": float(expires_at) if isinstance(expires_at, (int, float)) else 0.0,
+    }
 
 
 def get_oauth_url() -> str:
@@ -84,8 +102,9 @@ def handle_oauth_callback(code: str, state: str) -> bool:
         store_tokens=_store_tokens,
     )
     try:
-        access_token, refresh_token = oauth.authenticate(code)
-        _store_tokens(access_token, refresh_token)
+        with _box_lock:
+            access_token, refresh_token = oauth.authenticate(code)
+            _store_tokens(access_token, refresh_token)
     except Exception as exc:
         logger.warning("Box OAuth callback failed: %s", exc)
         return False
@@ -108,7 +127,10 @@ def get_box_client() -> Client | None:
             access_token=tokens["access_token"],
             refresh_token=tokens["refresh_token"],
             store_tokens=_store_tokens,
+            refresh_lock=_box_lock,
         )
+        if float(tokens.get("expires_at", 0.0)) <= time.time() + _BOX_REFRESH_MARGIN_SECONDS:
+            oauth.refresh(str(tokens["access_token"]))
         return Client(oauth)
     except Exception as exc:
         logger.warning("Failed to create Box client: %s", exc)
@@ -117,7 +139,7 @@ def get_box_client() -> Client | None:
 
 def download_file(file_id: str) -> bytes:
     """Download a Box file while serializing OAuth refresh-token rotation."""
-    with _download_lock:
+    with _box_lock:
         client = get_box_client()
         if client is None:
             raise RuntimeError("Box is unavailable")
@@ -128,54 +150,56 @@ def download_file(file_id: str) -> bytes:
 
 
 def get_or_create_subfolder(parent_folder_id: str, folder_name: str, *, raise_errors: bool = False) -> str | None:
-    client = get_box_client()
-    if client is None:
-        return None
+    with _box_lock:
+        client = get_box_client()
+        if client is None:
+            return None
 
-    try:
-        parent = client.folder(parent_folder_id)
-        for item in parent.get_items(limit=1000, fields=["id", "type", "name"]):
-            if getattr(item, "type", None) == "folder" and getattr(item, "name", None) == folder_name:
-                return str(item.id)
-        return str(parent.create_subfolder(folder_name).id)
-    except Exception as exc:
-        logger.warning("Failed to get or create Box folder %s: %s", folder_name, exc)
-        if raise_errors:
-            status = getattr(exc, "status", None)
-            code = getattr(exc, "code", None)
-            raise RuntimeError(f"Box folder error ({status or 'no status'}/{code or type(exc).__name__}): {exc}") from exc
-        return None
+        try:
+            parent = client.folder(parent_folder_id)
+            for item in parent.get_items(limit=1000, fields=["id", "type", "name"]):
+                if getattr(item, "type", None) == "folder" and getattr(item, "name", None) == folder_name:
+                    return str(item.id)
+            return str(parent.create_subfolder(folder_name).id)
+        except Exception as exc:
+            logger.warning("Failed to get or create Box folder %s: %s", folder_name, exc)
+            if raise_errors:
+                status = getattr(exc, "status", None)
+                code = getattr(exc, "code", None)
+                raise RuntimeError(f"Box folder error ({status or 'no status'}/{code or type(exc).__name__}): {exc}") from exc
+            return None
 
 
 def find_folder_by_name(name: str, parent_folder_id: str = "0") -> str | None:
-    client = get_box_client()
-    if client is None:
-        return None
+    with _box_lock:
+        client = get_box_client()
+        if client is None:
+            return None
 
-    logger.info("Searching Box for folder named %r under parent %s", name, parent_folder_id)
-    try:
-        ancestor_folders = None
-        if parent_folder_id != "0":
-            ancestor_folders = [client.folder(parent_folder_id)]
+        logger.info("Searching Box for folder named %r under parent %s", name, parent_folder_id)
+        try:
+            ancestor_folders = None
+            if parent_folder_id != "0":
+                ancestor_folders = [client.folder(parent_folder_id)]
 
-        results = client.search().query(
-            query=name,
-            type="folder",
-            ancestor_folders=ancestor_folders,
-            fields=["id", "type", "name"],
-            limit=100,
-        )
-        for result in results:
-            if getattr(result, "type", None) == "folder" and getattr(result, "name", None) == name:
-                folder_id = str(result.id)
-                logger.info("Found Box folder %r: %s", name, folder_id)
-                return folder_id
+            results = client.search().query(
+                query=name,
+                type="folder",
+                ancestor_folders=ancestor_folders,
+                fields=["id", "type", "name"],
+                limit=100,
+            )
+            for result in results:
+                if getattr(result, "type", None) == "folder" and getattr(result, "name", None) == name:
+                    folder_id = str(result.id)
+                    logger.info("Found Box folder %r: %s", name, folder_id)
+                    return folder_id
 
-        logger.info("No exact Box folder match found for %r", name)
-        return None
-    except Exception as exc:
-        logger.warning("Failed to search Box for folder %r: %s", name, exc)
-        return None
+            logger.info("No exact Box folder match found for %r", name)
+            return None
+        except Exception as exc:
+            logger.warning("Failed to search Box for folder %r: %s", name, exc)
+            return None
 
 
 def upload_file(
@@ -187,45 +211,47 @@ def upload_file(
     raise_errors: bool = False,
 ) -> tuple[str | None, str | None]:
     del content_type
-    client = get_box_client()
-    if client is None:
-        return None, None
+    with _box_lock:
+        client = get_box_client()
+        if client is None:
+            return None, None
 
-    try:
-        folder = client.folder(folder_id)
-        existing_file_id: str | None = None
-        for item in folder.get_items(limit=1000, fields=["id", "type", "name"]):
-            if getattr(item, "type", None) == "file" and getattr(item, "name", None) == filename:
-                existing_file_id = str(item.id)
-                break
+        try:
+            folder = client.folder(folder_id)
+            existing_file_id: str | None = None
+            for item in folder.get_items(limit=1000, fields=["id", "type", "name"]):
+                if getattr(item, "type", None) == "file" and getattr(item, "name", None) == filename:
+                    existing_file_id = str(item.id)
+                    break
 
-        stream = BytesIO(content)
-        if existing_file_id:
-            uploaded = client.file(existing_file_id).update_contents_with_stream(stream, file_name=filename)
-        else:
-            uploaded = folder.upload_stream(stream, filename)
+            stream = BytesIO(content)
+            if existing_file_id:
+                uploaded = client.file(existing_file_id).update_contents_with_stream(stream, file_name=filename)
+            else:
+                uploaded = folder.upload_stream(stream, filename)
 
-        box_file_id = str(uploaded.id)
-        return box_file_id, f"https://app.box.com/file/{box_file_id}"
-    except Exception as exc:
-        logger.warning("Failed to upload Box file %s: %s", filename, exc)
-        if raise_errors:
-            status = getattr(exc, "status", None)
-            code = getattr(exc, "code", None)
-            raise RuntimeError(f"Box upload error ({status or 'no status'}/{code or type(exc).__name__}): {exc}") from exc
-        return None, None
+            box_file_id = str(uploaded.id)
+            return box_file_id, f"https://app.box.com/file/{box_file_id}"
+        except Exception as exc:
+            logger.warning("Failed to upload Box file %s: %s", filename, exc)
+            if raise_errors:
+                status = getattr(exc, "status", None)
+                code = getattr(exc, "code", None)
+                raise RuntimeError(f"Box upload error ({status or 'no status'}/{code or type(exc).__name__}): {exc}") from exc
+            return None, None
 
 
 def delete_file(file_id: str) -> bool:
-    client = get_box_client()
-    if client is None:
-        return False
-    try:
-        client.file(file_id).delete()
-        return True
-    except Exception as exc:
-        logger.warning("Failed to delete Box file %s: %s", file_id, exc)
-        return False
+    with _box_lock:
+        client = get_box_client()
+        if client is None:
+            return False
+        try:
+            client.file(file_id).delete()
+            return True
+        except Exception as exc:
+            logger.warning("Failed to delete Box file %s: %s", file_id, exc)
+            return False
 
 
 def file_change_order_pdf(

@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     office_hub_api_key: str = Field(alias="OFFICE_HUB_API_KEY")
     default_org_id: UUID = Field(alias="DEFAULT_ORG_ID")
     environment: str = Field(alias="ENVIRONMENT")
+    public_site_url: str = Field(
+        default="https://officehub.n10z.ca",
+        alias="PUBLIC_SITE_URL",
+    )
     cors_origins: str = Field(
         default="http://localhost:3000,http://127.0.0.1:3000,https://mail.google.com",
         alias="CORS_ORIGINS",
@@ -36,6 +40,20 @@ class Settings(BaseSettings):
         default="~/.secrets/office-hub-google-token.json",
         alias="GOOGLE_OAUTH_TOKEN_PATH",
     )
+    google_auth_client_id: str = Field(default="", alias="GOOGLE_AUTH_CLIENT_ID")
+    google_auth_client_secret: str = Field(default="", alias="GOOGLE_AUTH_CLIENT_SECRET")
+    google_auth_redirect_uri: str = Field(
+        default="http://localhost:8000/api/auth/callback",
+        alias="GOOGLE_AUTH_REDIRECT_URI",
+    )
+    frontend_auth_callback_url: str = Field(
+        default="http://localhost:3000/auth/callback",
+        alias="FRONTEND_AUTH_CALLBACK_URL",
+    )
+    auth_access_token_minutes: int = Field(default=15, alias="AUTH_ACCESS_TOKEN_MINUTES")
+    auth_refresh_token_days: int = Field(default=14, alias="AUTH_REFRESH_TOKEN_DAYS")
+    auth_cookie_secure: bool = Field(default=False, alias="AUTH_COOKIE_SECURE")
+    auth_enforced: bool = Field(default=False, alias="AUTH_ENFORCED")
     box_client_id: str = Field(default="", alias="BOX_CLIENT_ID")
     box_client_secret: str = Field(default="", alias="BOX_CLIENT_SECRET")
     box_redirect_uri: str = Field(

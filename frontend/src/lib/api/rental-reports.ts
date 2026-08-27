@@ -1,4 +1,4 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/backend-api";
 const P = "/api/rentals/reports";
 
 export type Candidate = { inspection_id:number; property_id:number; address:string; unit_label:string|null; inspection_date:string; front_yard_score:number|null; back_yard_score:number|null };
@@ -11,7 +11,7 @@ async function req<T>(path:string,init?:RequestInit):Promise<T>{const response=a
 export const candidates=()=>req<Candidate[]>(`${P}/candidates`);
 export const reports=()=>req<Report[]>(P);
 export const create=(title:string,inspection_ids:number[],expires_in_days:number)=>req<Report>(P,{method:"POST",body:JSON.stringify({title,inspection_ids,expires_in_days})});
-export const send=(id:string,recipient_email:string,public_base_url:string)=>req<{report:Report;public_url:string}>(`${P}/${id}/send`,{method:"POST",body:JSON.stringify({recipient_email,public_base_url})});
+export const send=(id:string,recipient_email:string)=>req<{report:Report;public_url:string}>(`${P}/${id}/send`,{method:"POST",body:JSON.stringify({recipient_email})});
 export const remove=(id:string)=>req<void>(`${P}/${id}`,{method:"DELETE"});
 export const publicReport=(token:string)=>req<Report>(`${P}/public/${token}`);
 export const saveNote=(token:string,itemId:string,notes:string)=>req<{id:string;notes:string|null;notes_submitted_at:string}>(`${P}/public/${token}/items/${itemId}`,{method:"PATCH",body:JSON.stringify({notes})});

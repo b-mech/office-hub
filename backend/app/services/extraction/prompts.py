@@ -80,6 +80,17 @@ Rules:
    - civic_address = 214 Woodland Way
 4f. Do not leave block, lot_number, or civic_address null if a plausible row-level value is present in the lot schedule table text, even if OCR is noisy. Use a lower confidence instead.
 4g. Prefer values that stay internally consistent across the row. For example, if a row clearly contains a block, lot number, street number, street name, plan, and purchase price together, treat them as one lot row.
+4h. Lots are not always presented in a schedule or chart. A legal-description list or range is
+    also a lot listing and MUST produce entries in `lots`. For example:
+    - `LOTS 1 - 34 BLOCK 1 PLAN 20613 WLTO ... (34 lots)` becomes one grouped entry with
+      lot_number = "1-34", block = "1", plan = "20613 WLTO", and the full source line in lot_notes.
+    - `LOTS 37, 39, 41 BLOCK 1 PLAN 20613 WLTO ... (3 lots)` becomes one grouped entry with
+      lot_number = "37, 39, 41".
+    - `LOT 44 - 49 BLOCK 1 PLAN 20613 WLTO ... (6 lots)` becomes one grouped entry with
+      lot_number = "44-49".
+4i. If the agreement says it contains one or more building lots and any `LOT`, `LOTS`, `BLOCK`,
+    or `PLAN` legal descriptions are present, `lots` must not be empty. Preserve ranges and lists
+    as grouped entries when individual civic addresses or per-lot prices are not provided.
 5. Extract community-level development guidelines into development_guidelines.
    These are rules that apply to the whole development/community, not one buyer's
    home upgrade selections. Preserve document wording where possible and use arrays

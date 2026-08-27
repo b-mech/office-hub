@@ -30,7 +30,6 @@ class ReportCreate(BaseModel):
 
 class ReportSend(BaseModel):
     recipient_email:str=Field(min_length=3,max_length=255)
-    public_base_url:str=Field(min_length=1,max_length=500)
 
 class ReportNotePatch(BaseModel):
     notes:str=Field(max_length=5000)

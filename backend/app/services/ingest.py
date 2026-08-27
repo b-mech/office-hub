@@ -4,6 +4,7 @@ import asyncio
 import csv
 import hashlib
 import io
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone
@@ -27,6 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 from app.models.core import Org
 from app.models.documents import DocType
 from app.models.documents import Document
@@ -42,6 +44,7 @@ from app.services.ocr.extractor import PDFExtractor
 
 
 DOCUMENTS_BUCKET = "documents"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -301,6 +304,139 @@ class IngestService:
             await file.close()
             temp_path.unlink(missing_ok=True)
 
+    async def stage_pdf(self, *, file: UploadFile, doc_type: str) -> IngestResult:
+        """Store an uploaded PDF and commit its staging record before extraction."""
+        requested_doc_type = self._normalize_requested_doc_type(doc_type)
+        filename = Path(file.filename or "document.pdf").name
+        file_bytes = await file.read()
+        await file.close()
+        if not file_bytes:
+            raise ValueError("Uploaded PDF is empty")
+
+        resolved_doc_type = requested_doc_type or self._infer_doc_type(
+            filename=filename,
+            ocr_text="",
+        )
+        checksum = hashlib.sha256(file_bytes).hexdigest()
+        minio_key = f"inbox/{uuid4()}-{filename}"
+        self._upload_bytes(
+            file_bytes=file_bytes,
+            minio_key=minio_key,
+            content_type="application/pdf",
+        )
+
+        org_id = await self._fetch_default_org_id()
+        document = Document(
+            org_id=org_id,
+            doc_type=resolved_doc_type,
+            status=DocumentStatus.RECEIVED,
+            original_filename=filename,
+            minio_bucket=DOCUMENTS_BUCKET,
+            minio_key=minio_key,
+            file_size_bytes=len(file_bytes),
+            checksum_sha256=checksum,
+        )
+        self._db.add(document)
+        try:
+            await self._db.commit()
+        except IntegrityError:
+            await self._db.rollback()
+            document = Document(
+                org_id=org_id,
+                doc_type=resolved_doc_type,
+                status=DocumentStatus.RECEIVED,
+                original_filename=filename,
+                minio_bucket=DOCUMENTS_BUCKET,
+                minio_key=minio_key,
+                file_size_bytes=len(file_bytes),
+                checksum_sha256=None,
+            )
+            self._db.add(document)
+            await self._db.commit()
+        await self._db.refresh(document)
+
+        return IngestResult(
+            document_id=document.id,
+            status=document.status,
+            extraction_summary="Document received; extraction in progress",
+        )
+
+    @staticmethod
+    async def process_staged_pdf(document_id: UUID) -> None:
+        """OCR and extract a staged PDF using a session independent of the request."""
+        async with AsyncSessionLocal() as db:
+            service = IngestService(db)
+            document = await db.get(Document, document_id)
+            if document is None:
+                logger.error("Staged document %s disappeared before extraction", document_id)
+                return
+
+            with NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+                temp_path = Path(temp_file.name)
+            started_at = datetime.now(timezone.utc)
+            try:
+                service._download_pdf(
+                    temp_path=temp_path,
+                    bucket=document.minio_bucket,
+                    minio_key=document.minio_key,
+                )
+                ocr_result = await asyncio.to_thread(PDFExtractor().extract, temp_path)
+                ingestion = Ingestion(
+                    document_id=document.id,
+                    ocr_method=service._normalize_ocr_method(ocr_result.method_used),
+                    ocr_text=ocr_result.raw_text,
+                    ocr_confidence=service._normalize_confidence(ocr_result.overall_confidence),
+                    page_count=ocr_result.total_pages,
+                    started_at=started_at,
+                    completed_at=datetime.now(timezone.utc),
+                    error_message=None,
+                )
+                db.add(ingestion)
+                await db.flush()
+
+                try:
+                    extraction_result = await asyncio.to_thread(
+                        get_extraction_service().extract,
+                        document.doc_type.value,
+                        ocr_result.raw_text,
+                    )
+                except Exception as exc:
+                    ingestion.error_message = f"Extraction failed: {exc}"
+                else:
+                    db.add(
+                        Extraction(
+                            ingestion_id=ingestion.id,
+                            model_provider=extraction_result.model_provider,
+                            model_version=extraction_result.model_version,
+                            prompt_version=extraction_result.prompt_version,
+                            extracted_payload=extraction_result.extracted_payload,
+                            field_confidences=extraction_result.field_confidences,
+                            low_confidence_fields=extraction_result.low_confidence_fields,
+                        )
+                    )
+                document.status = DocumentStatus.IN_REVIEW
+                await db.commit()
+            except Exception as exc:
+                await db.rollback()
+                logger.exception("Background extraction failed for document %s", document_id)
+                document = await db.get(Document, document_id)
+                if document is not None:
+                    db.add(
+                        Ingestion(
+                            document_id=document.id,
+                            ocr_method="manual",
+                            ocr_text=None,
+                            ocr_confidence=None,
+                            page_count=None,
+                            started_at=started_at,
+                            completed_at=datetime.now(timezone.utc),
+                            error_message=f"Ingestion failed: {exc}",
+                        )
+                    )
+                    await db.commit()
+            finally:
+                temp_path.unlink(missing_ok=True)
+
     def _upload_bytes(self, *, file_bytes: bytes, minio_key: str, content_type: str) -> None:
         s3_client = self._s3_client()
         self._ensure_documents_bucket(s3_client)
@@ -328,6 +464,12 @@ class IngestService:
             )
         except (BotoCoreError, ClientError) as exc:
             raise RuntimeError("Failed to upload PDF to MinIO") from exc
+
+    def _download_pdf(self, *, temp_path: Path, bucket: str, minio_key: str) -> None:
+        try:
+            self._s3_client().download_file(bucket, minio_key, str(temp_path))
+        except (BotoCoreError, ClientError) as exc:
+            raise RuntimeError("Failed to download PDF from MinIO") from exc
 
     def _s3_client(self):
         return boto3.client(

@@ -29,7 +29,7 @@ export interface PropertyFinancialSummary {
   };
 }
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/backend-api";
 
 export async function getPropertyFinancialSummary(propertyId: string): Promise<PropertyFinancialSummary> {
   const response = await fetch(`${BASE}/api/v1/financing/properties/${propertyId}/financial-summary`, {

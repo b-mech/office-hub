@@ -1,4 +1,4 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/backend-api";
 const PATH = "/api/rentals/lease-import";
 
 export type ImportRow = { id:number; batch_id:number; source_row_number:number; raw_data:Record<string,unknown>; parsed_data:Record<string,unknown>|null; confidence:Record<string,unknown>|null; match_type:string|null; matched_unit_id:number|null; suggested_action:string|null; existing_lease_id:number|null; review_status:string; reviewed_at:string|null; committed_lease_id:number|null; created_at:string };

@@ -102,6 +102,7 @@ class User(Base):
         nullable=False,
     )
     email: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    google_subject: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
     full_name: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[UserRole] = mapped_column(
         SqlEnum(
@@ -120,6 +121,15 @@ class User(Base):
         default=True,
         server_default=text("true"),
     )
+    permissions: Mapped[dict[str, str]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    invite_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

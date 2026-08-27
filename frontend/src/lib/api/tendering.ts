@@ -1,6 +1,6 @@
 import type { Contractor, ContractorCategory, ContractorPayload, MarkupDocumentState, TenderAward, TenderBid, TenderDocument, TenderDocumentMarkup, TenderDocumentMarkupSummary, TenderDocumentType, TenderLineItem, TenderMarkupCalibration, TenderPackage, TenderStatus } from "@/types/tendering";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/backend-api";
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, { ...options, cache: "no-store", headers: { ...(options?.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(options?.headers || {}) } });
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(typeof body.detail === "string" ? body.detail : `API error ${response.status}`); }

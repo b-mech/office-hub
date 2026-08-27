@@ -1,6 +1,6 @@
 import type { ProgramCapacity, ProgramDetail } from "@/types/program-allocations";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/backend-api";
 const PROGRAMS_PATH = "/api/v1/financing/programs";
 
 async function apiFetch<T>(path: string): Promise<T> {

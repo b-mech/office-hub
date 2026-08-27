@@ -313,14 +313,25 @@ export default function DocumentReviewPage() {
 
   useEffect(() => {
     let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let waitingForExtraction = false;
 
-    async function loadDocument() {
-      setLoading(true);
+    async function loadDocument(initialLoad = false) {
+      if (initialLoad) {
+        setLoading(true);
+      }
       setError(null);
-      setSuccess(null);
+      if (initialLoad) {
+        setSuccess(null);
+      }
       try {
         const result = await getDocument(documentId);
         if (cancelled) {
+          return;
+        }
+
+        if (result.extraction && waitingForExtraction) {
+          window.location.reload();
           return;
         }
 
@@ -330,6 +341,10 @@ export default function DocumentReviewPage() {
         setOpenLots(
           Object.fromEntries((result.extraction?.extracted_payload.lots || []).map((_, index) => [index, true])),
         );
+        if (!result.extraction && ["received", "classifying", "extracting"].includes(result.document.status)) {
+          waitingForExtraction = true;
+          refreshTimer = setTimeout(() => void loadDocument(), 3000);
+        }
       } catch (loadError) {
         if (!cancelled) {
           setError(
@@ -343,9 +358,12 @@ export default function DocumentReviewPage() {
       }
     }
 
-    void loadDocument();
+    void loadDocument(true);
     return () => {
       cancelled = true;
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
     };
   }, [documentId]);
 

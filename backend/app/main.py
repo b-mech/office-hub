@@ -22,6 +22,8 @@ from app.routers.rentals import inspections_router, router as rentals_router
 from app.routers.tendering import router as tendering_router
 from app.routers.users import router as users_router
 from app.core.config import settings
+from app.middleware.auth import AuthenticationMiddleware
+from app.routers.auth import router as auth_router
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +41,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+if settings.auth_enforced:
+    app.add_middleware(AuthenticationMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -59,6 +63,7 @@ async def health_check() -> dict[str, str]:
 
 
 app.include_router(api_v1_router, prefix="/api/v1")
+app.include_router(auth_router)
 app.include_router(box_router, prefix="/api/v1/box")
 app.include_router(change_orders_router, prefix="/api/v1")
 app.include_router(construction_stage_history_router)

@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter
+from fastapi import BackgroundTasks
 from fastapi import Depends
 from fastapi import File
 from fastapi import Form
@@ -22,6 +23,7 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 @router.post("")
 async def ingest_document(
+    background_tasks: BackgroundTasks,
     file: Annotated[UploadFile, File()],
     doc_type: Annotated[str, Form()],
     matched_lot_id: Annotated[UUID | None, Form()] = None,
@@ -46,7 +48,8 @@ async def ingest_document(
         if doc_type == "budget":
             result = await IngestService(db).ingest_budget_file(file=file, matched_lot_id=matched_lot_id)
         else:
-            result = await IngestService(db).ingest_pdf(file=file, doc_type=doc_type)
+            result = await IngestService(db).stage_pdf(file=file, doc_type=doc_type)
+            background_tasks.add_task(IngestService.process_staged_pdf, result.document_id)
     except BudgetProjectMatchRequired as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
