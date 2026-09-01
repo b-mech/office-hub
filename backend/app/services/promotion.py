@@ -14,6 +14,7 @@ from uuid import UUID
 
 from sqlalchemy import func
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.core import AuditLog
@@ -53,6 +54,16 @@ class PromotionResult:
     promoted_at: datetime
 
 
+class PromotionAlreadyExistsError(ValueError):
+    def __init__(self, document_id: UUID, agreement_id: UUID | None) -> None:
+        self.document_id = document_id
+        self.agreement_id = agreement_id
+        existing = str(agreement_id) if agreement_id is not None else "unknown"
+        super().__init__(
+            f"Document {document_id} has already been promoted as agreement {existing}"
+        )
+
+
 class PromotionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -89,12 +100,14 @@ class PromotionService:
         try:
             payload = review.reviewed_payload
             if document.doc_type.value == "land_otp":
+                await self._ensure_not_already_promoted(document.id, Agreement)
                 agreement_id = await self._promote_land_otp(
                     payload=payload,
                     document_id=document.id,
                     review_id=review.id,
                 )
             elif document.doc_type.value == "sale_otp":
+                await self._ensure_not_already_promoted(document.id, SalesAgreement)
                 agreement_id = await self._promote_sale_otp(
                     payload=payload,
                     document_id=document.id,
@@ -133,9 +146,41 @@ class PromotionService:
                 agreement_id=agreement_id,
                 promoted_at=promoted_at,
             )
+        except IntegrityError as exc:
+            await self.db.rollback()
+            constraint_name = getattr(getattr(exc, "orig", None), "diag", None)
+            constraint_name = getattr(constraint_name, "constraint_name", None)
+            if constraint_name in {
+                "uq_land_agreements_document_id",
+                "uq_sales_agreements_document_id",
+            }:
+                model = (
+                    Agreement
+                    if document.doc_type.value == "land_otp"
+                    else SalesAgreement
+                )
+                existing_id = await self.db.scalar(
+                    select(model.id).where(model.document_id == document.id).limit(1)
+                )
+                raise PromotionAlreadyExistsError(document.id, existing_id) from exc
+            raise
         except Exception:
             await self.db.rollback()
             raise
+
+    async def _ensure_not_already_promoted(
+        self,
+        document_id: UUID,
+        agreement_model: type[Agreement] | type[SalesAgreement],
+    ) -> None:
+        existing_id = await self.db.scalar(
+            select(agreement_model.id)
+            .where(agreement_model.document_id == document_id)
+            .order_by(agreement_model.created_at.asc())
+            .limit(1)
+        )
+        if existing_id is not None:
+            raise PromotionAlreadyExistsError(document_id, existing_id)
 
     async def _promote_land_otp(
         self,

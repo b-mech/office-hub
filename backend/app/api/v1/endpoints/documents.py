@@ -30,6 +30,7 @@ from app.models.documents import DocumentStatus
 from app.models.documents import Extraction
 from app.models.documents import Ingestion
 from app.models.documents import Review
+from app.services.promotion import PromotionAlreadyExistsError
 from app.services.promotion import PromotionService
 
 
@@ -302,6 +303,8 @@ async def create_document_review(
     if review_request.decision == "approved":
         try:
             promotion_result = await PromotionService(db).promote(review.id)
+        except PromotionAlreadyExistsError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {

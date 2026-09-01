@@ -99,6 +99,7 @@ class Agreement(Base):
 
     __table_args__ = (
         CheckConstraint("interest_type IN ('flat', 'prime_plus_fixed')"),
+        UniqueConstraint("document_id", name="uq_land_agreements_document_id"),
         Index("idx_land_agreements_development_document", "development_id", "document_id"),
         {"schema": "land"},
     )

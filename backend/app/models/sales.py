@@ -19,6 +19,7 @@ from sqlalchemy import Integer
 from sqlalchemy import JSON
 from sqlalchemy import Numeric
 from sqlalchemy import Text
+from sqlalchemy import UniqueConstraint
 from sqlalchemy import func
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -116,6 +117,7 @@ class SalesAgreement(Base):
     )
 
     __table_args__ = (
+        UniqueConstraint("document_id", name="uq_sales_agreements_document_id"),
         Index("idx_sales_agreements_lot_status", "lot_id", "status"),
         {"schema": "sales"},
     )
