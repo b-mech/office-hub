@@ -46,17 +46,20 @@ export interface ReviewRequest {
   edited_fields: string[];
   decision: "approved" | "rejected" | "deferred";
   rejection_reason?: string;
+  dry_run?: boolean;
 }
 
 export interface ReviewResponse {
   id: string;
   decision: string;
   promotion?: {
-    agreement_id: string;
+    agreement_id: string | null;
     lots_created: number;
     lots_matched: number;
     project_ids: string[];
-    promoted_at: string;
+    promoted_at: string | null;
+    dry_run: boolean;
+    preview?: Record<string, unknown>;
   };
 }
 

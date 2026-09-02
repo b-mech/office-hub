@@ -42,6 +42,7 @@ class ReviewCreateRequest(BaseModel):
     edited_fields: list[str] = Field(default_factory=list)
     decision: Literal["approved", "rejected", "deferred"]
     rejection_reason: str | None = None
+    dry_run: bool = False
 
 
 class DocumentBulkDeleteRequest(BaseModel):
@@ -302,7 +303,10 @@ async def create_document_review(
 
     if review_request.decision == "approved":
         try:
-            promotion_result = await PromotionService(db).promote(review.id)
+            promotion_result = await PromotionService(db).promote(
+                review.id,
+                dry_run=review_request.dry_run,
+            )
         except PromotionAlreadyExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
@@ -316,6 +320,8 @@ async def create_document_review(
                 "lots_matched": promotion_result.lots_matched,
                 "project_ids": promotion_result.project_ids,
                 "promoted_at": promotion_result.promoted_at,
+                "dry_run": promotion_result.dry_run,
+                "preview": promotion_result.preview,
             },
         }
 

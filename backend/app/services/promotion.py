@@ -17,10 +17,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.addresses import normalize_address
 from app.models.core import AuditLog
 from app.models.core import Contact
 from app.models.core import ContactType
 from app.models.core import Development
+from app.models.core import DevelopmentType
 from app.models.core import Lot
 from app.models.core import LotStatus
 from app.models.core import LotTriggerType
@@ -30,6 +32,7 @@ from app.models.documents import DocumentStatus
 from app.models.documents import Extraction
 from app.models.documents import Ingestion
 from app.models.documents import Review
+from app.models.financing import Property
 from app.models.land import Agreement
 from app.models.land import DepositSchedule
 from app.models.land import LotTerms
@@ -41,6 +44,7 @@ from app.models.sales import SalesAgreement
 from app.models.sales import SalesAgreementStatus
 from app.models.sales import SalesDepositSchedule
 from app.services.developments import DevelopmentService
+from app.services.developments import municipality_key
 
 
 @dataclass(slots=True)
@@ -50,8 +54,10 @@ class PromotionResult:
     lots_created: int
     lots_matched: int
     project_ids: list[UUID]
-    agreement_id: UUID
-    promoted_at: datetime
+    agreement_id: UUID | None
+    promoted_at: datetime | None
+    dry_run: bool = False
+    preview: dict[str, Any] | None = None
 
 
 class PromotionAlreadyExistsError(ValueError):
@@ -75,8 +81,10 @@ class PromotionService:
         self._lots_created = 0
         self._lots_matched = 0
         self._project_ids: list[UUID] = []
+        self._dry_run = False
+        self._preview: dict[str, Any] = {}
 
-    async def promote(self, review_id: UUID) -> PromotionResult:
+    async def promote(self, review_id: UUID, *, dry_run: bool = False) -> PromotionResult:
         row = await self.db.execute(
             select(Review, Document)
             .join(Extraction, Review.extraction_id == Extraction.id)
@@ -96,6 +104,10 @@ class PromotionService:
         self._lots_created = 0
         self._lots_matched = 0
         self._project_ids = []
+        self._dry_run = dry_run
+        self._preview = self._new_preview(document.doc_type.value, review.reviewed_payload)
+        if document.doc_type.value == "land_otp":
+            self._collect_land_input_warnings(review.reviewed_payload)
 
         try:
             payload = review.reviewed_payload
@@ -135,7 +147,10 @@ class PromotionService:
                 new_data={"status": DocumentStatus.APPROVED.value},
             )
 
-            await self.db.commit()
+            if dry_run:
+                await self.db.rollback()
+            else:
+                await self.db.commit()
 
             return PromotionResult(
                 review_id=review.id,
@@ -145,6 +160,8 @@ class PromotionService:
                 project_ids=self._project_ids,
                 agreement_id=agreement_id,
                 promoted_at=promoted_at,
+                dry_run=dry_run,
+                preview=self._preview if dry_run else None,
             )
         except IntegrityError as exc:
             await self.db.rollback()
@@ -164,9 +181,144 @@ class PromotionService:
                 )
                 raise PromotionAlreadyExistsError(document.id, existing_id) from exc
             raise
+        except PromotionAlreadyExistsError:
+            await self.db.rollback()
+            raise
+        except ValueError as exc:
+            await self.db.rollback()
+            if dry_run:
+                self._preview["execution_error"] = str(exc)
+                self._add_warning("promotion_error", str(exc))
+                return PromotionResult(
+                    review_id=review.id,
+                    document_id=document.id,
+                    lots_created=self._lots_created,
+                    lots_matched=self._lots_matched,
+                    project_ids=self._project_ids,
+                    agreement_id=None,
+                    promoted_at=None,
+                    dry_run=True,
+                    preview=self._preview,
+                )
+            raise
         except Exception:
             await self.db.rollback()
             raise
+
+    def _new_preview(self, doc_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+        agreement = payload.get("agreement", {})
+        if not isinstance(agreement, dict):
+            agreement = {}
+        preview: dict[str, Any] = {
+            "document_type": doc_type,
+            "agreement": dict(agreement),
+            "contacts": [],
+            "developments": [],
+            "lots": [],
+            "linkable_properties": [],
+            "warnings": [],
+        }
+        if doc_type == "land_otp":
+            security = payload.get("security_deposit", {})
+            lots = payload.get("lots", [])
+            lot_count = len(lots) if isinstance(lots, list) else 0
+            rate = self._coerce_decimal(
+                security.get("rate_per_lot") if isinstance(security, dict) else None,
+                scale=2,
+            )
+            maximum = self._coerce_decimal(
+                security.get("maximum_amount") if isinstance(security, dict) else None,
+                scale=2,
+            )
+            preview["agreement"] = {
+                "vendor": agreement.get("vendor_name"),
+                "development": agreement.get("development_name"),
+                "municipality": agreement.get("municipality"),
+                "agreement_date": agreement.get("agreement_date"),
+                "total_purchase_price": agreement.get("total_purchase_price"),
+                "security_deposit": security if isinstance(security, dict) else {},
+                "calculated_security_deposit": (
+                    min(rate * Decimal(lot_count), maximum)
+                    if rate is not None and maximum is not None
+                    else None
+                ),
+            }
+        elif doc_type == "sale_otp":
+            preview["agreement"] = {
+                **agreement,
+                "deposit_structure": payload.get("payment_schedule", []),
+            }
+        return preview
+
+    def _collect_land_input_warnings(self, payload: dict[str, Any]) -> None:
+        agreement = payload.get("agreement", {})
+        if not isinstance(agreement, dict):
+            agreement = {}
+        for field in (
+            "vendor_name",
+            "development_name",
+            "municipality",
+            "agreement_date",
+            "total_purchase_price",
+        ):
+            if agreement.get(field) in (None, ""):
+                self._add_warning("missing_required_field", f"agreement.{field} is missing")
+        lots = payload.get("lots", [])
+        security = payload.get("security_deposit", {})
+        if not isinstance(security, dict):
+            security = {}
+        for field in ("rate_per_lot", "maximum_amount"):
+            if security.get(field) in (None, ""):
+                self._add_warning(
+                    "missing_required_field",
+                    f"security_deposit.{field} is missing",
+                )
+        if not isinstance(lots, list):
+            self._add_warning("missing_required_field", "lots must be a list")
+            return
+        for index, lot in enumerate(lots):
+            if not isinstance(lot, dict):
+                self._add_warning("incomplete_legal_description", f"lots[{index}] is not an object")
+                continue
+            missing = [
+                field
+                for field in ("block", "lot_number", "plan")
+                if lot.get(field) in (None, "")
+            ]
+            if missing:
+                self._add_warning(
+                    "incomplete_legal_description",
+                    f"lots[{index}] is missing {', '.join(missing)}",
+                    lot_index=index,
+                )
+                self._preview["lots"].append(
+                    {
+                        "action": "blocked",
+                        "legal_description_normalized": None,
+                        "civic_address": self._as_text(lot.get("civic_address")) or None,
+                        "purchase_price": lot.get("purchase_price"),
+                        "deposits": [
+                            {"number": 1, "amount": lot.get("deposit_1_amount")},
+                            {
+                                "number": 2,
+                                "amount": lot.get("deposit_2_amount"),
+                                "due_date": lot.get("deposit_2_due_date"),
+                            },
+                        ],
+                    }
+                )
+            for field in ("purchase_price", "deposit_1_amount", "deposit_2_amount"):
+                if lot.get(field) in (None, ""):
+                    self._add_warning(
+                        "missing_required_field",
+                        f"lots[{index}].{field} is missing",
+                        lot_index=index,
+                    )
+
+    def _add_warning(self, code: str, message: str, **details: Any) -> None:
+        self._preview.setdefault("warnings", []).append(
+            {"code": code, "message": message, **details}
+        )
 
     async def _ensure_not_already_promoted(
         self,
@@ -312,6 +464,15 @@ class PromotionService:
             select(Contact).where(func.lower(func.trim(Contact.full_name)) == normalized_name)
         )
         if existing is not None:
+            if self._dry_run:
+                self._preview["contacts"].append(
+                    {
+                        "action": "match",
+                        "id": str(existing.id),
+                        "name": existing.full_name,
+                        "type": existing.contact_type.value,
+                    }
+                )
             await self._write_audit_log(
                 schema_name="core",
                 table_name="contacts",
@@ -333,6 +494,15 @@ class PromotionService:
         )
         self.db.add(contact)
         await self.db.flush()
+        if self._dry_run:
+            self._preview["contacts"].append(
+                {
+                    "action": "create",
+                    "id": str(contact.id),
+                    "name": contact.full_name,
+                    "type": contact.contact_type.value,
+                }
+            )
         await self._write_audit_log(
             schema_name="core",
             table_name="contacts",
@@ -358,6 +528,20 @@ class PromotionService:
         if self._org_id is None:
             raise ValueError("Organization context is not available for development upsert")
 
+        municipalities_before = list(
+            (
+                await self.db.scalars(
+                    select(Development).where(
+                        Development.org_id == self._org_id,
+                        Development.development_type == DevelopmentType.MUNICIPALITY,
+                    )
+                )
+            ).all()
+        )
+        municipality_existed = any(
+            municipality_key(item.name) == municipality_key(municipality)
+            for item in municipalities_before
+        )
         resolution = await DevelopmentService(self.db).resolve_for_promotion(
             org_id=self._org_id,
             development_name=name,
@@ -365,6 +549,35 @@ class PromotionService:
             developer_contact_id=developer_contact_id,
         )
         development = resolution.development
+        if self._dry_run:
+            parent = (
+                await self.db.get(Development, development.parent_id)
+                if development.parent_id is not None
+                else None
+            )
+            path = [development.name]
+            if parent is not None:
+                path.insert(0, parent.name)
+                self._preview["developments"].append(
+                    {
+                        "action": "match" if municipality_existed else "create",
+                        "id": str(parent.id),
+                        "name": parent.name,
+                        "type": parent.development_type.value,
+                        "parent_id": None,
+                        "path": [parent.name],
+                    }
+                )
+            self._preview["developments"].append(
+                {
+                    "action": "create" if resolution.created else "match",
+                    "id": str(development.id),
+                    "name": development.name,
+                    "type": development.development_type.value,
+                    "parent_id": str(development.parent_id) if development.parent_id else None,
+                    "path": path,
+                }
+            )
         if not resolution.created:
             await self._apply_development_guidelines(
                 development=development,
@@ -464,11 +677,40 @@ class PromotionService:
 
     async def _upsert_lot(self, lot: dict[str, Any], development_id: UUID) -> UUID:
         legal_description_normalized = self._build_legal_description(lot)
+        civic_address = self._as_text(lot.get("civic_address"))
 
         existing = await self.db.scalar(
             select(Lot).where(Lot.legal_description_normalized == legal_description_normalized)
         )
         if existing is not None:
+            if self._dry_run:
+                await self._record_land_lot_preview(
+                    lot=lot,
+                    legal_description=legal_description_normalized,
+                    action="reuse",
+                    lot_id=existing.id,
+                    current_civic_address=existing.civic_address,
+                )
+                scheduled_key = normalize_address(civic_address).canonical_key
+                existing_key = normalize_address(existing.civic_address or "").canonical_key
+                if civic_address and scheduled_key != existing_key:
+                    self._add_warning(
+                        "civic_address_mismatch",
+                        "Scheduled civic address does not match the existing lot",
+                        legal_description=legal_description_normalized,
+                        scheduled_civic_address=civic_address,
+                        existing_civic_address=existing.civic_address,
+                        existing_lot_id=str(existing.id),
+                    )
+                if existing.development_id != development_id:
+                    self._add_warning(
+                        "development_mismatch",
+                        "Existing lot belongs to a different development",
+                        legal_description=legal_description_normalized,
+                        existing_lot_id=str(existing.id),
+                        existing_development_id=str(existing.development_id),
+                        proposed_development_id=str(development_id),
+                    )
             self._lots_matched += 1
             if existing.id not in self._project_ids:
                 self._project_ids.append(existing.id)
@@ -495,6 +737,14 @@ class PromotionService:
         )
         self.db.add(lot_record)
         await self.db.flush()
+        if self._dry_run:
+            await self._record_land_lot_preview(
+                lot=lot,
+                legal_description=legal_description_normalized,
+                action="create",
+                lot_id=lot_record.id,
+                current_civic_address=None,
+            )
         self._lots_created += 1
         self._project_ids.append(lot_record.id)
         await self._write_audit_log(
@@ -505,6 +755,57 @@ class PromotionService:
             new_data={"legal_description_normalized": lot_record.legal_description_normalized},
         )
         return lot_record.id
+
+    async def _record_land_lot_preview(
+        self,
+        *,
+        lot: dict[str, Any],
+        legal_description: str,
+        action: str,
+        lot_id: UUID,
+        current_civic_address: str | None,
+    ) -> None:
+        civic_address = self._as_text(lot.get("civic_address"))
+        entry = {
+            "action": action,
+            "legal_description_normalized": legal_description,
+            "civic_address": civic_address or None,
+            "purchase_price": lot.get("purchase_price"),
+            "deposits": [
+                {"number": 1, "amount": lot.get("deposit_1_amount")},
+                {
+                    "number": 2,
+                    "amount": lot.get("deposit_2_amount"),
+                    "due_date": lot.get("deposit_2_due_date"),
+                },
+            ],
+            "existing_lot_id": str(lot_id) if action == "reuse" else None,
+            "existing_civic_address": current_civic_address,
+        }
+        self._preview["lots"].append(entry)
+        if not civic_address:
+            return
+        key = normalize_address(civic_address).canonical_key
+        properties = list(
+            (
+                await self.db.scalars(
+                    select(Property).where(Property.canonical_address_key == key)
+                )
+            ).all()
+        )
+        for property_record in properties:
+            linked_lot = await self.db.scalar(
+                select(Lot.id).where(Lot.property_id == property_record.id).limit(1)
+            )
+            if linked_lot is None:
+                candidate = {
+                    "property_id": str(property_record.id),
+                    "property_address": property_record.address,
+                    "lot_id": str(lot_id),
+                    "legal_description_normalized": legal_description,
+                }
+                if candidate not in self._preview["linkable_properties"]:
+                    self._preview["linkable_properties"].append(candidate)
 
     async def _match_sale_lot(self, agreement: dict[str, Any]) -> UUID:
         legal_description = agreement.get("legal_description")
@@ -524,6 +825,8 @@ class PromotionService:
                     select(Lot).where(Lot.legal_description_normalized == normalized)
                 )
                 if existing is not None:
+                    if self._dry_run:
+                        self._record_sale_lot_preview(existing, "reuse", normalized)
                     await self._write_audit_log(
                         schema_name="core",
                         table_name="lots",
@@ -539,6 +842,12 @@ class PromotionService:
                 select(Lot).where(func.lower(func.trim(Lot.civic_address)) == civic_address)
             )
             if existing is not None:
+                if self._dry_run:
+                    self._record_sale_lot_preview(
+                        existing,
+                        "reuse",
+                        existing.legal_description_normalized,
+                    )
                 await self._write_audit_log(
                     schema_name="core",
                     table_name="lots",
@@ -548,7 +857,32 @@ class PromotionService:
                 )
                 return existing.id
 
-        return await self._create_sale_lot_from_agreement(agreement)
+        lot_id = await self._create_sale_lot_from_agreement(agreement)
+        if self._dry_run:
+            lot = await self.db.get(Lot, lot_id)
+            if lot is not None:
+                self._record_sale_lot_preview(
+                    lot,
+                    "create",
+                    lot.legal_description_normalized,
+                )
+        return lot_id
+
+    def _record_sale_lot_preview(
+        self,
+        lot: Lot,
+        action: str,
+        legal_description: str | None,
+    ) -> None:
+        self._preview["lots"].append(
+            {
+                "action": action,
+                "legal_description_normalized": legal_description,
+                "civic_address": lot.civic_address,
+                "existing_lot_id": str(lot.id) if action == "reuse" else None,
+                "existing_civic_address": lot.civic_address if action == "reuse" else None,
+            }
+        )
 
     async def _create_sale_lot_from_agreement(self, agreement: dict[str, Any]) -> UUID:
         legal_description = agreement.get("legal_description")

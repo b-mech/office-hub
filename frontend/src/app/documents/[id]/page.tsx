@@ -521,7 +521,10 @@ export default function DocumentReviewPage() {
     markEdited("lots");
   }
 
-  async function handleSubmit(decision: "approved" | "rejected" | "deferred") {
+  async function handleSubmit(
+    decision: "approved" | "rejected" | "deferred",
+    dryRun = false,
+  ) {
     if (!detail) {
       return;
     }
@@ -541,9 +544,13 @@ export default function DocumentReviewPage() {
         decision,
         rejection_reason:
           decision === "rejected" ? rejectionReason.trim() : undefined,
+        dry_run: dryRun,
       });
 
       setSuccess(response);
+      if (response.promotion?.dry_run) {
+        return;
+      }
       if (decision === "approved" && response.promotion) {
         const [projectId] = response.promotion.project_ids;
         router.push(projectId ? `/projects?project=${projectId}` : "/projects");
@@ -684,20 +691,32 @@ export default function DocumentReviewPage() {
               </div>
               {success?.promotion ? (
                 <div className="mt-5 rounded-[1.4rem] border border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] px-5 py-4 text-sm text-[var(--ch-success-text)]">
-                  <p className="font-semibold">Promotion completed successfully.</p>
+                  <p className="font-semibold">
+                    {success.promotion.dry_run
+                      ? "Promotion preview — no changes were saved."
+                      : "Promotion completed successfully."}
+                  </p>
                   <p className="mt-2">
                     Lots created: {success.promotion.lots_created} | Lots matched:{" "}
                     {success.promotion.lots_matched}
                   </p>
-                  <p className="mt-1 break-all">
-                    Agreement ID: {success.promotion.agreement_id}
-                  </p>
-                  <Link
-                    href="/documents"
-                    className="mt-4 inline-flex rounded-full bg-[var(--ch-success-text)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-text-primary)] transition hover:brightness-110"
-                  >
-                    Return to queue
-                  </Link>
+                  {success.promotion.dry_run ? (
+                    <pre className="mt-4 max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-xl bg-white/70 p-4 text-xs text-[var(--ch-text-primary)]">
+                      {JSON.stringify(success.promotion.preview, null, 2)}
+                    </pre>
+                  ) : (
+                    <>
+                      <p className="mt-1 break-all">
+                        Agreement ID: {success.promotion.agreement_id}
+                      </p>
+                      <Link
+                        href="/documents"
+                        className="mt-4 inline-flex rounded-full bg-[var(--ch-success-text)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--ch-text-primary)] transition hover:brightness-110"
+                      >
+                        Return to queue
+                      </Link>
+                    </>
+                  )}
                 </div>
               ) : null}
               {error ? (
@@ -1331,6 +1350,14 @@ export default function DocumentReviewPage() {
                 <div className="flex flex-wrap gap-3">
                   <button
                     type="button"
+                    onClick={() => void handleSubmit("approved", true)}
+                    disabled={submitting || !hasScrolledToEnd}
+                    className="rounded-full border border-[var(--ch-accent)] bg-white px-5 py-3 text-sm font-semibold text-[var(--ch-accent)] transition hover:bg-[var(--ch-surface-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {submitting ? "Running..." : "Preview promotion"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       setShowRejectForm(true);
                       setError(null);
@@ -1343,7 +1370,11 @@ export default function DocumentReviewPage() {
                   <button
                     type="button"
                     onClick={() => void handleSubmit("approved")}
-                    disabled={submitting || !hasScrolledToEnd || !!success?.promotion}
+                    disabled={
+                      submitting ||
+                      !hasScrolledToEnd ||
+                      (!!success?.promotion && !success.promotion.dry_run)
+                    }
                     className="rounded-full bg-[var(--ch-success-text)] px-5 py-3 text-sm font-semibold text-[var(--ch-text-primary)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {submitting ? "Submitting..." : "Approve and promote to database"}
