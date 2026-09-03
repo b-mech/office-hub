@@ -77,6 +77,34 @@ class LegalDescriptionVerificationStatus(str, Enum):
     PERMIT_AGREEMENT_CONFIRMED = "permit_agreement_confirmed"
 
 
+class BuildGroup(Base):
+    __tablename__ = "build_groups"
+
+    id: Mapped[UUID] = _uuid_pk()
+    org_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.orgs.id", ondelete="RESTRICT"), nullable=False
+    )
+    development_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.developments.id", ondelete="RESTRICT"), nullable=False
+    )
+    group_type: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="proposed", server_default=text("'proposed'"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("group_type IN ('duplex')", name="ck_core_build_groups_type"),
+        CheckConstraint(
+            "status IN ('proposed','active','completed','cancelled')",
+            name="ck_core_build_groups_status",
+        ),
+        Index("idx_core_build_groups_org_status", "org_id", "status"),
+        Index("idx_core_build_groups_development", "development_id"),
+        {"schema": "core"},
+    )
+
+
 class Org(Base):
     __tablename__ = "orgs"
     __table_args__ = {"schema": "core"}
@@ -250,6 +278,11 @@ class Lot(Base):
         ForeignKey("core.properties.id", ondelete="SET NULL"),
         nullable=True,
     )
+    build_group_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("core.build_groups.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     trigger_type: Mapped[LotTriggerType | None] = mapped_column(
         SqlEnum(
             LotTriggerType,
@@ -323,6 +356,7 @@ class Lot(Base):
 
     __table_args__ = (
         Index("idx_core_lots_development_status", "development_id", "status"),
+        Index("idx_core_lots_build_group_id", "build_group_id"),
         Index(
             "uq_core_lots_property_id_not_null",
             "property_id",
@@ -405,6 +439,7 @@ class AuditLog(Base):
 
 __all__ = [
     "AuditLog",
+    "BuildGroup",
     "Contact",
     "ContactType",
     "Development",

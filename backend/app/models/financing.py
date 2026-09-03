@@ -56,6 +56,7 @@ class LenderFacility(Base):
     property_name = Column(String(255))
     canonical_address_key = Column(String(255), index=True)
     lot_id = Column(UUID(as_uuid=True), ForeignKey("core.lots.id", ondelete="SET NULL"))
+    build_group_id = Column(UUID(as_uuid=True), ForeignKey("core.build_groups.id", ondelete="SET NULL"), index=True)
     facility_scope = Column(String(20), nullable=False, server_default="lot")
     instrument = Column(String(100))
     borrower = Column(String(255))
@@ -125,10 +126,17 @@ class FacilityAlias(Base):
 
 class ConstructionStageSync(Base):
     __tablename__ = "construction_stage_sync"
-    __table_args__ = {"schema": "documents"}
+    __table_args__ = (
+        CheckConstraint(
+            "num_nonnulls(property_id, build_group_id) = 1",
+            name="ck_construction_stage_sync_target",
+        ),
+        {"schema": "documents"},
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     property_id = Column(UUID(as_uuid=True), ForeignKey("core.properties.id", ondelete="SET NULL"))
+    build_group_id = Column(UUID(as_uuid=True), ForeignKey("core.build_groups.id", ondelete="CASCADE"))
     address_raw = Column(String(255), nullable=False, unique=True)
     banker_raw = Column(String(255))
     lender_type = Column(String(20))
@@ -142,14 +150,21 @@ class ConstructionStageSync(Base):
 
 class ConstructionStageHistory(Base):
     __tablename__ = "construction_stage_history"
-    __table_args__ = {"schema": "documents"}
+    __table_args__ = (
+        CheckConstraint(
+            "num_nonnulls(property_id, build_group_id) = 1",
+            name="ck_construction_stage_history_target",
+        ),
+        {"schema": "documents"},
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     property_id = Column(
         UUID(as_uuid=True),
         ForeignKey("core.properties.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
+    build_group_id = Column(UUID(as_uuid=True), ForeignKey("core.build_groups.id", ondelete="CASCADE"))
     previous_stage = Column(Text)
     new_stage = Column(Text, nullable=False)
     changed_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -165,6 +180,13 @@ class ConstructionStageMilestone(Base):
             "achieved_at",
             name="uq_construction_stage_milestones_event",
         ),
+        UniqueConstraint(
+            "build_group_id", "stage", "achieved_at", name="uq_construction_stage_milestones_group_event"
+        ),
+        CheckConstraint(
+            "num_nonnulls(property_id, build_group_id) = 1",
+            name="ck_construction_stage_milestones_target",
+        ),
         {"schema": "documents"},
     )
 
@@ -172,8 +194,11 @@ class ConstructionStageMilestone(Base):
     property_id = Column(
         UUID(as_uuid=True),
         ForeignKey("core.properties.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
+    )
+    build_group_id = Column(
+        UUID(as_uuid=True), ForeignKey("core.build_groups.id", ondelete="CASCADE"), nullable=True, index=True
     )
     stage = Column(String(50), nullable=False)
     achieved_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

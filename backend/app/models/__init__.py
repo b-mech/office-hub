@@ -1,4 +1,5 @@
 from app.models.core import AuditLog
+from app.models.core import BuildGroup
 from app.models.core import Contact
 from app.models.core import ContactType
 from app.models.core import Development
@@ -66,11 +67,20 @@ from app.models.rentals import RentalLeaseTenant
 from app.models.rentals import RentalProperty
 from app.models.rentals import RentalTenant
 from app.models.rentals import RentalUnit
+from app.models.program_allocations import AllocationRequest
+from app.models.program_allocations import AllocationTier
+from app.models.program_allocations import BuildGroupFundingDecision
+from app.models.program_allocations import LenderProgram
+from app.models.program_allocations import ProgramAllocation
 
 
 __all__ = [
     "Agreement",
     "AuditLog",
+    "AllocationRequest",
+    "AllocationTier",
+    "BuildGroup",
+    "BuildGroupFundingDecision",
     "Contact",
     "ContactType",
     "ConstructionStageSync",
@@ -98,6 +108,7 @@ __all__ = [
     "LenderFacility",
     "LenderFacilityDocument",
     "Lender",
+    "LenderProgram",
     "ClientDrawRequest",
     "ClientDrawSchedule",
     "StageLabelAlias",
@@ -107,6 +118,7 @@ __all__ = [
     "Party",
     "PartyRole",
     "Property",
+    "ProgramAllocation",
     "Reminder",
     "Review",
     "SalesAgreement",

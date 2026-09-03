@@ -77,6 +77,15 @@ class AllocationTier(Base):
     __table_args__ = (
         CheckConstraint("face_value >= 0", name="ck_allocation_tiers_face_value"),
         CheckConstraint("slot_count >= 0", name="ck_allocation_tiers_slot_count"),
+        CheckConstraint(
+            "(build_group_type IS NULL AND amount_per_unit IS NULL AND units_per_group IS NULL AND group_ceiling IS NULL) OR "
+            "(build_group_type IS NOT NULL AND amount_per_unit IS NOT NULL AND units_per_group IS NOT NULL AND group_ceiling IS NOT NULL)",
+            name="ck_allocation_tiers_group_config_complete",
+        ),
+        CheckConstraint(
+            "group_ceiling IS NULL OR group_ceiling = amount_per_unit * units_per_group",
+            name="ck_allocation_tiers_group_ceiling",
+        ),
         {"schema": "financing"},
     )
 
@@ -87,6 +96,42 @@ class AllocationTier(Base):
     face_value: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     slot_count: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str | None] = mapped_column(Text)
+    build_group_type: Mapped[str | None] = mapped_column(Text)
+    amount_per_unit: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    units_per_group: Mapped[int | None] = mapped_column(Integer)
+    group_ceiling: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+
+
+class BuildGroupFundingDecision(Base):
+    __tablename__ = "build_group_funding_decisions"
+    __table_args__ = (
+        UniqueConstraint("build_group_id", "allocation_id", name="uq_build_group_funding_decisions_group_allocation"),
+        CheckConstraint("status IN ('draft','approved','released')", name="ck_build_group_funding_decisions_status"),
+        CheckConstraint("unit_count > 0", name="ck_build_group_funding_decisions_unit_count"),
+        CheckConstraint("slots_consumed > 0", name="ck_build_group_funding_decisions_slots"),
+        CheckConstraint("amount_per_unit >= 0", name="ck_build_group_funding_decisions_amount"),
+        CheckConstraint("group_ceiling = amount_per_unit * unit_count", name="ck_build_group_funding_decisions_ceiling"),
+        {"schema": "financing"},
+    )
+
+    id: Mapped[UUID] = _uuid_pk()
+    build_group_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.build_groups.id", ondelete="RESTRICT"), nullable=False
+    )
+    allocation_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("financing.program_allocations.id", ondelete="RESTRICT"), nullable=False
+    )
+    tier_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("financing.allocation_tiers.id", ondelete="RESTRICT"), nullable=False
+    )
+    unit_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_per_unit: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    group_ceiling: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    slots_consumed: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="draft", server_default="draft")
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class AllocationRequest(Base):
@@ -116,6 +161,10 @@ class AllocationRequest(Base):
     property_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("core.properties.id", ondelete="SET NULL")
     )
+    funding_decision_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("financing.build_group_funding_decisions.id", ondelete="RESTRICT"),
+    )
     appraisal_value: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
     estimated_sale_price: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
     basis_value: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
@@ -132,4 +181,10 @@ class AllocationRequest(Base):
     notes: Mapped[str | None] = mapped_column(Text)
 
 
-__all__ = ["AllocationRequest", "AllocationTier", "LenderProgram", "ProgramAllocation"]
+__all__ = [
+    "AllocationRequest",
+    "AllocationTier",
+    "BuildGroupFundingDecision",
+    "LenderProgram",
+    "ProgramAllocation",
+]
