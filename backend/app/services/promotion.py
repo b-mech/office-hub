@@ -97,6 +97,8 @@ class PromotionService:
             raise ValueError(f"Review not found: {review_id}")
 
         review, document = review_row
+        persisted_review_id = review.id
+        persisted_document_id = document.id
         self._document = document
         self._review = review
         self._org_id = document.org_id
@@ -153,8 +155,8 @@ class PromotionService:
                 await self.db.commit()
 
             return PromotionResult(
-                review_id=review.id,
-                document_id=document.id,
+                review_id=persisted_review_id,
+                document_id=persisted_document_id,
                 lots_created=self._lots_created,
                 lots_matched=self._lots_matched,
                 project_ids=self._project_ids,
@@ -190,8 +192,8 @@ class PromotionService:
                 self._preview["execution_error"] = str(exc)
                 self._add_warning("promotion_error", str(exc))
                 return PromotionResult(
-                    review_id=review.id,
-                    document_id=document.id,
+                    review_id=persisted_review_id,
+                    document_id=persisted_document_id,
                     lots_created=self._lots_created,
                     lots_matched=self._lots_matched,
                     project_ids=self._project_ids,
