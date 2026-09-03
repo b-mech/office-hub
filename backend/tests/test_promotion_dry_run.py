@@ -3,10 +3,17 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock
 
+from app.core.addresses import normalize_address
 from app.services.promotion import PromotionService
 
 
 class PromotionDryRunTest(unittest.TestCase):
+    def test_property_alias_and_annotation_normalize_to_same_key(self) -> None:
+        self.assertEqual(
+            normalize_address("14 Grove Crescent").canonical_key,
+            normalize_address("14 Grove Cresent ( Fall 2027)").canonical_key,
+        )
+
     def test_malformed_lot_is_reported_as_warning(self) -> None:
         service = PromotionService(AsyncMock())
         payload = {

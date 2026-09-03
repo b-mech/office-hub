@@ -323,6 +323,12 @@ class Lot(Base):
 
     __table_args__ = (
         Index("idx_core_lots_development_status", "development_id", "status"),
+        Index(
+            "uq_core_lots_property_id_not_null",
+            "property_id",
+            unique=True,
+            postgresql_where=text("property_id IS NOT NULL"),
+        ),
         {"schema": "core"},
     )
 

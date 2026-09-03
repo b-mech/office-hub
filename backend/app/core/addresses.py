@@ -25,6 +25,7 @@ SUFFIXES = {
     "LANE": "LANE",
     "LN": "LANE",
     "CRESCENT": "CRES",
+    "CRESENT": "CRES",
     "CRES": "CRES",
     "ROAD": "RD",
     "RD": "RD",
@@ -65,6 +66,7 @@ ANNOTATION_PATTERNS = (
     r"\bSHOW\s*HOME\b",
     r"\bSHOWHOME\b",
     r"\bFULL\s+\d{4}\b",
+    r"\bFALL\s+\d{4}\b",
     r"\bPROMISSORY\s+NOTE\b",
 )
 

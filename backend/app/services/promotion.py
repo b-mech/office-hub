@@ -13,6 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func
+from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -217,7 +218,6 @@ class PromotionService:
             "contacts": [],
             "developments": [],
             "lots": [],
-            "linkable_properties": [],
             "warnings": [],
         }
         if doc_type == "land_otp":
@@ -685,8 +685,9 @@ class PromotionService:
             select(Lot).where(Lot.legal_description_normalized == legal_description_normalized)
         )
         if existing is not None:
+            preview_entry = None
             if self._dry_run:
-                await self._record_land_lot_preview(
+                preview_entry = self._record_land_lot_preview(
                     lot=lot,
                     legal_description=legal_description_normalized,
                     action="reuse",
@@ -713,6 +714,12 @@ class PromotionService:
                         existing_development_id=str(existing.development_id),
                         proposed_development_id=str(development_id),
                     )
+            await self._resolve_property_link(
+                lot=existing,
+                civic_address=civic_address,
+                legal_description=legal_description_normalized,
+                preview_entry=preview_entry,
+            )
             self._lots_matched += 1
             if existing.id not in self._project_ids:
                 self._project_ids.append(existing.id)
@@ -739,14 +746,21 @@ class PromotionService:
         )
         self.db.add(lot_record)
         await self.db.flush()
+        preview_entry = None
         if self._dry_run:
-            await self._record_land_lot_preview(
+            preview_entry = self._record_land_lot_preview(
                 lot=lot,
                 legal_description=legal_description_normalized,
                 action="create",
                 lot_id=lot_record.id,
                 current_civic_address=None,
             )
+        await self._resolve_property_link(
+            lot=lot_record,
+            civic_address=civic_address,
+            legal_description=legal_description_normalized,
+            preview_entry=preview_entry,
+        )
         self._lots_created += 1
         self._project_ids.append(lot_record.id)
         await self._write_audit_log(
@@ -758,7 +772,7 @@ class PromotionService:
         )
         return lot_record.id
 
-    async def _record_land_lot_preview(
+    def _record_land_lot_preview(
         self,
         *,
         lot: dict[str, Any],
@@ -766,7 +780,7 @@ class PromotionService:
         action: str,
         lot_id: UUID,
         current_civic_address: str | None,
-    ) -> None:
+    ) -> dict[str, Any]:
         civic_address = self._as_text(lot.get("civic_address"))
         entry = {
             "action": action,
@@ -785,29 +799,139 @@ class PromotionService:
             "existing_civic_address": current_civic_address,
         }
         self._preview["lots"].append(entry)
-        if not civic_address:
-            return
-        key = normalize_address(civic_address).canonical_key
-        properties = list(
-            (
-                await self.db.scalars(
-                    select(Property).where(Property.canonical_address_key == key)
+        return entry
+
+    async def _resolve_property_link(
+        self,
+        *,
+        lot: Lot,
+        civic_address: str,
+        legal_description: str,
+        preview_entry: dict[str, Any] | None,
+    ) -> None:
+        candidates = await self._property_candidates(civic_address)
+        details = [
+            {"property_id": str(item.id), "property_address": item.address}
+            for item in candidates
+        ]
+        if not candidates:
+            self._set_property_link_preview(preview_entry, "no_match", candidates=[])
+            if self._dry_run:
+                self._add_warning(
+                    "no_property_match",
+                    "No property matches the lot civic address",
+                    legal_description=legal_description,
+                    civic_address=civic_address or None,
                 )
-            ).all()
+            return
+        if len(candidates) > 1:
+            self._set_property_link_preview(preview_entry, "ambiguous", candidates=details)
+            if self._dry_run:
+                self._add_warning(
+                    "ambiguous_property_match",
+                    "More than one property matches the lot civic address",
+                    legal_description=legal_description,
+                    civic_address=civic_address or None,
+                    candidates=details,
+                )
+            return
+
+        candidate = candidates[0]
+        if lot.property_id is not None:
+            if lot.property_id == candidate.id:
+                self._set_property_link_preview(
+                    preview_entry,
+                    "already_linked",
+                    property_id=str(candidate.id),
+                    property_address=candidate.address,
+                    candidates=details,
+                )
+            else:
+                self._set_property_link_preview(
+                    preview_entry,
+                    "ambiguous",
+                    candidates=details,
+                    existing_property_id=str(lot.property_id),
+                )
+                if self._dry_run:
+                    self._add_warning(
+                        "ambiguous_property_match",
+                        "Lot is already linked to a different property",
+                        legal_description=legal_description,
+                        civic_address=civic_address or None,
+                        existing_property_id=str(lot.property_id),
+                        candidates=details,
+                    )
+            return
+
+        linked_lot_id = await self.db.scalar(
+            select(Lot.id).where(Lot.property_id == candidate.id).limit(1)
         )
-        for property_record in properties:
-            linked_lot = await self.db.scalar(
-                select(Lot.id).where(Lot.property_id == property_record.id).limit(1)
+        if linked_lot_id is not None and linked_lot_id != lot.id:
+            self._set_property_link_preview(
+                preview_entry,
+                "ambiguous",
+                candidates=details,
+                conflicting_lot_id=str(linked_lot_id),
             )
-            if linked_lot is None:
-                candidate = {
-                    "property_id": str(property_record.id),
-                    "property_address": property_record.address,
-                    "lot_id": str(lot_id),
-                    "legal_description_normalized": legal_description,
-                }
-                if candidate not in self._preview["linkable_properties"]:
-                    self._preview["linkable_properties"].append(candidate)
+            if self._dry_run:
+                self._add_warning(
+                    "ambiguous_property_match",
+                    "Matching property is already linked to another lot",
+                    legal_description=legal_description,
+                    civic_address=civic_address or None,
+                    conflicting_lot_id=str(linked_lot_id),
+                    candidates=details,
+                )
+            return
+
+        self._set_property_link_preview(
+            preview_entry,
+            "link",
+            property_id=str(candidate.id),
+            property_address=candidate.address,
+            candidates=details,
+        )
+        if self._dry_run:
+            return
+        lot.property_id = candidate.id
+        await self.db.flush()
+        await self._write_audit_log(
+            schema_name="core",
+            table_name="lots",
+            record_id=lot.id,
+            action="UPDATE",
+            old_data={"property_id": None},
+            new_data={"property_id": str(candidate.id)},
+        )
+
+    async def _property_candidates(self, civic_address: str) -> list[Property]:
+        normalized = normalize_address(civic_address)
+        if not normalized.canonical_key:
+            return []
+        criteria = [Property.canonical_address_key == normalized.canonical_key]
+        if normalized.street_number:
+            criteria.append(Property.address.ilike(f"{normalized.street_number}%"))
+        possible = list(
+            (await self.db.scalars(select(Property).where(or_(*criteria)))).all()
+        )
+        return sorted(
+            {
+                item.id: item
+                for item in possible
+                if normalize_address(item.address).canonical_key == normalized.canonical_key
+            }.values(),
+            key=lambda item: str(item.id),
+        )
+
+    @staticmethod
+    def _set_property_link_preview(
+        preview_entry: dict[str, Any] | None,
+        status: str,
+        **details: Any,
+    ) -> None:
+        if preview_entry is not None:
+            preview_entry["property_link"] = {"status": status, **details}
 
     async def _match_sale_lot(self, agreement: dict[str, Any]) -> UUID:
         legal_description = agreement.get("legal_description")
