@@ -45,7 +45,9 @@ STREET_MUNICIPALITY_HINTS = {
 }
 
 STREET_SUFFIX_HINTS = {
+    "BLOSSOM": "WAY",
     "CHAMPAGNE": "ST",
+    "GRANDE POINTE MEADOWS": "BLVD",
     "RAMONA GALLOS": "WAY",
 }
 
@@ -68,6 +70,8 @@ ANNOTATION_PATTERNS = (
     r"\bFULL\s+\d{4}\b",
     r"\bFALL\s+\d{4}\b",
     r"\bPROMISSORY\s+NOTE\b",
+    r"\bON\s+HOLD\b",
+    r"\bBOUGHT\s+FROM\s+GS\s+HOMES\b",
 )
 
 
@@ -91,6 +95,7 @@ def normalize_address(raw: str) -> NormalizedAddress:
     province = "MB" if re.search(r"\bMB\b", cleaned) else None
     cleaned = re.sub(r"\bMB\b", " ", cleaned)
     cleaned = _squash(cleaned)
+    cleaned = _reorder_street_first_number(cleaned)
 
     if _is_development(cleaned):
         key = f"DEV:{cleaned}"
@@ -166,6 +171,24 @@ def _street_parts(value: str) -> tuple[str | None, str | None, str | None]:
 
     street_name = _normalize_street_name(" ".join(tokens)) if tokens else None
     return street_number, street_name, street_suffix
+
+
+def _reorder_street_first_number(value: str) -> str:
+    """Canonicalize inventory-style addresses such as ``Woodland Way, 49``."""
+    match = re.fullmatch(r"(.+?)\s+(\d+[A-Z]?(?:-\d+[A-Z]?)*)", value)
+    if match is None:
+        return value
+    street_text, street_number = match.groups()
+    tokens = street_text.split()
+    if not tokens or "LOT" in tokens:
+        return value
+    has_suffix = tokens[-1] in SUFFIXES
+    normalized_name = _normalize_street_name(
+        " ".join(tokens[:-1] if has_suffix else tokens)
+    )
+    if not has_suffix and normalized_name not in STREET_SUFFIX_HINTS:
+        return value
+    return f"{street_number} {street_text}"
 
 
 def _normalize_street_name(value: str) -> str:

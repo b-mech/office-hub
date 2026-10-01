@@ -214,6 +214,65 @@
   cursor: not-allowed;
 }
 
+.office-hub-button--approval {
+  margin-top: -4px;
+  background: #FAC775;
+  color: #0f1117;
+  font-weight: 650;
+}
+
+.office-hub-button--approval:hover {
+  background: #ffd791;
+}
+
+.office-hub-lot-picker {
+  margin: -2px 14px 10px;
+  padding: 10px;
+  border: 0.5px solid rgba(250, 199, 117, 0.4);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.office-hub-lot-search,
+.office-hub-lot-select {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 8px;
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: #171a22;
+  color: #f8fafc;
+  font: inherit;
+}
+
+.office-hub-lot-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.office-hub-picker-cancel,
+.office-hub-picker-confirm {
+  padding: 7px 10px;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.office-hub-picker-cancel {
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.office-hub-picker-confirm {
+  border: 0.5px solid #FAC775;
+  background: #FAC775;
+  color: #0f1117;
+  font-weight: 650;
+}
+
 /* ── Status line ── */
 .office-hub-status {
   padding: 0 14px 12px;

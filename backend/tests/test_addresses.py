@@ -61,6 +61,31 @@ class AddressNormalizerTest(unittest.TestCase):
         self.assertEqual("104 LYNNE LANE", normalize_address("104 Lynne Lane").canonical_key)
         self.assertEqual("104 LYNNE LANE", normalize_address("104 Lyne Lane").canonical_key)
 
+    def test_street_first_inventory_addresses_match_number_first(self) -> None:
+        cases = [
+            ("Boulder Crescent, 3", "3 Boulder Crescent"),
+            ("Woodland Way, 49", "49 Woodland Way"),
+            (
+                "Ramona Gallos Way, 154 (bought from GS Homes)",
+                "154 Ramona Gallos Way",
+            ),
+        ]
+        for inventory_address, civic_address in cases:
+            self.assertEqual(
+                normalize_address(civic_address).canonical_key,
+                normalize_address(inventory_address).canonical_key,
+            )
+
+    def test_missing_known_suffix_and_status_annotation_normalize(self) -> None:
+        self.assertEqual(
+            normalize_address("165 Blossom Way").canonical_key,
+            normalize_address("165 Blossom").canonical_key,
+        )
+        self.assertEqual(
+            normalize_address("8-100 Grande Pointe Meadows Blvd").canonical_key,
+            normalize_address("8-100 Grande Pointe Meadows - ON HOLD").canonical_key,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,16 @@
+[Unit]
+Description=Office Hub Celery worker and scheduler
+After=network.target docker.service officehub-backend.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=officehub
+WorkingDirectory=/home/officehub/office-hub/backend
+EnvironmentFile=/home/officehub/office-hub/.env
+ExecStart=/home/officehub/office-hub/backend/.venv/bin/celery -A app.workers.celery_app:celery_app worker --beat --loglevel=INFO
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

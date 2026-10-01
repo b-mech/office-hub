@@ -42,6 +42,8 @@ def _uuid_pk() -> Mapped[UUID]:
 class DocType(str, Enum):
     LAND_OTP = "land_otp"
     SALE_OTP = "sale_otp"
+    APPRAISAL = "appraisal"
+    STAMPED_PLANS = "stamped_plans"
     INVOICE = "invoice"
     LEGAL = "legal"
     OTHER = "other"
@@ -71,6 +73,7 @@ class Document(Base):
             name="doc_type",
             native_enum=False,
             create_constraint=True,
+            length=30,
             values_callable=_enum_values,
             validate_strings=True,
         ),
@@ -210,7 +213,48 @@ class Review(Base):
     )
 
 
+class BoxSweepEvent(Base):
+    """Durable outcome for every Box file considered by an OTP sweep."""
+
+    __tablename__ = "box_sweep_events"
+
+    id: Mapped[UUID] = _uuid_pk()
+    run_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    box_file_id: Mapped[str] = mapped_column(Text, nullable=False)
+    box_sha1: Mapped[str | None] = mapped_column(Text)
+    box_path: Mapped[str] = mapped_column(Text, nullable=False)
+    classification: Mapped[str] = mapped_column(Text, nullable=False)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    document_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("documents.documents.id"),
+    )
+    detail: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "classification IN ('land_otp', 'sale_otp', 'supporting', 'other')"
+        ),
+        CheckConstraint("outcome IN ('ingested', 'skipped', 'failed', 'dry_run')"),
+        Index("idx_documents_box_sweep_events_run_outcome", "run_id", "outcome"),
+        Index("idx_documents_box_sweep_events_file_created", "box_file_id", text("created_at DESC")),
+        {"schema": "documents"},
+    )
+
+
 __all__ = [
+    "BoxSweepEvent",
     "DocType",
     "Document",
     "DocumentStatus",

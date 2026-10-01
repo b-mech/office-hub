@@ -1,5 +1,6 @@
 from app.models.core import AuditLog
 from app.models.core import BuildGroup
+from app.models.core import BuildingType
 from app.models.core import Contact
 from app.models.core import ContactType
 from app.models.core import Development
@@ -10,6 +11,7 @@ from app.models.core import LotStatus
 from app.models.core import LotTriggerType
 from app.models.core import Org
 from app.models.core import Reminder
+from app.models.core import SaleType
 from app.models.core import User
 from app.models.core import UserRole
 from app.models.financing import ConstructionStageSync
@@ -27,6 +29,7 @@ from app.models.financing import StageLabelAlias
 from app.models.financing import LenderStatement
 from app.models.financing import Property
 from app.models.lenders import Lender
+from app.models.documents import BoxSweepEvent
 from app.models.documents import DocType
 from app.models.documents import Document
 from app.models.documents import DocumentStatus
@@ -67,11 +70,30 @@ from app.models.rentals import RentalLeaseTenant
 from app.models.rentals import RentalProperty
 from app.models.rentals import RentalTenant
 from app.models.rentals import RentalUnit
+from app.models.maintenance import MaintAttachment
+from app.models.maintenance import MaintEvent
+from app.models.maintenance import MaintIntakeToken
+from app.models.maintenance import MaintOnCall
+from app.models.maintenance import MaintSlackCard
+from app.models.maintenance import MaintSmsMessage
+from app.models.maintenance import MaintTicket
+from app.models.maintenance import MaintUnitToken
+from app.models.maintenance import MaintVendor
+from app.models.maintenance import MaintWorkOrder
 from app.models.program_allocations import AllocationRequest
 from app.models.program_allocations import AllocationTier
 from app.models.program_allocations import BuildGroupFundingDecision
 from app.models.program_allocations import LenderProgram
 from app.models.program_allocations import ProgramAllocation
+from app.models.presales import ApprovalLetterStatus
+from app.models.presales import FundingPartnerRule
+from app.models.presales import PresaleApprovalLetter
+from app.models.presales import PresaleNotification
+from app.models.presales import PresalePackageItem
+from app.models.presales import PresaleTask
+# Register costbook models for cross-module relationships such as
+# TenderAward.purchase_order when scripts import the model package directly.
+from app.modules.costbook.models import PurchaseOrder
 
 
 __all__ = [
@@ -80,7 +102,9 @@ __all__ = [
     "AllocationRequest",
     "AllocationTier",
     "BuildGroup",
+    "BuildingType",
     "BuildGroupFundingDecision",
+    "BoxSweepEvent",
     "Contact",
     "ContactType",
     "ConstructionStageSync",
@@ -120,6 +144,7 @@ __all__ = [
     "Property",
     "ProgramAllocation",
     "Reminder",
+    "SaleType",
     "Review",
     "SalesAgreement",
     "SalesAgreementStatus",
@@ -145,6 +170,23 @@ __all__ = [
     "RentalProperty",
     "RentalTenant",
     "RentalUnit",
+    "MaintAttachment",
+    "MaintEvent",
+    "MaintIntakeToken",
+    "MaintOnCall",
+    "MaintSlackCard",
+    "MaintSmsMessage",
+    "MaintTicket",
+    "MaintUnitToken",
+    "MaintVendor",
+    "MaintWorkOrder",
     "User",
     "UserRole",
+    "ApprovalLetterStatus",
+    "FundingPartnerRule",
+    "PresaleApprovalLetter",
+    "PresaleNotification",
+    "PresalePackageItem",
+    "PresaleTask",
+    "PurchaseOrder",
 ]

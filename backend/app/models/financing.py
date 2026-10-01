@@ -282,6 +282,42 @@ class FacilityStatementSnapshot(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class LenderStatementDiscrepancy(Base):
+    __tablename__ = "lender_statement_discrepancies"
+    __table_args__ = (
+        UniqueConstraint("statement_id", "entity_key", name="uq_statement_discrepancy_entity"),
+        CheckConstraint(
+            "issue_type IN ('internal_missing_from_report')",
+            name="ck_statement_discrepancy_issue_type",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'acknowledged')",
+            name="ck_statement_discrepancy_status",
+        ),
+        {"schema": "documents"},
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    statement_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.lender_statements.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    facility_id = Column(UUID(as_uuid=True), ForeignKey("core.lender_facilities.id", ondelete="SET NULL"), index=True)
+    property_id = Column(UUID(as_uuid=True), ForeignKey("core.properties.id", ondelete="SET NULL"), index=True)
+    entity_key = Column(Text, nullable=False)
+    issue_type = Column(String(50), nullable=False)
+    display_name = Column(Text, nullable=False)
+    canonical_address_key = Column(String(255))
+    details = Column(JSONB, nullable=False, default=dict)
+    status = Column(String(20), nullable=False, server_default="open")
+    review_note = Column(Text)
+    reviewed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class ClientDrawSchedule(Base):
     __tablename__ = "client_draw_schedules"
     __table_args__ = {"schema": "documents"}

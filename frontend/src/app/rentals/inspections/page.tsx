@@ -28,10 +28,19 @@ export default function Page() {
   const [history, setHistory] = useState<api.Inspection[]>([]);
   const [editingSubmitted, setEditingSubmitted] = useState(false);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     api.units(query).then(setUnits).catch((cause) => setError(cause.message));
   }, [query]);
+
+  useEffect(() => {
+    if (item && dirty) {
+      window.localStorage.setItem(`officehub-inspection-draft:${item.id}`, JSON.stringify(item));
+    }
+  }, [dirty, item]);
 
   async function open(selected: api.Unit) {
     setError("");
@@ -40,12 +49,59 @@ export default function Page() {
     setHistory(history);
     const today = new Date().toISOString().slice(0, 10);
     const existing = history.find((inspection) => inspection.inspection_date === today);
-    setItem(existing || await api.create(selected.id));
+    const inspection = existing || await api.create(selected.id);
+    const cached = window.localStorage.getItem(`officehub-inspection-draft:${inspection.id}`);
+    if (cached) {
+      try {
+        setItem({ ...inspection, ...JSON.parse(cached), photos: inspection.photos });
+        setDirty(true);
+        setSaveMessage("Recovered unsaved changes from this browser.");
+      } catch {
+        window.localStorage.removeItem(`officehub-inspection-draft:${inspection.id}`);
+        setItem(inspection);
+      }
+    } else {
+      setItem(inspection);
+      setDirty(false);
+    }
     setEditingSubmitted(false);
   }
 
+  function markDirty() {
+    setDirty(true);
+    setSaveMessage("");
+  }
+
   async function save() {
-    if (item && (item.status !== "submitted" || editingSubmitted)) setItem(await api.patch(item.id, item));
+    if (!item || (item.status === "submitted" && !editingSubmitted)) return item;
+    setSaving(true);
+    setError("");
+    setSaveMessage("");
+    try {
+      const saved = await api.patch(item.id, item);
+      setItem(saved);
+      setDirty(false);
+      window.localStorage.removeItem(`officehub-inspection-draft:${saved.id}`);
+      setSaveMessage("Inspection saved.");
+      return saved;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save inspection.");
+      throw cause;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submit() {
+    try {
+      const saved = await save();
+      if (!saved) return;
+      await api.submit(saved.id);
+      setItem(null);
+      setUnit(null);
+    } catch {
+      // save() and the API client provide the user-facing error.
+    }
   }
 
   if (item && unit) {
@@ -60,24 +116,25 @@ export default function Page() {
         {readOnly ? <div className="m-4 flex items-center justify-between gap-3 rounded-xl bg-[var(--ch-success-bg)] p-3 text-sm font-semibold text-[var(--ch-success-text)]"><span>Submitted inspection</span><button onClick={() => setEditingSubmitted(true)} className="rounded-lg border px-3 py-2">Edit inspection</button></div> : null}
         <fieldset disabled={readOnly} className="space-y-5 p-4 disabled:opacity-80">
           {error ? <p className="text-[var(--ch-error-text)]">{error}</p> : null}
+          {saveMessage ? <p className="text-[var(--ch-success-text)]">{saveMessage}</p> : null}
           <label className="block">Type
-            <select value={item.inspection_type} onChange={(event) => setItem({ ...item, inspection_type: event.target.value })} className="mt-1 w-full rounded-xl border p-3">
+            <select value={item.inspection_type} onChange={(event) => { setItem({ ...item, inspection_type: event.target.value }); markDirty(); }} className="mt-1 w-full rounded-xl border p-3">
               <option>exterior</option><option>interior</option>
             </select>
           </label>
           {(["front_yard", "back_yard"] as const).map((key) => (
             <section key={key}>
               <h2 className="text-lg font-bold">{key === "front_yard" ? "Front yard" : "Back yard"}</h2>
-              <input type="number" min="1" max="10" value={item[`${key}_score`] ?? ""} onChange={(event) => setItem({ ...item, [`${key}_score`]: event.target.value ? Number(event.target.value) : null })} onBlur={save} className="mt-2 w-full rounded-xl border p-4 text-xl" placeholder="Score 1–10" />
-              <textarea value={item[`${key}_notes`] || ""} onChange={(event) => setItem({ ...item, [`${key}_notes`]: event.target.value })} onBlur={save} className="mt-2 w-full rounded-xl border p-3" placeholder="Notes / why unseen" />
+              <input type="number" min="1" max="10" value={item[`${key}_score`] ?? ""} onChange={(event) => { setItem({ ...item, [`${key}_score`]: event.target.value ? Number(event.target.value) : null }); markDirty(); }} className="mt-2 w-full rounded-xl border p-4 text-xl" placeholder="Score 1–10" />
+              <textarea value={item[`${key}_notes`] || ""} onChange={(event) => { setItem({ ...item, [`${key}_notes`]: event.target.value }); markDirty(); }} className="mt-2 w-full rounded-xl border p-3" placeholder="Notes / why unseen" />
             </section>
           ))}
-          <input value={item.building_condition || ""} onChange={(event) => setItem({ ...item, building_condition: event.target.value })} onBlur={save} className="w-full rounded-xl border p-3" placeholder="Building condition" />
-          <textarea value={item.building_notes || ""} onChange={(event) => setItem({ ...item, building_notes: event.target.value })} onBlur={save} className="w-full rounded-xl border p-3" placeholder="Building notes" />
-          <select value={item.occupancy_flag || ""} onChange={(event) => setItem({ ...item, occupancy_flag: event.target.value })} onBlur={save} className="w-full rounded-xl border p-3">
+          <input value={item.building_condition || ""} onChange={(event) => { setItem({ ...item, building_condition: event.target.value }); markDirty(); }} className="w-full rounded-xl border p-3" placeholder="Building condition" />
+          <textarea value={item.building_notes || ""} onChange={(event) => { setItem({ ...item, building_notes: event.target.value }); markDirty(); }} className="w-full rounded-xl border p-3" placeholder="Building notes" />
+          <select value={item.occupancy_flag || ""} onChange={(event) => { setItem({ ...item, occupancy_flag: event.target.value }); markDirty(); }} className="w-full rounded-xl border p-3">
             <option value="">Occupancy unsure</option><option>occupied</option><option>vacant</option><option>unsure</option>
           </select>
-          <textarea value={item.general_notes || ""} onChange={(event) => setItem({ ...item, general_notes: event.target.value })} onBlur={save} className="w-full rounded-xl border p-3" placeholder="General notes" />
+          <textarea value={item.general_notes || ""} onChange={(event) => { setItem({ ...item, general_notes: event.target.value }); markDirty(); }} className="w-full rounded-xl border p-3" placeholder="General notes" />
           <section>
             <h2 className="font-bold">Photos</h2>
             <div className="grid grid-cols-3 gap-2">
@@ -93,12 +150,12 @@ export default function Page() {
         </fieldset>
         {!readOnly ? <footer className="fixed bottom-0 left-0 right-0 flex gap-2 border-t bg-[var(--ch-surface)] p-4 lg:left-56">
           <button onClick={() => { if (window.confirm("Delete this inspection and its photos? This cannot be undone.")) api.deleteInspection(item.id).then(() => { setItem(null); setUnit(null); }).catch((cause) => setError(cause.message)); }} className="rounded-xl border border-[var(--ch-error-text)] p-4 font-bold text-[var(--ch-error-text)]">Delete</button>
-          <button onClick={() => save().then(() => { if (item.status === "submitted") setEditingSubmitted(false); })} className="flex-1 rounded-xl border p-4 font-bold">{item.status === "submitted" ? "Save changes" : "Save Draft"}</button>
-          {item.status !== "submitted" ? <button onClick={() => save().then(() => api.submit(item.id)).then(() => { setItem(null); setUnit(null); }).catch((cause) => setError(cause.message))} className="flex-1 rounded-xl bg-[var(--ch-accent)] p-4 font-bold text-white">Submit</button> : null}
+          <button disabled={saving} onClick={() => void save().then(() => { if (item.status === "submitted") setEditingSubmitted(false); }).catch(() => undefined)} className="flex-1 rounded-xl border p-4 font-bold disabled:opacity-50">{saving ? "Saving…" : item.status === "submitted" ? "Save changes" : "Save Draft"}</button>
+          {item.status !== "submitted" ? <button disabled={saving} onClick={() => void submit()} className="flex-1 rounded-xl bg-[var(--ch-accent)] p-4 font-bold text-white disabled:opacity-50">{saving ? "Saving…" : "Submit"}</button> : null}
         </footer> : null}
       </main>
     );
   }
 
-  return <main className="mx-auto max-w-2xl p-4"><h1 className="text-3xl font-bold">Rental Inspections</h1><input value={query} onChange={(event) => setQuery(event.target.value)} className="my-5 w-full rounded-xl border p-4" placeholder="Search address or group" />{error ? <p className="text-[var(--ch-error-text)]">{error}</p> : null}{units.map((candidate) => <button key={candidate.id} onClick={() => open(candidate).catch((cause) => setError(cause.message))} className="mb-2 block w-full rounded-xl border p-4 text-left"><strong>{candidate.street_address} {candidate.unit_label || ""}</strong><div className="text-sm text-[var(--ch-text-muted)]">{candidate.group_name} · {candidate.last_inspection ? `last inspected ${candidate.last_inspection.inspection_date}` : "never inspected"}</div></button>)}</main>;
+  return <main className="mx-auto max-w-2xl p-4"><h1 className="text-3xl font-bold">Rental Inspections</h1><input value={query} onChange={(event) => setQuery(event.target.value)} className="my-5 w-full rounded-xl border p-4" placeholder="Search address or group" />{error ? <p className="text-[var(--ch-error-text)]">{error}</p> : null}{units.map((candidate) => <div key={candidate.id} className="mb-2 flex rounded-xl border"><button onClick={() => open(candidate).catch((cause) => setError(cause.message))} className="min-w-0 flex-1 p-4 text-left"><strong>{candidate.street_address} {candidate.unit_label || ""}</strong><div className="text-sm text-[var(--ch-text-muted)]">{candidate.group_name} · {candidate.last_inspection ? `last inspected ${candidate.last_inspection.inspection_date}` : "never inspected"}</div></button><a href={`/rentals/units/${candidate.id}`} className="m-2 self-center rounded-lg border px-3 py-2 text-sm font-semibold">QR{candidate.maintenance_qr_rotation_recommended ? " ⚠" : ""}</a></div>)}</main>;
 }

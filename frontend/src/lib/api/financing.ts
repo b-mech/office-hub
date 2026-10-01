@@ -11,6 +11,7 @@ import type {
   FinancingProperty,
   LenderStatement,
   LenderStatementDetail,
+  StatementDiscrepancy,
   ProFacility,
   ProDrawRequest,
   ProLedger,
@@ -254,6 +255,27 @@ export function linkStatementFacility(snapshotId: string, facilityId: string): P
     method: "POST",
     body: JSON.stringify({ facility_id: facilityId }),
   });
+}
+
+export function acknowledgeStatementSnapshot(snapshotId: string, note?: string): Promise<FacilityStatementSnapshot> {
+  return apiFetch<FacilityStatementSnapshot>(
+    `/api/v1/financing/statements/snapshots/${snapshotId}/acknowledge`,
+    { method: "POST", body: JSON.stringify({ note: note || null }) },
+  );
+}
+
+export function updateStatementDiscrepancy(
+  discrepancyId: string,
+  status: "open" | "acknowledged",
+  reviewNote?: string,
+): Promise<StatementDiscrepancy> {
+  return apiFetch<StatementDiscrepancy>(
+    `/api/v1/financing/statements/discrepancies/${discrepancyId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status, review_note: reviewNote || null }),
+    },
+  );
 }
 
 export function confirmFacilityDocument(docId: string, facilityId: string, values: Record<string, unknown>): Promise<unknown> {

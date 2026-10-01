@@ -148,13 +148,20 @@ class LotTerms(Base):
         ForeignKey("land.agreements.id"),
         nullable=False,
     )
-    purchase_price: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
     frontage_metres: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     frontage_feet: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     lot_notes: Mapped[str | None] = mapped_column(Text)
     balance_due_date: Mapped[date | None] = mapped_column(Date)
     possession_date: Mapped[date | None] = mapped_column(Date)
     lot_specific_conditions: Mapped[str | None] = mapped_column(Text)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata",
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

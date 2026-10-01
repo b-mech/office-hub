@@ -1,12 +1,13 @@
 import os
+from datetime import time
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", env_ignore_empty=True)
 
     database_url: str = Field(alias="DATABASE_URL")
     minio_url: str = Field(alias="MINIO_URL")
@@ -100,6 +101,55 @@ class Settings(BaseSettings):
     gmail_sender_email: str = Field(default="yana@connectionhomes.ca", alias="GMAIL_SENDER_EMAIL")
     gmail_sender_app_password: str = Field(default="", alias="GMAIL_SENDER_APP_PASSWORD")
     google_maps_backend_api_key: str = Field(default="", alias="GOOGLE_MAPS_BACKEND_API_KEY")
+    sms_provider: str = Field(default="twilio", alias="SMS_PROVIDER")
+    twilio_account_sid: str = Field(default="", alias="TWILIO_ACCOUNT_SID")
+    twilio_auth_token: str = Field(default="", alias="TWILIO_AUTH_TOKEN")
+    twilio_from_number: str = Field(default="", alias="TWILIO_FROM_NUMBER")
+    ringcentral_server_url: str = Field(default="", alias="RINGCENTRAL_SERVER_URL", repr=False)
+    ringcentral_client_id: str = Field(default="", alias="RINGCENTRAL_CLIENT_ID", repr=False)
+    ringcentral_client_secret: SecretStr = Field(
+        default=SecretStr(""), alias="RINGCENTRAL_CLIENT_SECRET", repr=False
+    )
+    ringcentral_jwt: SecretStr = Field(default=SecretStr(""), alias="RINGCENTRAL_JWT", repr=False)
+    ringcentral_from_number: str = Field(default="", alias="RINGCENTRAL_FROM_NUMBER", repr=False)
+    sms_signature: str = Field(default="— Connect Properties", alias="SMS_SIGNATURE")
+    public_brand_name: str = Field(default="Connect Properties", alias="PUBLIC_BRAND_NAME")
+    sms_relay_hold_seconds: int = Field(default=30, ge=0, alias="SMS_RELAY_HOLD_SECONDS")
+    sms_automated_quiet_start: time = Field(default=time(21, 0), alias="SMS_AUTOMATED_QUIET_START")
+    sms_automated_quiet_end: time = Field(default=time(8, 0), alias="SMS_AUTOMATED_QUIET_END")
+    slack_bot_token: str = Field(default="", alias="SLACK_BOT_TOKEN")
+    slack_app_token: str = Field(default="", alias="SLACK_APP_TOKEN")
+    slack_tickets_channel_id: str = Field(default="", alias="SLACK_TICKETS_CHANNEL_ID")
+    slack_emergency_channel_id: str = Field(default="", alias="SLACK_EMERGENCY_CHANNEL_ID")
+    public_base_url: str = Field(default="", alias="PUBLIC_BASE_URL")
+    turnstile_site_key: str = Field(default="", alias="TURNSTILE_SITE_KEY")
+    turnstile_secret_key: str = Field(default="", alias="TURNSTILE_SECRET_KEY")
+    privi_emergency_phone: str = Field(default="", alias="PRIVI_EMERGENCY_PHONE")
+    manitoba_hydro_emergency_phone: str = Field(
+        default="+18886249376", alias="MANITOBA_HYDRO_EMERGENCY_PHONE"
+    )
+    maint_gas_emergency_message: str = Field(
+        default=(
+            "Leave the unit now. Call 911 and Manitoba Hydro's gas emergency line at "
+            "{hydro_phone} from outside, then call us at {emergency_phone}."
+        ),
+        alias="MAINT_GAS_EMERGENCY_MESSAGE",
+    )
+    maint_emergency_message: str = Field(
+        default=(
+            "Call us now at {emergency_phone}. "
+            "Submitting this form also alerts our on-call team."
+        ),
+        alias="MAINT_EMERGENCY_MESSAGE",
+    )
+    timezone: str = Field(default="America/Winnipeg", alias="TIMEZONE")
+    maint_digest_time: time = Field(default=time(8, 0), alias="MAINT_DIGEST_TIME")
+    maint_autoclose_days: int = Field(default=3, ge=1, alias="MAINT_AUTOCLOSE_DAYS")
+    maint_emergency_ack_minutes: int = Field(default=15, ge=1, alias="MAINT_EMERGENCY_ACK_MINUTES")
+    entry_notice_min_hours: int = Field(default=24, ge=0, alias="ENTRY_NOTICE_MIN_HOURS")
+    entry_window_start: time = Field(default=time(8, 0), alias="ENTRY_WINDOW_START")
+    entry_window_end: time = Field(default=time(20, 0), alias="ENTRY_WINDOW_END")
+    celery_task_always_eager: bool = Field(default=False, alias="CELERY_TASK_ALWAYS_EAGER")
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -125,6 +175,71 @@ class Settings(BaseSettings):
             and self.docusign_account_id
             and self.docusign_private_key
         )
+
+    @property
+    def maintenance_enabled(self) -> bool:
+        """Public maintenance surfaces stay off until required values are configured."""
+        return not self.maintenance_config_issues
+
+    @property
+    def maintenance_config_issues(self) -> tuple[str, ...]:
+        issues: list[str] = []
+        if not self.public_base_url.strip():
+            issues.append("PUBLIC_BASE_URL is not configured")
+        if self.environment.casefold() not in {"development", "test", "testing"}:
+            if not self.effective_turnstile_site_key or not self.effective_turnstile_secret_key:
+                issues.append("Turnstile is not configured")
+            if not self.privi_emergency_phone:
+                issues.append("PRIVI_EMERGENCY_PHONE is not configured")
+            if self.sms_provider.casefold() == "ringcentral" and not self.ringcentral_configured:
+                issues.append("RingCentral is not configured")
+            elif self.sms_provider.casefold() == "twilio" and not self.twilio_configured:
+                issues.append("Twilio is not configured")
+            elif self.sms_provider.casefold() not in {"ringcentral", "twilio", "fake"}:
+                issues.append("SMS_PROVIDER is not supported")
+        return tuple(issues)
+
+    @property
+    def twilio_configured(self) -> bool:
+        return bool(
+            self.sms_provider.casefold() == "twilio"
+            and self.twilio_account_sid
+            and self.twilio_auth_token
+            and self.twilio_from_number
+        )
+
+    @property
+    def ringcentral_configured(self) -> bool:
+        return bool(
+            self.sms_provider.casefold() == "ringcentral"
+            and self.ringcentral_server_url
+            and self.ringcentral_client_id
+            and self.ringcentral_client_secret.get_secret_value()
+            and self.ringcentral_jwt.get_secret_value()
+            and self.ringcentral_from_number
+        )
+
+    @property
+    def sms_from_number(self) -> str:
+        if self.sms_provider.casefold() == "ringcentral":
+            return self.ringcentral_from_number
+        return self.twilio_from_number
+
+    @property
+    def effective_turnstile_site_key(self) -> str:
+        if self.turnstile_site_key:
+            return self.turnstile_site_key
+        if self.environment.casefold() in {"development", "test", "testing"}:
+            return "1x00000000000000000000AA"
+        return ""
+
+    @property
+    def effective_turnstile_secret_key(self) -> str:
+        if self.turnstile_secret_key:
+            return self.turnstile_secret_key
+        if self.environment.casefold() in {"development", "test", "testing"}:
+            return "1x0000000000000000000000000000000AA"
+        return ""
 
 
 settings = Settings()

@@ -51,28 +51,30 @@ async def sync_from_sheet(db: AsyncSession) -> dict[str, Any]:
             stale_deleted = delete_result.rowcount or 0
         for source in parsed_rows:
             try:
-                address = source["address_raw"]
-                banker = source["banker_raw"]
-                created = await upsert_stage_row(
-                    db,
-                    {
-                        "address_raw": address,
-                        "banker_raw": banker,
-                        "lender_type": normalize_lender_type(banker),
-                        "sold_or_spec": source["sold_or_spec"],
-                        "stage_clean": SYNC_CONFLICT
-                        if source["canonical_key"] in conflict_keys
-                        else source["stage_clean"],
-                        "client_name": source["client_name"],
-                        "build_start": source["build_start"],
-                        "possession_date": source["possession_date"],
-                    },
-                )
+                async with db.begin_nested():
+                    address = source["address_raw"]
+                    banker = source["banker_raw"]
+                    created = await upsert_stage_row(
+                        db,
+                        {
+                            "address_raw": address,
+                            "banker_raw": banker,
+                            "lender_type": normalize_lender_type(banker),
+                            "sold_or_spec": source["sold_or_spec"],
+                            "stage_clean": SYNC_CONFLICT
+                            if source["canonical_key"] in conflict_keys
+                            else source["stage_clean"],
+                            "client_name": source["client_name"],
+                            "build_start": source["build_start"],
+                            "possession_date": source["possession_date"],
+                        },
+                    )
                 synced += 1
                 if created:
                     created_properties += 1
             except Exception as exc:
-                errors.append(f"Row {source['row_number']}: {exc}")
+                reason = str(exc).splitlines()[0]
+                errors.append(f"Row {source['row_number']}: {reason}")
 
     return {
         "synced": synced,

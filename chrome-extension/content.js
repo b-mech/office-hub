@@ -1,7 +1,7 @@
 // content.js
-const OFFICE_HUB_API = "http://localhost:8000";
-const OFFICE_HUB_APP = "http://localhost:3000";
-const OFFICE_HUB_EXTENSION_VERSION = "0.1.9";
+const OFFICE_HUB_API = "https://officehub.n10z.ca/backend-api";
+const OFFICE_HUB_APP = "https://officehub.n10z.ca";
+const OFFICE_HUB_EXTENSION_VERSION = "0.2.0";
 const INGEST_RESPONSE_TIMEOUT_MS = 620000;
 const SCAN_DEBOUNCE_MS = 1000;
 const OFFICE_HUB_ICON_URL = chrome.runtime.getURL("favicon.png");
@@ -790,6 +790,32 @@ function renderPanel(attachments, messageRoot) {
 
   panel.appendChild(button);
 
+  const captureButton = document.createElement("button");
+  captureButton.className = "office-hub-button office-hub-button--approval";
+  captureButton.type = "button";
+  captureButton.textContent = "Capture Approval Letter";
+  captureButton.addEventListener("click", async () => {
+    const selected = attachments.filter((attachment) =>
+      panel.querySelector(`input[data-key="${CSS.escape(attachment.key)}"]`)?.checked
+    );
+    if (selected.length === 0) {
+      setStatus(panel, "Select at least one PDF.");
+      return;
+    }
+    captureButton.disabled = true;
+    setStatus(panel, "Loading lots…");
+    try {
+      const response = await sendRuntimeMessage({ type: "LIST_PRESALE_LOTS" });
+      if (!response.ok) throw new Error(response.error || "Could not load lots.");
+      renderApprovalLotPicker(panel, response.lots || [], selected, messageRoot, captureButton);
+      setStatus(panel, "Choose a lot or leave the letter unmatched.");
+    } catch (error) {
+      setStatus(panel, error instanceof Error ? error.message : "Could not load lots.");
+      captureButton.disabled = false;
+    }
+  });
+  panel.appendChild(captureButton);
+
   // Status line
   const statusEl = document.createElement("div");
   statusEl.className = "office-hub-status";
@@ -800,6 +826,103 @@ function setStatus(panel, text) {
   if (!panel) return;
   const statusEl = panel.querySelector(".office-hub-status");
   if (statusEl) statusEl.textContent = text;
+}
+
+function renderApprovalLotPicker(panel, lots, attachments, messageRoot, captureButton) {
+  panel.querySelector(".office-hub-lot-picker")?.remove();
+  const picker = document.createElement("div");
+  picker.className = "office-hub-lot-picker";
+  const search = document.createElement("input");
+  search.className = "office-hub-lot-search";
+  search.placeholder = "Search address or purchaser";
+  const select = document.createElement("select");
+  select.className = "office-hub-lot-select";
+  function fill(value = "") {
+    select.replaceChildren();
+    const unmatched = document.createElement("option");
+    unmatched.value = "";
+    unmatched.textContent = "Unmatched — hold for review";
+    select.appendChild(unmatched);
+    const needle = value.trim().toLowerCase();
+    lots.filter((lot) => !needle || `${lot.address} ${(lot.purchaser_names || []).join(" ")}`.toLowerCase().includes(needle)).forEach((lot) => {
+      const option = document.createElement("option");
+      option.value = lot.id;
+      option.textContent = `${lot.address}${lot.purchaser_names?.length ? ` · ${lot.purchaser_names.join(", ")}` : ""}${lot.is_presale ? "" : " · Not marked presale"}`;
+      select.appendChild(option);
+    });
+  }
+  fill();
+  search.addEventListener("input", () => fill(search.value));
+  const actions = document.createElement("div");
+  actions.className = "office-hub-lot-picker-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "office-hub-picker-cancel";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => { picker.remove(); captureButton.disabled = false; setStatus(panel, ""); });
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "office-hub-picker-confirm";
+  confirm.textContent = "Capture";
+  function updateConfirmLabel() {
+    const lot = lots.find((item) => item.id === select.value);
+    confirm.textContent = lot && !lot.is_presale ? "Link and mark as presale" : "Capture";
+  }
+  select.addEventListener("change", updateConfirmLabel);
+  confirm.addEventListener("click", async () => {
+    confirm.disabled = true;
+    cancel.disabled = true;
+    setStatus(panel, "Capturing approval letter…");
+    try {
+      const response = await sendRuntimeMessage({
+        type: "CAPTURE_APPROVAL_LETTER",
+        attachments,
+        lotId: select.value || null,
+        markAsPresale: Boolean(lots.find((lot) => lot.id === select.value && !lot.is_presale)),
+        email: getApprovalEmailMetadata(messageRoot),
+      });
+      if (!response.ok) throw new Error(response.error || "Approval letter capture failed.");
+      const id = response.intake?.approval_letter_id;
+      setStatus(panel, "✓ Approval letter captured for review");
+      showInlineSummary(messageRoot, "Office Hub: approval letter captured", id ? `${OFFICE_HUB_APP}/financing/presales` : undefined);
+      picker.remove();
+      window.setTimeout(() => { panelExpanded = false; renderPanel(attachments, messageRoot); }, 1800);
+    } catch (error) {
+      setStatus(panel, error instanceof Error ? error.message : "Approval letter capture failed.");
+      confirm.disabled = false;
+      cancel.disabled = false;
+      captureButton.disabled = false;
+    }
+  });
+  actions.append(cancel, confirm);
+  picker.append(search, select, actions);
+  captureButton.insertAdjacentElement("afterend", picker);
+}
+
+function getApprovalEmailMetadata(messageRoot) {
+  const messageId =
+    messageRoot.getAttribute("data-legacy-message-id") ||
+    messageRoot.getAttribute("data-message-id") ||
+    messageRoot.querySelector("[data-legacy-message-id]")?.getAttribute("data-legacy-message-id") ||
+    messageRoot.querySelector("[data-message-id]")?.getAttribute("data-message-id") ||
+    getMessageKey(messageRoot);
+  return {
+    message_id: messageId,
+    from: getSenderEmail(messageRoot),
+    subject: getEmailSubject(),
+    received_at: getMessageReceivedAt(messageRoot),
+    body_text: getEmailBody(messageRoot).slice(0, 4000),
+  };
+}
+
+function getMessageReceivedAt(messageRoot) {
+  const candidates = Array.from(messageRoot.querySelectorAll("[title], [data-tooltip]"));
+  for (const node of candidates) {
+    const value = node.getAttribute("title") || node.getAttribute("data-tooltip") || "";
+    const parsed = Date.parse(value);
+    if (value && Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  }
+  return new Date().toISOString();
 }
 
 // ─── Ingest ───────────────────────────────────────────────────────────────────

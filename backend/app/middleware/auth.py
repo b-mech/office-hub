@@ -23,9 +23,13 @@ PUBLIC_PATHS = {
     "/api/v1/change-orders/webhook/docusign",
     "/api/v1/change-orders/qbo/oauth/callback",
     "/api/v1/box/oauth/callback",
+    "/api/presales/approval-letters/intake",
 }
 PUBLIC_PREFIXES = (
+    "/api/public/",
+    "/api/webhooks/twilio/",
     "/api/rentals/reports/public/",
+    "/api/presales/extension/",
 )
 
 

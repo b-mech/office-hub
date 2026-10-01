@@ -2,22 +2,9 @@ import { useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { getLenderStatement, uploadLenderStatement } from "@/lib/api/financing";
 import type { LenderStatementDetail, LenderType } from "@/types/financing";
+import { defaultStatementPeriod, inferStatementPeriod } from "./statementPeriod";
 
 const lenders: LenderType[] = ["PRO"];
-const monthNames: Record<string, string> = {
-  january: "01",
-  february: "02",
-  march: "03",
-  april: "04",
-  may: "05",
-  june: "06",
-  july: "07",
-  august: "08",
-  september: "09",
-  october: "10",
-  november: "11",
-  december: "12",
-};
 
 export function FinancingStatementImport({
   onImported,
@@ -28,7 +15,7 @@ export function FinancingStatementImport({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [lender, setLender] = useState<LenderType>("PRO");
-  const [period, setPeriod] = useState(defaultPeriod());
+  const [period, setPeriod] = useState(defaultStatementPeriod());
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +25,7 @@ export function FinancingStatementImport({
     setBusy(true);
     setError(null);
     setStatus("uploading");
-    const uploadPeriod = inferredPeriod || period || inferPeriod(file.name);
+    const uploadPeriod = inferredPeriod || period || inferStatementPeriod(file.name);
     setPeriod(uploadPeriod);
     try {
       setStatus("parsing");
@@ -92,7 +79,7 @@ export function FinancingStatementImport({
           className="hidden"
           onChange={(event) => {
             const file = event.target.files?.[0];
-            const inferred = file ? inferPeriod(file.name) : period;
+            const inferred = file ? inferStatementPeriod(file.name) : period;
             setPeriod(inferred);
             onFile(file, inferred);
           }}
@@ -102,18 +89,4 @@ export function FinancingStatementImport({
       {error ? <p className="max-w-sm text-right text-xs text-[var(--ch-error-text)]">{error}</p> : null}
     </div>
   );
-}
-
-function defaultPeriod(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  return `${now.getFullYear()}-${month}`;
-}
-
-function inferPeriod(filename: string): string {
-  const lower = filename.toLowerCase();
-  const month = Object.entries(monthNames).find(([name]) => lower.includes(name))?.[1];
-  const dateMatch = filename.match(/(\d{2})(\d{2})(\d{4})/);
-  if (month && dateMatch) return `${dateMatch[3]}-${month}`;
-  return defaultPeriod();
 }

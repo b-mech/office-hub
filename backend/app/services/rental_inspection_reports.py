@@ -19,6 +19,7 @@ from app.models.rentals import RentalInspection, RentalInspectionReport, RentalI
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.compose",
 ]
 
 

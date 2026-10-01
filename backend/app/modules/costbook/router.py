@@ -1,6 +1,7 @@
 """
 API routes for the costbook module.
 """
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
@@ -10,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.models.core import Lot, SaleType
 from app.modules.costbook import extraction, service
+from app.services import presales as presale_service
 from app.modules.costbook.models import Budget, BudgetLine, Invoice, PurchaseOrder
 from app.modules.costbook.schemas import (
     BudgetCreate,
@@ -40,6 +43,15 @@ def _num(value: object) -> float:
     if isinstance(value, Decimal):
         return float(value)
     return float(value)
+
+
+async def _recompute_presale_if_applicable(db: AsyncSession, lot_id: UUID | None) -> None:
+    if lot_id is None:
+        return
+    lot = await db.get(Lot, lot_id)
+    if lot is not None and lot.sale_type == SaleType.PRESALE:
+        await presale_service.recompute_readiness(db, lot_id)
+        await db.commit()
 
 
 def _budget_line_out(line: BudgetLine) -> BudgetLineOut:
@@ -73,6 +85,9 @@ def _budget_out(budget: Budget) -> BudgetOut:
         project_number=budget.project_number,
         label=budget.label,
         status=budget.status,
+        is_prelim=budget.is_prelim,
+        requested_at=budget.requested_at,
+        received_at=budget.received_at,
         sqft_main_floor=budget.sqft_main_floor,
         sqft_basement=budget.sqft_basement,
         sqft_garage=budget.sqft_garage,
@@ -127,6 +142,7 @@ async def create_budget(
     db: AsyncSession = Depends(get_db),
 ) -> BudgetOut:
     budget = await service.create_budget(db, settings.default_org_id, data)
+    await _recompute_presale_if_applicable(db, budget.lot_agreement_id)
     reloaded = await service.get_budget(db, budget.id)
     if not reloaded:
         raise HTTPException(status_code=404, detail="Budget not found")
@@ -154,6 +170,10 @@ async def update_budget(
     if not budget:
         raise HTTPException(status_code=404, detail="Budget not found")
     updated = await service.update_budget(db, budget, data)
+    if updated.is_prelim and updated.received_at is None and sum(_num(line.estimate) for line in updated.lines) > 0:
+        updated.received_at = datetime.now(timezone.utc)
+        await db.commit()
+    await _recompute_presale_if_applicable(db, updated.lot_agreement_id)
     reloaded = await service.get_budget(db, updated.id)
     if not reloaded:
         raise HTTPException(status_code=404, detail="Budget not found")
@@ -173,6 +193,10 @@ async def update_budget_line(
     budget = await service.get_budget(db, budget_id)
     if not budget:
         raise HTTPException(status_code=404, detail="Budget not found")
+    if budget.lot_agreement_id:
+        if budget.is_prelim and budget.received_at is None and sum(_num(item.estimate) for item in budget.lines) > 0:
+            budget.received_at = datetime.now(timezone.utc)
+    await _recompute_presale_if_applicable(db, budget.lot_agreement_id)
     reloaded = next((item for item in budget.lines if item.id == line_id), None)
     if not reloaded:
         raise HTTPException(status_code=404, detail="Budget line not found")

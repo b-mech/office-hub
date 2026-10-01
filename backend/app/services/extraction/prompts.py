@@ -7,6 +7,20 @@ Your task is to read the full OCR text of a land purchase agreement and extract 
 
 Rules:
 1. Read the full OCR text carefully before extracting anything.
+1a. Inventory every agreement, amendment, addendum, schedule, exhibit, and counterpart
+    present in the supplied document or document set before selecting any operative value.
+    Record each item in source_documents, including execution/signature evidence, effective
+    date, its relationship to other items, and a page/clause locator when available.
+1b. Rank potentially controlling sources in this order: executed/signed over unsigned,
+    later effective date over earlier date, and express replacement/supersession wording
+    over an unrevised or stale schedule. Never treat a stale conflicting schedule as operative.
+1c. An amendment or addendum changes only the fields within its stated scope. Inherit every
+    unchanged term from the operative base agreement. Do not discard the base agreement.
+1d. Explain the resulting chain in operative_selection.rationale. Retain superseded items
+    in source_documents and identify them in operative_selection.superseded_source_ids.
+1e. For every non-null operative value, emit field_provenance using the same dotted path as
+    the output field (for example agreement.agreement_date or lots.0.purchase_price). Each
+    entry must identify its source, locator, supporting source text, and selection reason.
 2. Extract these agreement-level fields:
    - agreement_date
    - vendor_name
@@ -38,9 +52,16 @@ Rules:
    - frontage_feet
    - lot_notes
    - purchase_price
+   - rebate
+   - security_deposit
    - deposit_1_amount
    - deposit_2_amount
    - deposit_2_due_date
+   - deposit_schedule (array of every amount owed under the agreement, preserving
+     amount, due_date, trigger, and source_text; this is not a payment history)
+   - tax_adjustment_date
+   - interest_start_date
+   - closing_date
 4a. The lot schedule may appear as a rotated, OCR-noisy, columnar table near the end of the document. Parse it row by row even if headers and cells are imperfect.
 4b. Treat near-equivalent OCR strings as the intended headers, especially for:
    - civic address / civicaddress / address
@@ -71,6 +92,12 @@ Rules:
    - purchase_price
    - deposit_1_amount
    - deposit_2_amount
+   - rebate
+   - security_deposit
+   - deposit_schedule
+   - tax_adjustment_date
+   - interest_start_date
+   - closing_date
 4e. Do not confuse street_number with lot_number. In a row like `9 | 30 | Plan 71499 | 214 | Woodland Way`, extract:
    - block = 9
    - lot_number = 30
@@ -116,11 +143,14 @@ Rules:
     construction restrictions, security deposit, GST, assignment/default. Keep clause text concise.
 7. Return ONLY valid JSON. Do not include explanation, markdown, or code fences.
 8. Include confidence scores between 0.0 and 1.0 only for agreement-level fields and
-   security_deposit fields. Do not emit confidence entries for every lot row or every
-   notable clause; the response must stay complete valid JSON.
+   security_deposit fields. Do not emit confidence entries for lot rows or notable
+   clauses; the response must stay complete valid JSON.
 9. If a field cannot be found, return null for scalar guideline values, [] for guideline arrays,
    and 0.0 for agreement/security confidence fields.
 10. The top-level JSON keys must be exactly:
+   - source_documents
+   - operative_selection
+   - field_provenance
    - agreement
    - security_deposit
    - development_guidelines
@@ -138,6 +168,34 @@ Rules:
 
 Output shape:
 {
+  "source_documents": [
+    {
+      "source_id": null,
+      "label": null,
+      "document_type": null,
+      "execution_status": null,
+      "effective_date": null,
+      "signature_evidence": null,
+      "supersedes_or_amends": null,
+      "scope": null,
+      "source_locator": null
+    }
+  ],
+  "operative_selection": {
+    "base_source_id": null,
+    "applied_amendment_source_ids": [],
+    "superseded_source_ids": [],
+    "unresolved_conflicts": [],
+    "rationale": null
+  },
+  "field_provenance": {
+    "agreement.agreement_date": {
+      "source_id": null,
+      "source_locator": null,
+      "source_text": null,
+      "selection_reason": null
+    }
+  },
   "agreement": {
     "agreement_date": null,
     "vendor_name": null,
@@ -186,9 +244,15 @@ Output shape:
       "frontage_feet": null,
       "lot_notes": null,
       "purchase_price": null,
+      "rebate": null,
+      "security_deposit": null,
       "deposit_1_amount": null,
       "deposit_2_amount": null,
-      "deposit_2_due_date": null
+      "deposit_2_due_date": null,
+      "deposit_schedule": [],
+      "tax_adjustment_date": null,
+      "interest_start_date": null,
+      "closing_date": null
     }
   ],
   "notable_clauses": [
@@ -277,9 +341,15 @@ Rules:
    - interest_rate_on_late_payments
    - materials_escalation_cap
 20. If realtor or brokerage names are present, extract them into:
+   - realtor_name (the realtor Office Hub should contact for the purchaser's approval letter;
+     prefer the purchaser/buyer's realtor, otherwise use the listing/seller's realtor)
+   - realtor_email
+   - realtor_brokerage
    - buyers_realtor_name
+   - buyers_realtor_email
    - buyers_brokerage
    - sellers_realtor_name
+   - sellers_realtor_email
    - sellers_brokerage
 21. Do not invent values. If a value is only partially legible, use the best supported reading and lower confidence.
 22. The top-level JSON keys must be exactly:
@@ -303,9 +373,14 @@ Output shape:
     "builder_name": null,
     "builder_address": null,
     "buyers_realtor_name": null,
+    "buyers_realtor_email": null,
     "buyers_brokerage": null,
     "sellers_realtor_name": null,
+    "sellers_realtor_email": null,
     "sellers_brokerage": null,
+    "realtor_name": null,
+    "realtor_email": null,
+    "realtor_brokerage": null,
     "civic_address": null,
     "legal_description": {
       "block": null,

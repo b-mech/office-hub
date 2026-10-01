@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  acknowledgeStatementSnapshot,
   approveStatementDraws,
   createManualStatementSnapshot,
   getLenderStatement,
@@ -7,6 +8,7 @@ import {
   getProFacilities,
   linkStatementFacility,
   retryLenderStatement,
+  updateStatementDiscrepancy,
 } from "@/lib/api/financing";
 import type { LenderStatement, LenderStatementDetail, ProFacility } from "@/types/financing";
 
@@ -18,12 +20,20 @@ function num(value: unknown): number {
 }
 
 function chip(status: string): string {
-  if (status === "matched" || status === "parsed") return "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)]";
+  if (["matched", "parsed", "reconciled", "reviewed", "acknowledged"].includes(status)) return "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)]";
   if (status === "failed" || status === "balance_mismatch") return "bg-[var(--ch-error-bg)] text-[var(--ch-error-text)]";
   return "bg-[var(--ch-warning-bg)] text-[var(--ch-warning-text)]";
 }
 
-export function StatementsPanel({ selected, onSelect }: { selected: LenderStatementDetail | null; onSelect: (statement: LenderStatementDetail | null) => void }) {
+export function StatementsPanel({
+  selected,
+  onSelect,
+  onChanged,
+}: {
+  selected: LenderStatementDetail | null;
+  onSelect: (statement: LenderStatementDetail | null) => void;
+  onChanged: () => Promise<void>;
+}) {
   const [statements, setStatements] = useState<LenderStatement[]>([]);
   const [facilities, setFacilities] = useState<ProFacility[]>([]);
   const [loading, setLoading] = useState(false);
@@ -71,12 +81,26 @@ export function StatementsPanel({ selected, onSelect }: { selected: LenderStatem
   async function approve(snapshotId: string) {
     await approveStatementDraws(snapshotId);
     if (selected) onSelect(await getLenderStatement(selected.id));
+    await onChanged();
   }
 
   async function link(snapshotId: string, facilityId: string) {
     if (!facilityId) return;
     await linkStatementFacility(snapshotId, facilityId);
     if (selected) onSelect(await getLenderStatement(selected.id));
+    await onChanged();
+  }
+
+  async function acknowledgeMismatch(snapshotId: string) {
+    await acknowledgeStatementSnapshot(snapshotId);
+    if (selected) onSelect(await getLenderStatement(selected.id));
+    await onChanged();
+  }
+
+  async function setDiscrepancyStatus(discrepancyId: string, status: "open" | "acknowledged") {
+    await updateStatementDiscrepancy(discrepancyId, status);
+    if (selected) onSelect(await getLenderStatement(selected.id));
+    await onChanged();
   }
 
   async function retry() {
@@ -101,6 +125,9 @@ export function StatementsPanel({ selected, onSelect }: { selected: LenderStatem
   }
 
   const parseError = selected?.parse_payload?.error;
+  const discrepancies = selected?.discrepancies || [];
+  const snapshotReviewCount = selected?.snapshots.filter((snapshot) => !["matched", "acknowledged"].includes(snapshot.reconciliation_status)).length || 0;
+  const openDiscrepancyCount = discrepancies.filter((issue) => issue.status === "open").length;
 
   return (
     <section className="rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
@@ -174,6 +201,20 @@ export function StatementsPanel({ selected, onSelect }: { selected: LenderStatem
                   }}
                 />
               ) : null}
+              <div className="mb-4 grid gap-2 sm:grid-cols-3">
+                <div className="rounded-md border border-[var(--ch-border)] p-3">
+                  <p className="text-xs text-[var(--ch-text-muted)]">Report entries</p>
+                  <p className="mt-1 text-xl font-semibold">{selected.snapshots.length}</p>
+                </div>
+                <div className="rounded-md border border-[var(--ch-border)] p-3">
+                  <p className="text-xs text-[var(--ch-text-muted)]">Report rows to review</p>
+                  <p className="mt-1 text-xl font-semibold">{snapshotReviewCount}</p>
+                </div>
+                <div className="rounded-md border border-[var(--ch-border)] p-3">
+                  <p className="text-xs text-[var(--ch-text-muted)]">Internal records missing</p>
+                  <p className="mt-1 text-xl font-semibold">{openDiscrepancyCount}</p>
+                </div>
+              </div>
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm">
                   <thead className="text-xs uppercase text-[var(--ch-text-muted)]">
@@ -205,11 +246,59 @@ export function StatementsPanel({ selected, onSelect }: { selected: LenderStatem
                               ))}
                             </select>
                           ) : null}
+                          {snapshot.reconciliation_status === "balance_mismatch" ? (
+                            <button type="button" onClick={() => acknowledgeMismatch(snapshot.id)} className="ml-2 rounded-md border border-[var(--ch-border)] px-2 py-1 text-xs font-semibold">
+                              Acknowledge source
+                            </button>
+                          ) : null}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="mt-5 border-t border-[var(--ch-border)] pt-4">
+                <div className="mb-3">
+                  <h4 className="text-sm font-semibold">Internal records missing from this PRO report</h4>
+                  <p className="mt-1 text-xs text-[var(--ch-text-muted)]">
+                    The monthly PRO report is the financial source of truth. Missing internal records stay blocked from draw requests until a report includes them or the internal record is corrected. Acknowledging documents the review without inventing report values or removing the block.
+                  </p>
+                </div>
+                {discrepancies.length === 0 ? (
+                  <p className="rounded-md bg-[var(--ch-success-bg)] px-3 py-2 text-sm text-[var(--ch-success-text)]">No internal-only PRO records.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="text-xs uppercase text-[var(--ch-text-muted)]">
+                        <tr>
+                          {['Internal record', 'Stage', 'Record type', 'Status', 'Reason', 'Action'].map((head) => (
+                            <th key={head} className="px-2 py-2 text-left font-semibold">{head}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {discrepancies.map((issue) => (
+                          <tr key={issue.id} className="border-t border-[var(--ch-border)]">
+                            <td className="px-2 py-2 font-medium">{issue.display_name}</td>
+                            <td className="px-2 py-2">{issue.details.stage || '-'}</td>
+                            <td className="px-2 py-2">{issue.details.record_type || '-'}</td>
+                            <td className="px-2 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${chip(issue.status)}`}>{issue.status}</span></td>
+                            <td className="max-w-sm px-2 py-2 text-xs text-[var(--ch-text-muted)]">{issue.details.reason || '-'}</td>
+                            <td className="px-2 py-2">
+                              <button
+                                type="button"
+                                onClick={() => setDiscrepancyStatus(issue.id, issue.status === 'open' ? 'acknowledged' : 'open')}
+                                className="rounded-md border border-[var(--ch-border)] px-2 py-1 text-xs font-semibold"
+                              >
+                                {issue.status === 'open' ? 'Acknowledge' : 'Reopen'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           ) : null}

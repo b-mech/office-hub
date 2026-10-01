@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   createProDrawRequest,
   getProDrawRequests,
+  updateFacility,
   updateProDrawRequest,
 } from "@/lib/api/financing";
 import type { FinancingProperty, ProDrawRequest } from "@/types/financing";
@@ -24,9 +25,28 @@ const statuses = [
   "cancelled",
 ];
 
-export function ProDrawRequestPanel({ property }: { property: FinancingProperty }) {
+function initialOverrideAmount(property: FinancingProperty): string {
+  if (property.draw_eligible_override != null) {
+    return String(property.draw_eligible_override);
+  }
+  const calculated = Math.max(
+    0,
+    Number(property.cumulative_entitled || 0) - Number(property.already_drawn || 0),
+  );
+  return calculated > 0 ? String(calculated) : "";
+}
+
+export function ProDrawRequestPanel({
+  property,
+  onUpdated,
+}: {
+  property: FinancingProperty;
+  onUpdated: () => Promise<void>;
+}) {
   const [requests, setRequests] = useState<ProDrawRequest[]>([]);
   const [busy, setBusy] = useState(false);
+  const [overrideBusy, setOverrideBusy] = useState(false);
+  const [overrideAmount, setOverrideAmount] = useState(() => initialOverrideAmount(property));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -69,6 +89,28 @@ export function ProDrawRequestPanel({ property }: { property: FinancingProperty 
     setRequests((current) => current.map((item) => (item.id === updated.id ? updated : item)));
   }
 
+  async function saveOverride(amount: string | null) {
+    if (!property.facility_id) return;
+    setOverrideBusy(true);
+    setError(null);
+    try {
+      await updateFacility(property.facility_id, {
+        draw_eligible_override: amount === null ? null : amount,
+      });
+      await onUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save Draw Now override");
+    } finally {
+      setOverrideBusy(false);
+    }
+  }
+
+  const showStatementOverride = property.facility_id && (
+    property.flag === "MISSING_FROM_STATEMENT" || property.flag === "STATEMENT_OVERRIDE"
+  );
+  const overrideIsActive = property.draw_eligible_override != null;
+  const parsedOverride = Number(overrideAmount);
+
   return (
     <div className="mb-4 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
       <div className="flex items-center justify-between gap-3">
@@ -87,6 +129,44 @@ export function ProDrawRequestPanel({ property }: { property: FinancingProperty 
           {busy ? "Preparing…" : `Request ${money.format(Number(property.draw_eligible || 0))}`}
         </button>
       </div>
+      {showStatementOverride ? (
+        <div className="mt-3 rounded-md border border-[var(--ch-warning-border)] bg-[var(--ch-warning-bg)] p-3">
+          <p className="text-xs font-semibold text-[var(--ch-warning-text)]">
+            {overrideIsActive
+              ? "Statement safeguard overridden. This amount can be included in a PRO request."
+              : "This facility is missing from the latest PRO statement. Apply an explicit Draw Now override to request it anyway."}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              aria-label="Manual Draw Now override"
+              value={overrideAmount}
+              onChange={(event) => setOverrideAmount(event.target.value)}
+              className="min-w-0 flex-1 rounded-md border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              disabled={overrideBusy || !Number.isFinite(parsedOverride) || parsedOverride <= 0}
+              onClick={() => void saveOverride(overrideAmount)}
+              className="rounded-md bg-[var(--ch-accent)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {overrideBusy ? "Saving…" : overrideIsActive ? "Update override" : "Apply override"}
+            </button>
+            {overrideIsActive ? (
+              <button
+                type="button"
+                disabled={overrideBusy}
+                onClick={() => void saveOverride(null)}
+                className="rounded-md border border-[var(--ch-border)] px-3 py-2 text-sm font-semibold disabled:opacity-50"
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {error ? <p className="mt-3 text-sm text-[var(--ch-error-text)]">{error}</p> : null}
       <div className="mt-3 space-y-2">
         {requests.map((request) => (

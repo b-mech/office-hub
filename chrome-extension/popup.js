@@ -17,7 +17,7 @@ async function init() {
 
   openChangeOrder.addEventListener("click", async () => {
     await chrome.tabs.create({
-      url: "http://localhost:3000/change-orders/new?source=email",
+      url: "https://officehub.n10z.ca/change-orders/new?source=email",
     });
   });
 

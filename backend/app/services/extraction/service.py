@@ -10,7 +10,7 @@ from app.services.extraction.claude_provider import ClaudeProvider
 from app.services.extraction.openai_provider import OpenAIProvider
 
 
-VERSION = "v4"
+VERSION = "v8"
 
 
 _LEGAL_LOT_LINE = re.compile(
@@ -58,6 +58,35 @@ def extract_legal_description_lots(ocr_text: str) -> list[dict[str, Any]]:
     return lots
 
 
+def remove_land_lot_confidences(response: ExtractionResponse) -> None:
+    """Remove uncalibrated lot-field confidence values from Land OTP output."""
+    response.field_confidences = {
+        path: confidence
+        for path, confidence in response.field_confidences.items()
+        if not path.startswith("lots.")
+    }
+    response.low_confidence_fields = [
+        path for path in response.low_confidence_fields if not path.startswith("lots.")
+    ]
+
+
+def validate_land_source_selection(response: ExtractionResponse) -> None:
+    """Reject Land OTP output that cannot explain its operative source chain."""
+    payload = response.extracted_payload
+    source_documents = payload.get("source_documents")
+    operative_selection = payload.get("operative_selection")
+    field_provenance = payload.get("field_provenance")
+    if not isinstance(source_documents, list) or not source_documents:
+        raise ValueError("Land OTP extraction must inventory source_documents")
+    if not isinstance(operative_selection, dict):
+        raise ValueError("Land OTP extraction must include operative_selection")
+    rationale = operative_selection.get("rationale")
+    if not isinstance(rationale, str) or not rationale.strip():
+        raise ValueError("Land OTP extraction must explain operative_selection.rationale")
+    if not isinstance(field_provenance, dict):
+        raise ValueError("Land OTP extraction must include field_provenance")
+
+
 class ExtractionService:
     def __init__(self, provider: BaseProvider) -> None:
         self.provider = provider
@@ -72,6 +101,9 @@ class ExtractionService:
             recovered_lots = extract_legal_description_lots(ocr_text)
             if recovered_lots:
                 response.extracted_payload["lots"] = recovered_lots
+        if document_type == "land_otp":
+            remove_land_lot_confidences(response)
+            validate_land_source_selection(response)
         return response
 
 

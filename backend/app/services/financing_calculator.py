@@ -46,6 +46,33 @@ def calculate_draw(
     if lender == "PRO":
         if total_facility is None:
             return DrawCalculation(None, None, False, "FACILITY_NOT_SET", "PRO total facility is required.")
+        if clean_stage == "LOCKUP":
+            lockup_draw = min(
+                Decimal("100000.00"),
+                max(Decimal("0"), total_facility - drawn),
+            )
+            entitled = drawn + lockup_draw
+            return DrawCalculation(
+                cumulative_entitled=entitled,
+                draw_eligible=lockup_draw,
+                stage_is_estimate=False,
+                flag=None,
+                formula=f"PRO LOCKUP: flat draw of {lockup_draw}",
+            )
+        if clean_stage == "DRYWALL":
+            remaining_after_lockup = max(Decimal("0"), total_facility - drawn)
+            drywall_draw = (remaining_after_lockup * Decimal("0.50")).quantize(Decimal("0.01"))
+            entitled = drawn + drywall_draw
+            return DrawCalculation(
+                cumulative_entitled=entitled,
+                draw_eligible=drywall_draw,
+                stage_is_estimate=False,
+                flag=None,
+                formula=(
+                    f"PRO DRYWALL: 50% x remaining after LOCKUP "
+                    f"({total_facility} - {drawn}) = {drywall_draw}"
+                ),
+            )
         entitled = _pro_entitled(clean_stage, total_facility)
         return _result(entitled, drawn, False, f"PRO {clean_stage}: {entitled} - {drawn}")
 
@@ -67,10 +94,6 @@ def calculate_draw(
 def _pro_entitled(stage: str, total_facility: Decimal) -> Decimal:
     if stage == "FOUNDATION":
         return Decimal("125000.00")
-    if stage == "LOCKUP":
-        return (total_facility * Decimal("0.55")).quantize(Decimal("0.01"))
-    if stage == "DRYWALL":
-        return (total_facility * Decimal("0.775")).quantize(Decimal("0.01"))
     if stage in {"CABINETRY", "COMPLETED"}:
         return total_facility
     return Decimal("0")

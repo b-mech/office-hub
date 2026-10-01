@@ -8,6 +8,7 @@ import {
   createPurchaseOrder,
   getBudget,
   getVendors,
+  updateBudget,
   updateBudgetLine,
   type Budget,
   type BudgetLine,
@@ -32,6 +33,7 @@ export default function BudgetDraftPage() {
   const [editingCell, setEditingCell] = useState<{ lineId: string; field: "estimate" | "actual" } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [issuePOLine, setIssuePOLine] = useState<BudgetLine | null>(null);
+  const [updatingPrelim, setUpdatingPrelim] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +109,24 @@ export default function BudgetDraftPage() {
     });
   }
 
+  async function togglePrelim() {
+    if (!budget) return;
+    setUpdatingPrelim(true);
+    setError(null);
+    try {
+      const isPrelim = !budget.is_prelim;
+      const updated = await updateBudget(budget.id, {
+        is_prelim: isPrelim,
+        received_at: isPrelim && budget.total_estimate > 0 ? new Date().toISOString() : undefined,
+      });
+      setBudget(updated);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Could not update prelim budget status.");
+    } finally {
+      setUpdatingPrelim(false);
+    }
+  }
+
   if (loading) {
     return <div className="min-h-screen bg-[var(--ch-page-bg)] px-8 py-8 text-sm text-[var(--ch-text-muted)]">Loading budget...</div>;
   }
@@ -140,8 +160,12 @@ export default function BudgetDraftPage() {
               <span className="rounded-full border border-[var(--ch-accent)] bg-[var(--ch-accent-soft)] px-2.5 py-1 text-xs font-semibold uppercase tracking-widest text-[var(--ch-accent)]">
                 Draft budget
               </span>
+              {budget.is_prelim ? <span className="rounded-full border border-[var(--ch-success-border)] bg-[var(--ch-success-bg)] px-2.5 py-1 text-xs font-semibold uppercase tracking-widest text-[var(--ch-success-text)]">Presale prelim</span> : null}
             </div>
           </div>
+          <button type="button" disabled={updatingPrelim} onClick={() => void togglePrelim()} className="rounded-lg border border-[var(--ch-border)] px-4 py-2 text-sm font-semibold disabled:opacity-50">
+            {updatingPrelim ? "Updating…" : budget.is_prelim ? "Remove prelim flag" : "Mark as prelim budget"}
+          </button>
         </header>
 
         <section className="mb-6 grid gap-4 md:grid-cols-3">

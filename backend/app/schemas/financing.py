@@ -70,6 +70,7 @@ class FacilityUpdate(BaseModel):
     account_type: str | None = None
     current_balance: Decimal | None = None
     outstanding_balance: Decimal | None = None
+    accrued_interest: Decimal | None = None
     account_currency: str | None = None
     maturity_date: date | None = None
     member_number: str | None = None
@@ -133,6 +134,7 @@ class FinancingPropertyOut(BaseModel):
     total_facility: Decimal | None = None
     opening_balance: Decimal | None = None
     already_drawn: Decimal | None = None
+    draw_eligible_override: Decimal | None = None
     last_draw_date: date | None = None
     last_draw_amount: Decimal | None = None
     requested_draw_amount: Decimal | None = None
@@ -145,6 +147,7 @@ class FinancingPropertyOut(BaseModel):
     account_type: str | None = None
     current_balance: Decimal | None = None
     outstanding_balance: Decimal | None = None
+    accrued_interest: Decimal | None = None
     account_currency: str | None = None
     maturity_date: date | None = None
     member_number: str | None = None
@@ -288,9 +291,36 @@ class FacilityStatementSnapshotOut(BaseModel):
     new_draws_detected: list[dict[str, Any]] | None = None
 
 
+class StatementDiscrepancyOut(BaseModel):
+    id: UUID
+    statement_id: UUID
+    facility_id: UUID | None = None
+    property_id: UUID | None = None
+    entity_key: str
+    issue_type: str
+    display_name: str
+    canonical_address_key: str | None = None
+    details: dict[str, Any]
+    status: str
+    review_note: str | None = None
+    reviewed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class StatementDiscrepancyUpdate(BaseModel):
+    status: str = Field(pattern="^(open|acknowledged)$")
+    review_note: str | None = Field(default=None, max_length=1000)
+
+
+class StatementSnapshotReview(BaseModel):
+    note: str | None = Field(default=None, max_length=1000)
+
+
 class LenderStatementDetailOut(LenderStatementOut):
     parse_payload: dict[str, Any] | None = None
     snapshots: list[FacilityStatementSnapshotOut]
+    discrepancies: list[StatementDiscrepancyOut] = Field(default_factory=list)
 
 
 class ManualStatementDraw(BaseModel):

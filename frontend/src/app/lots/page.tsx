@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { getLots, type Lot } from "@/lib/api/costbook";
+import { presalesApi } from "@/lib/api/presales";
 import { TenderPackagesPanel } from "@/app/projects/components/TenderPackagesPanel";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -127,7 +128,17 @@ function LotCard({
 
 // ─── LotDetail ────────────────────────────────────────────────────────────────
 
-function LotDetail({ lot, showTendering }: { lot: Lot; showTendering: boolean }) {
+function LotDetail({
+  lot,
+  showTendering,
+  onMarkedPresale,
+}: {
+  lot: Lot;
+  showTendering: boolean;
+  onMarkedPresale: () => Promise<void>;
+}) {
+  const [markingPresale, setMarkingPresale] = useState(false);
+  const [presaleError, setPresaleError] = useState<string | null>(null);
   const dates = [
     { label: "Agreement", value: lot.agreement_date },
     { label: "Conditions", value: lot.condition_removal_date },
@@ -251,7 +262,43 @@ function LotDetail({ lot, showTendering }: { lot: Lot; showTendering: boolean })
               <p className="text-xs text-[var(--ch-text-muted)]">Review & approve</p>
             </div>
           </Link>
+          {lot.sale_type === "presale" ? (
+            <Link
+              href={`/financing/presales/${lot.id}`}
+              className="flex items-center gap-3 rounded-xl p-4 bg-[var(--ch-surface)] border border-[var(--ch-border)] hover:bg-[var(--ch-surface)] hover:border-[var(--ch-border-strong)] transition-all group"
+            >
+              <span className="text-xl">🏦</span>
+              <div>
+                <p className="text-sm font-medium text-[var(--ch-text-primary)] group-hover:text-[var(--ch-warning-text)] transition-colors">Presale Financing</p>
+                <p className="text-xs text-[var(--ch-text-muted)]">Approval & readiness</p>
+              </div>
+            </Link>
+          ) : (
+            <button
+              type="button"
+              disabled={markingPresale}
+              onClick={async () => {
+                setMarkingPresale(true);
+                setPresaleError(null);
+                try {
+                  await onMarkedPresale();
+                } catch (error) {
+                  setPresaleError(error instanceof Error ? error.message : "Could not mark this lot as presale");
+                } finally {
+                  setMarkingPresale(false);
+                }
+              }}
+              className="flex items-center gap-3 rounded-xl p-4 text-left bg-[var(--ch-surface)] border border-[var(--ch-border)] hover:bg-[var(--ch-surface)] hover:border-[var(--ch-border-strong)] transition-all group disabled:opacity-50"
+            >
+              <span className="text-xl">🏦</span>
+              <div>
+                <p className="text-sm font-medium text-[var(--ch-text-primary)] group-hover:text-[var(--ch-warning-text)] transition-colors">{markingPresale ? "Marking…" : "Mark as presale"}</p>
+                <p className="text-xs text-[var(--ch-text-muted)]">Add to presales board</p>
+              </div>
+            </button>
+          )}
         </div>
+        {presaleError ? <p className="mt-3 text-sm text-[var(--ch-error-text)]">{presaleError}</p> : null}
       </div>
 
       {/* Agreement IDs for debugging */}
@@ -404,7 +451,15 @@ export function LotWorkspace({
       {/* Right panel */}
       <div className="flex-1 overflow-hidden">
         {selected ? (
-          <LotDetail lot={selected} showTendering={showTendering} />
+          <LotDetail
+            lot={selected}
+            showTendering={showTendering}
+            onMarkedPresale={async () => {
+              await presalesApi.updateLot(selected.id, { sale_type: "presale" });
+              setLots((current) => current.map((lot) => lot.id === selected.id ? { ...lot, sale_type: "presale" } : lot));
+              setSelected((current) => current?.id === selected.id ? { ...current, sale_type: "presale" } : current);
+            }}
+          />
         ) : (
           <div className="h-full flex items-center justify-center text-[var(--ch-text-muted)] text-sm">
             Select a lot to view details

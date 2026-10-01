@@ -43,6 +43,7 @@ from app.schemas.financing import ProFacilityOut
 from app.schemas.financing import ProLedgerEventOut
 from app.schemas.financing import ProLedgerOut
 from app.schemas.financing import ProDrawRequestOut
+from app.schemas.financing import StatementDiscrepancyOut
 from app.schemas.financing import ClientDrawScheduleOut
 from app.schemas.financing import ClientPrepDrawOut
 from app.schemas.financing import ClientDrawRequestOut
@@ -54,6 +55,7 @@ from app.financing.engines.pro import balance_on
 from app.financing.engines.pro import compute_ledger
 from app.financing.engines.pro import money
 from app.financing.parsers.pro_statement import ParsedProFacilityStatement
+from app.financing.parsers.pro_statement import normalize_statement_name
 from app.financing.parsers.pro_statement import parse_statement_text
 from app.services.ocr.extractor import PDFExtractor
 from app.services.financing_calculator import calculate_draw
@@ -126,11 +128,59 @@ async def get_or_create_property(db: AsyncSession, address: str) -> tuple[UUID, 
     return created.scalar_one(), True
 
 
+async def get_or_create_stage_target(
+    db: AsyncSession,
+    address: str,
+) -> tuple[UUID | None, UUID | None, bool]:
+    existing_target = (
+        await db.execute(
+            text(
+                """
+                SELECT property_id, build_group_id
+                FROM documents.construction_stage_sync
+                WHERE address_raw = :address_raw
+                FOR UPDATE
+                """
+            ),
+            {"address_raw": address},
+        )
+    ).mappings().one_or_none()
+    if existing_target is not None:
+        return existing_target["property_id"], existing_target["build_group_id"], False
+
+    canonical_key = normalize_canonical_address(address).canonical_key
+    build_groups = (
+        await db.execute(
+            text(
+                """
+                SELECT id, display_name
+                FROM core.build_groups
+                WHERE status <> 'cancelled'
+                """
+            )
+        )
+    ).mappings().all()
+    matching_groups = [
+        group["id"]
+        for group in build_groups
+        if normalize_canonical_address(group["display_name"]).canonical_key == canonical_key
+    ]
+    if len(matching_groups) > 1:
+        raise ValueError(f"Multiple build groups match address {address!r}")
+    if matching_groups:
+        return None, matching_groups[0], False
+
+    property_id, created = await get_or_create_property(db, address)
+    return property_id, None, created
+
+
 async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
-    property_id, created = await get_or_create_property(db, row["address_raw"])
+    property_id, build_group_id, created = await get_or_create_stage_target(db, row["address_raw"])
+
     await record_stage_change(
         db,
         property_id=property_id,
+        build_group_id=build_group_id,
         incoming_stage=row.get("stage_clean"),
         synced_at=datetime.now(timezone.utc),
     )
@@ -151,15 +201,16 @@ async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
         text(
             """
             INSERT INTO documents.construction_stage_sync (
-                property_id, address_raw, banker_raw, lender_type, sold_or_spec,
+                property_id, build_group_id, address_raw, banker_raw, lender_type, sold_or_spec,
                 stage_clean, client_name, build_start, possession_date, last_synced_at
             )
             VALUES (
-                :property_id, :address_raw, :banker_raw, :lender_type, :sold_or_spec,
+                :property_id, :build_group_id, :address_raw, :banker_raw, :lender_type, :sold_or_spec,
                 :stage_clean, :client_name, :build_start, :possession_date, now()
             )
             ON CONFLICT (address_raw) DO UPDATE SET
                 property_id = EXCLUDED.property_id,
+                build_group_id = EXCLUDED.build_group_id,
                 banker_raw = EXCLUDED.banker_raw,
                 lender_type = EXCLUDED.lender_type,
                 sold_or_spec = EXCLUDED.sold_or_spec,
@@ -170,7 +221,7 @@ async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
                 last_synced_at = now()
             """
         ),
-        {**row, "property_id": property_id},
+        {**row, "property_id": property_id, "build_group_id": build_group_id},
     )
     next_stage = row.get("stage_clean")
     excluded_stages = {None, "", "NA", "SYNC_CONFLICT"}
@@ -179,12 +230,12 @@ async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
             text(
                 """
                 INSERT INTO documents.construction_stage_milestones (
-                    property_id, stage, achieved_at, source
+                    property_id, build_group_id, stage, achieved_at, source
                 )
-                VALUES (:property_id, :stage, now(), 'sheet_sync')
+                VALUES (:property_id, :build_group_id, :stage, now(), 'sheet_sync')
                 """
             ),
-            {"property_id": property_id, "stage": next_stage},
+            {"property_id": property_id, "build_group_id": build_group_id, "stage": next_stage},
         )
     return created
 
@@ -241,33 +292,39 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
                     lf.original_loan_amount,
                     lf.payment_schedule,
                     lf.term_length_days,
-                    lf.notes
+                    lf.notes,
+                    NULL::numeric AS statement_reported_balance,
+                    NULL::numeric AS statement_reported_principal,
+                    NULL::date AS statement_reported_date,
+                    latest_issue.reconciliation_status AS statement_reconciliation_status
                 FROM core.properties p
                 LEFT JOIN documents.construction_stage_sync css ON css.property_id = p.id
                 LEFT JOIN core.lender_facilities lf
                   ON lf.property_id = p.id
                  AND COALESCE(lf.lender, lf.lender_type) <> 'PRO'
+                LEFT JOIN LATERAL (
+                    SELECT 'missing_from_statement'::text AS reconciliation_status
+                    FROM documents.lender_statement_discrepancies discrepancy
+                    JOIN documents.lender_statements statement
+                      ON statement.id = discrepancy.statement_id
+                    WHERE discrepancy.property_id = p.id
+                    ORDER BY statement.period DESC, statement.uploaded_at DESC
+                    LIMIT 1
+                ) latest_issue ON true
                 WHERE NOT (
                     COALESCE(css.lender_type, '') = 'PRO'
-                    AND (
-                        EXISTS (
-                            SELECT 1
-                            FROM core.lender_facilities pro_lf
-                            WHERE COALESCE(pro_lf.lender, pro_lf.lender_type) = 'PRO'
-                              AND (
-                                  pro_lf.property_id = p.id
-                                  OR (
-                                      pro_lf.property_id IS NULL
-                                      AND pro_lf.canonical_address_key IS NOT NULL
-                                      AND pro_lf.canonical_address_key = p.canonical_address_key
-                                  )
+                    AND EXISTS (
+                        SELECT 1
+                        FROM core.lender_facilities pro_lf
+                        WHERE COALESCE(pro_lf.lender, pro_lf.lender_type) = 'PRO'
+                          AND (
+                              pro_lf.property_id = p.id
+                              OR (
+                                  pro_lf.property_id IS NULL
+                                  AND pro_lf.canonical_address_key IS NOT NULL
+                                  AND pro_lf.canonical_address_key = p.canonical_address_key
                               )
-                        )
-                        OR EXISTS (
-                            SELECT 1
-                            FROM core.lender_facilities official_pro
-                            WHERE official_pro.commitment_source IS NOT NULL
-                        )
+                          )
                     )
                 )
                 UNION ALL
@@ -318,7 +375,14 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
                     lf.original_loan_amount,
                     lf.payment_schedule,
                     lf.term_length_days,
-                    lf.notes
+                    lf.notes,
+                    latest_statement.reported_period_end_balance AS statement_reported_balance,
+                    latest_statement.reported_principal AS statement_reported_principal,
+                    latest_statement.reported_period_end_date AS statement_reported_date,
+                    COALESCE(
+                        latest_statement.reconciliation_status,
+                        latest_issue.reconciliation_status
+                    ) AS statement_reconciliation_status
                 FROM core.lender_facilities lf
                 LEFT JOIN core.properties p
                   ON p.id = lf.property_id
@@ -328,6 +392,27 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
                       AND p.canonical_address_key = lf.canonical_address_key
                   )
                 LEFT JOIN documents.construction_stage_sync css ON css.property_id = p.id
+                LEFT JOIN LATERAL (
+                    SELECT
+                        fss.reported_period_end_balance,
+                        NULLIF(fss.parse_payload->>'reported_principal_drawn', '')::numeric AS reported_principal,
+                        fss.reported_period_end_date,
+                        fss.reconciliation_status
+                    FROM documents.facility_statement_snapshots fss
+                    WHERE fss.facility_id = lf.id
+                      AND fss.parse_payload ? 'reported_principal_drawn'
+                    ORDER BY fss.reported_period_end_date DESC, fss.created_at DESC
+                    LIMIT 1
+                ) latest_statement ON true
+                LEFT JOIN LATERAL (
+                    SELECT 'missing_from_statement'::text AS reconciliation_status
+                    FROM documents.lender_statement_discrepancies discrepancy
+                    JOIN documents.lender_statements statement
+                      ON statement.id = discrepancy.statement_id
+                    WHERE discrepancy.facility_id = lf.id
+                    ORDER BY statement.period DESC, statement.uploaded_at DESC
+                    LIMIT 1
+                ) latest_issue ON true
                 WHERE COALESCE(lf.lender, lf.lender_type) = 'PRO'
                   AND COALESCE(lf.status, 'active') <> 'statement_only'
                   AND (
@@ -352,6 +437,16 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
         if (
             row["facility_id"]
             and (row["lender_type"] or "").upper() == "PRO"
+            and row["statement_reported_balance"] is not None
+            and row["statement_reported_principal"] is not None
+        ):
+            pro_balance = row["statement_reported_balance"]
+            pro_principal = row["statement_reported_principal"]
+        if (
+            pro_balance is None
+            and row["annual_rate"] is not None
+            and row["facility_id"]
+            and (row["lender_type"] or "").upper() == "PRO"
             and row["facility_key"]
             and row["original_advance_date"] is not None
             and row["original_advance_amount"] is not None
@@ -371,6 +466,7 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
                 row,
                 pro_balance=pro_balance,
                 pro_principal=pro_principal,
+                pro_statement_status=row["statement_reconciliation_status"],
                 milestone_history=milestone_history.get(row["property_id"], []),
             )
         )
@@ -1580,10 +1676,11 @@ async def list_pro_facilities(db: AsyncSession) -> list[ProFacilityOut]:
                     lf.original_advance_amount,
                     lf.status,
                     latest.reconciliation_status AS last_statement_status,
-                    latest.delta AS last_statement_delta
+                    latest.delta AS last_statement_delta,
+                    latest.reported_period_end_balance AS last_statement_balance
                 FROM core.lender_facilities lf
                 LEFT JOIN LATERAL (
-                    SELECT fss.reconciliation_status, fss.delta
+                    SELECT fss.reconciliation_status, fss.delta, fss.reported_period_end_balance
                     FROM documents.facility_statement_snapshots fss
                     WHERE fss.facility_id = lf.id
                     ORDER BY fss.reported_period_end_date DESC, fss.created_at DESC
@@ -1600,11 +1697,18 @@ async def list_pro_facilities(db: AsyncSession) -> list[ProFacilityOut]:
     today = date.today()
     output: list[ProFacilityOut] = []
     for row in rows:
-        transactions = await _pro_transactions(db, row["id"])
+        balance_as_of = row["last_statement_balance"]
+        if (
+            row["annual_rate"] is not None
+            and row["original_advance_date"] is not None
+            and row["original_advance_amount"] is not None
+        ):
+            transactions = await _pro_transactions(db, row["id"])
+            balance_as_of = balance_on(_pro_facility_from_row(row), transactions, today)
         output.append(
             ProFacilityOut(
                 **row,
-                balance_as_of=balance_on(_pro_facility_from_row(row), transactions, today),
+                balance_as_of=balance_as_of,
             )
         )
     return output
@@ -1631,7 +1735,12 @@ async def get_pro_ledger(db: AsyncSession, facility_id: UUID, as_of: date | None
             {"facility_id": facility_id},
         )
     ).mappings().one_or_none()
-    if row is None:
+    if (
+        row is None
+        or row["annual_rate"] is None
+        or row["original_advance_date"] is None
+        or row["original_advance_amount"] is None
+    ):
         return None
 
     ledger_as_of = as_of or date.today()
@@ -1681,8 +1790,12 @@ async def record_statement(
 
 async def parse_and_reconcile_statement(db: AsyncSession, statement_id: UUID, content: bytes) -> None:
     try:
+        period = await db.scalar(
+            text("SELECT period FROM documents.lender_statements WHERE id = :statement_id"),
+            {"statement_id": statement_id},
+        )
         extracted = _extract_statement_text(content)
-        parsed = parse_statement_text(extracted["text"])
+        parsed = parse_statement_text(extracted["text"], period=period)
         snapshots = []
         for page_index, statement in enumerate(parsed, start=1):
             snapshot = await _upsert_statement_snapshot(db, statement_id, statement, page_index, extracted)
@@ -1702,6 +1815,8 @@ async def parse_and_reconcile_statement(db: AsyncSession, statement_id: UUID, co
                 "payload": json.dumps({"pages": len(parsed), "snapshots": snapshots, "extraction": extracted}, default=str),
             },
         )
+        await _sync_statement_discrepancies(db, statement_id)
+        await _refresh_statement_status(db, statement_id)
     except Exception as exc:
         await db.execute(
             text(
@@ -1900,6 +2015,8 @@ async def create_manual_statement_snapshot(
         ),
         {"statement_id": statement_id},
     )
+    await _sync_statement_discrepancies(db, statement_id)
+    await _refresh_statement_status(db, statement_id)
     await db.commit()
     if snapshot_id is None:
         return None
@@ -1915,7 +2032,8 @@ async def approve_snapshot_draws(db: AsyncSession, snapshot_id: UUID) -> Facilit
     ).mappings().one_or_none()
     if not snapshot or not snapshot["facility_id"]:
         return None
-    for draw in snapshot["new_draws_detected"] or []:
+    detected_draws = snapshot["new_draws_detected"] or []
+    for draw in detected_draws:
         await db.execute(
             text(
                 """
@@ -1932,7 +2050,20 @@ async def approve_snapshot_draws(db: AsyncSession, snapshot_id: UUID) -> Facilit
                 "statement_id": snapshot["statement_id"],
             },
         )
+    if detected_draws:
+        await db.execute(
+            text(
+                """
+                UPDATE core.lender_facilities
+                SET draw_eligible_override = NULL,
+                    updated_at = CASE WHEN draw_eligible_override IS NOT NULL THEN now() ELSE updated_at END
+                WHERE id = :facility_id
+                """
+            ),
+            {"facility_id": snapshot["facility_id"]},
+        )
     await _reconcile_snapshot(db, snapshot_id)
+    await _refresh_statement_status(db, snapshot["statement_id"])
     await db.commit()
     return await _snapshot_out(db, snapshot_id)
 
@@ -1952,6 +2083,13 @@ async def link_snapshot_facility(db: AsyncSession, snapshot_id: UUID, facility_i
     )
     await _persist_alias(db, facility_id, snapshot["matched_property_name"])
     await _reconcile_snapshot(db, snapshot_id)
+    statement_id = await db.scalar(
+        text("SELECT statement_id FROM documents.facility_statement_snapshots WHERE id = :id"),
+        {"id": snapshot_id},
+    )
+    if statement_id is not None:
+        await _sync_statement_discrepancies(db, statement_id)
+        await _refresh_statement_status(db, statement_id)
     await db.commit()
     return await _snapshot_out(db, snapshot_id)
 
@@ -2002,9 +2140,295 @@ async def get_statement(db: AsyncSession, statement_id: UUID) -> LenderStatement
             {"statement_id": statement_id},
         )
     ).mappings().all()
+    discrepancies = (
+        await db.execute(
+            text(
+                """
+                SELECT *
+                FROM documents.lender_statement_discrepancies
+                WHERE statement_id = :statement_id
+                ORDER BY status DESC, display_name
+                """
+            ),
+            {"statement_id": statement_id},
+        )
+    ).mappings().all()
     return LenderStatementDetailOut(
         **statement,
         snapshots=[FacilityStatementSnapshotOut(**snapshot) for snapshot in snapshots],
+        discrepancies=[StatementDiscrepancyOut(**issue) for issue in discrepancies],
+    )
+
+
+async def update_statement_discrepancy(
+    db: AsyncSession,
+    discrepancy_id: UUID,
+    *,
+    status: str,
+    review_note: str | None,
+) -> StatementDiscrepancyOut | None:
+    row = (
+        await db.execute(
+            text(
+                """
+                UPDATE documents.lender_statement_discrepancies
+                SET status = :status,
+                    review_note = :review_note,
+                    reviewed_at = CASE WHEN :status = 'acknowledged' THEN now() ELSE NULL END,
+                    updated_at = now()
+                WHERE id = :discrepancy_id
+                RETURNING *
+                """
+            ),
+            {
+                "discrepancy_id": discrepancy_id,
+                "status": status,
+                "review_note": review_note,
+            },
+        )
+    ).mappings().one_or_none()
+    if row is None:
+        return None
+    await _refresh_statement_status(db, row["statement_id"])
+    await db.commit()
+    return StatementDiscrepancyOut(**row)
+
+
+async def acknowledge_statement_snapshot(
+    db: AsyncSession,
+    snapshot_id: UUID,
+    *,
+    note: str | None,
+) -> FacilityStatementSnapshotOut | None:
+    row = (
+        await db.execute(
+            text(
+                """
+                UPDATE documents.facility_statement_snapshots
+                SET reconciliation_status = 'acknowledged',
+                    parse_payload = COALESCE(parse_payload, '{}'::jsonb)
+                        || jsonb_build_object(
+                            'review',
+                            jsonb_build_object(
+                                'previous_status', reconciliation_status,
+                                'note', :note,
+                                'reviewed_at', now()
+                            )
+                        )
+                WHERE id = :snapshot_id
+                  AND reconciliation_status = 'balance_mismatch'
+                RETURNING statement_id
+                """
+            ),
+            {"snapshot_id": snapshot_id, "note": note},
+        )
+    ).mappings().one_or_none()
+    if row is None:
+        return None
+    await _refresh_statement_status(db, row["statement_id"])
+    await db.commit()
+    return await _snapshot_out(db, snapshot_id)
+
+
+async def _sync_statement_discrepancies(db: AsyncSession, statement_id: UUID) -> None:
+    """Build the internal-to-source side of the monthly PRO reconciliation."""
+    seen_facility_ids = set(
+        (
+            await db.execute(
+                text(
+                    """
+                    SELECT facility_id
+                    FROM documents.facility_statement_snapshots
+                    WHERE statement_id = :statement_id
+                      AND facility_id IS NOT NULL
+                    """
+                ),
+                {"statement_id": statement_id},
+            )
+        ).scalars().all()
+    )
+
+    facility_rows = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    lf.id AS facility_id,
+                    lf.property_id,
+                    COALESCE(p.address, lf.property_name, lf.facility_key) AS display_name,
+                    COALESCE(p.canonical_address_key, lf.canonical_address_key) AS canonical_address_key,
+                    lf.status AS facility_status,
+                    lf.total_facility,
+                    css.stage_clean,
+                    css.sold_or_spec
+                FROM core.lender_facilities lf
+                LEFT JOIN core.properties p ON p.id = lf.property_id
+                LEFT JOIN documents.construction_stage_sync css ON css.property_id = p.id
+                WHERE COALESCE(lf.lender, lf.lender_type) = 'PRO'
+                  AND COALESCE(lf.status, 'active') <> 'statement_only'
+                ORDER BY display_name
+                """
+            )
+        )
+    ).mappings().all()
+
+    property_rows = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    p.id AS property_id,
+                    p.address AS display_name,
+                    p.canonical_address_key,
+                    css.stage_clean,
+                    css.sold_or_spec
+                FROM documents.construction_stage_sync css
+                JOIN core.properties p ON p.id = css.property_id
+                WHERE css.lender_type = 'PRO'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM core.lender_facilities lf
+                      WHERE COALESCE(lf.lender, lf.lender_type) = 'PRO'
+                        AND (
+                            lf.property_id = p.id
+                            OR (
+                                lf.property_id IS NULL
+                                AND lf.canonical_address_key IS NOT NULL
+                                AND lf.canonical_address_key = p.canonical_address_key
+                            )
+                        )
+                  )
+                ORDER BY p.address
+                """
+            )
+        )
+    ).mappings().all()
+
+    issues: list[dict[str, Any]] = []
+    for row in facility_rows:
+        if row["facility_id"] in seen_facility_ids:
+            continue
+        issues.append(
+            {
+                "entity_key": f"facility:{row['facility_id']}",
+                "facility_id": row["facility_id"],
+                "property_id": row["property_id"],
+                "display_name": row["display_name"],
+                "canonical_address_key": row["canonical_address_key"],
+                "details": {
+                    "record_type": "facility",
+                    "reason": "Active PRO facility is absent from the monthly report.",
+                    "facility_status": row["facility_status"],
+                    "total_facility": str(row["total_facility"]) if row["total_facility"] is not None else None,
+                    "stage": row["stage_clean"],
+                    "sold_or_spec": row["sold_or_spec"],
+                },
+            }
+        )
+    for row in property_rows:
+        issues.append(
+            {
+                "entity_key": f"property:{row['property_id']}",
+                "facility_id": None,
+                "property_id": row["property_id"],
+                "display_name": row["display_name"],
+                "canonical_address_key": row["canonical_address_key"],
+                "details": {
+                    "record_type": "property",
+                    "reason": "Internal PRO property has no matching facility and is absent from the monthly report.",
+                    "stage": row["stage_clean"],
+                    "sold_or_spec": row["sold_or_spec"],
+                },
+            }
+        )
+
+    active_keys = [issue["entity_key"] for issue in issues]
+    if active_keys:
+        delete_stale = text(
+            """
+            DELETE FROM documents.lender_statement_discrepancies
+            WHERE statement_id = :statement_id
+              AND entity_key NOT IN :active_keys
+            """
+        ).bindparams(bindparam("active_keys", expanding=True))
+        await db.execute(delete_stale, {"statement_id": statement_id, "active_keys": active_keys})
+    else:
+        await db.execute(
+            text("DELETE FROM documents.lender_statement_discrepancies WHERE statement_id = :statement_id"),
+            {"statement_id": statement_id},
+        )
+
+    for issue in issues:
+        await db.execute(
+            text(
+                """
+                INSERT INTO documents.lender_statement_discrepancies (
+                    statement_id, facility_id, property_id, entity_key, issue_type,
+                    display_name, canonical_address_key, details
+                )
+                VALUES (
+                    :statement_id, :facility_id, :property_id, :entity_key,
+                    'internal_missing_from_report', :display_name,
+                    :canonical_address_key, CAST(:details AS jsonb)
+                )
+                ON CONFLICT ON CONSTRAINT uq_statement_discrepancy_entity
+                DO UPDATE SET
+                    facility_id = EXCLUDED.facility_id,
+                    property_id = EXCLUDED.property_id,
+                    display_name = EXCLUDED.display_name,
+                    canonical_address_key = EXCLUDED.canonical_address_key,
+                    details = EXCLUDED.details,
+                    updated_at = now()
+                """
+            ),
+            {
+                "statement_id": statement_id,
+                **issue,
+                "details": json.dumps(issue["details"]),
+            },
+        )
+
+
+async def _refresh_statement_status(db: AsyncSession, statement_id: UUID) -> None:
+    counts = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE reconciliation_status NOT IN ('matched', 'acknowledged')
+                    ) AS snapshot_review_count,
+                    COUNT(*) AS snapshot_count
+                FROM documents.facility_statement_snapshots
+                WHERE statement_id = :statement_id
+                """
+            ),
+            {"statement_id": statement_id},
+        )
+    ).mappings().one()
+    issue_counts = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE status = 'open') AS open_count,
+                    COUNT(*) AS total_count
+                FROM documents.lender_statement_discrepancies
+                WHERE statement_id = :statement_id
+                """
+            ),
+            {"statement_id": statement_id},
+        )
+    ).mappings().one()
+    if counts["snapshot_review_count"] or issue_counts["open_count"]:
+        status = "needs_review"
+    elif issue_counts["total_count"]:
+        status = "reviewed"
+    else:
+        status = "reconciled"
+    await db.execute(
+        text("UPDATE documents.lender_statements SET status = :status WHERE id = :statement_id"),
+        {"statement_id": statement_id, "status": status},
     )
 
 
@@ -2042,6 +2466,31 @@ async def _upsert_statement_snapshot(
     delta = None
     status = "unmatched"
     if facility_id:
+        await db.execute(
+            text(
+                """
+                UPDATE core.lender_facilities
+                SET
+                    annual_rate = COALESCE(annual_rate, :annual_rate),
+                    original_advance_date = COALESCE(original_advance_date, :original_advance_date),
+                    original_advance_amount = COALESCE(original_advance_amount, :original_advance_amount),
+                    updated_at = CASE
+                        WHEN annual_rate IS NULL
+                          OR original_advance_date IS NULL
+                          OR original_advance_amount IS NULL
+                        THEN now()
+                        ELSE updated_at
+                    END
+                WHERE id = :facility_id
+                """
+            ),
+            {
+                "facility_id": facility_id,
+                "annual_rate": statement.annual_rate,
+                "original_advance_date": statement.original_advance_date,
+                "original_advance_amount": statement.original_advance_amount,
+            },
+        )
         facility_row = (
             await db.execute(
                 text(
@@ -2066,6 +2515,10 @@ async def _upsert_statement_snapshot(
     payload = {
         "page": page_index,
         "property_name": statement.property_name,
+        "original_advance_amount": str(statement.original_advance_amount),
+        "total_drawn": str(statement.total_drawn),
+        "reported_principal_drawn": str(statement.reported_principal_drawn),
+        "reported_accrued_interest": str(statement.reported_accrued_interest),
         "draws": [draw.__dict__ for draw in statement.draws],
         "validation_errors": statement.validation_errors,
         "ocr_text": (extracted.get("pages") or [{}])[page_index - 1].get("text") if extracted.get("pages") else None,
@@ -2135,7 +2588,7 @@ async def _match_facility(db: AsyncSession, raw_name: str, canonical_key: str) -
         await db.execute(
             text(
                 """
-                SELECT id
+                SELECT id, property_name
                 FROM core.lender_facilities
                 WHERE COALESCE(lender, lender_type) = 'PRO'
                   AND canonical_address_key = :canonical_key
@@ -2143,8 +2596,46 @@ async def _match_facility(db: AsyncSession, raw_name: str, canonical_key: str) -
             ),
             {"canonical_key": canonical_key},
         )
-    ).scalars().all()
-    return candidates[0] if len(candidates) == 1 else None
+    ).mappings().all()
+    if len(candidates) == 1:
+        return candidates[0]["id"]
+
+    all_candidates = (
+        await db.execute(
+            text(
+                """
+                SELECT id, property_name
+                FROM core.lender_facilities
+                WHERE COALESCE(lender, lender_type) = 'PRO'
+                  AND property_name IS NOT NULL
+                """
+            )
+        )
+    ).mappings().all()
+    normalized_raw = normalize_statement_name(raw_name)
+    fuzzy_matches = [
+        candidate["id"]
+        for candidate in all_candidates
+        if _statement_names_match(normalized_raw, normalize_statement_name(candidate["property_name"]))
+    ]
+    return fuzzy_matches[0] if len(fuzzy_matches) == 1 else None
+
+
+def _statement_names_match(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if min(len(left), len(right)) >= 10 and (left.startswith(right) or right.startswith(left)):
+        return True
+    left_tokens = set(left.split()) - {"MB"}
+    right_tokens = set(right.split()) - {"MB"}
+    shared = left_tokens & right_tokens
+    has_address_number = any(token.isdigit() for token in shared)
+    return (
+        (left_tokens <= right_tokens or right_tokens <= left_tokens)
+        and len(shared) >= (2 if has_address_number else 3)
+    )
 
 
 async def _proposed_draws(db: AsyncSession, facility_id: UUID | None, statement: ParsedProFacilityStatement) -> list[dict[str, Any]]:
@@ -2439,6 +2930,7 @@ def _property_from_row(
     *,
     pro_balance: Decimal | None = None,
     pro_principal: Decimal | None = None,
+    pro_statement_status: str | None = None,
     milestone_history: list[ConstructionMilestoneOut] | None = None,
 ) -> FinancingPropertyOut:
     history = milestone_history or []
@@ -2449,6 +2941,7 @@ def _property_from_row(
     )
     lender_type = row["lender_type"] or "OTHER"
     if lender_type == "PRO" and pro_balance is not None:
+        missing_from_statement = pro_statement_status == "missing_from_statement"
         rate = (row["annual_rate"] * Decimal("100")) if row["annual_rate"] is not None else None
         facility_total = row["total_facility"] or pro_principal
         principal_drawn = pro_principal or Decimal("0")
@@ -2461,12 +2954,26 @@ def _property_from_row(
             opening_balance=row["opening_balance"],
             already_drawn=principal_drawn,
         )
-        draw_eligible = row["draw_eligible_override"]
-        if draw_eligible is None:
-            draw_eligible = calc.draw_eligible
+        draw_override = row["draw_eligible_override"]
+        use_override = (
+            draw_override is not None
+            and pro_statement_status not in {"new_draws_detected", "balance_mismatch"}
+        )
+        draw_eligible = (
+            draw_override
+            if use_override
+            else None
+            if missing_from_statement
+            else calc.draw_eligible
+        )
+        statement_flag = (
+            "STATEMENT_REVIEW"
+            if pro_statement_status in {"new_draws_detected", "balance_mismatch"}
+            else None
+        )
         cumulative_entitled = (
             principal_drawn + draw_eligible
-            if row["draw_eligible_override"] is not None
+            if use_override
             else calc.cumulative_entitled
         )
         return FinancingPropertyOut(
@@ -2486,6 +2993,7 @@ def _property_from_row(
             total_facility=facility_total,
             opening_balance=row["original_advance_amount"],
             already_drawn=principal_drawn,
+            draw_eligible_override=draw_override,
             last_draw_date=row["last_draw_date"],
             last_draw_amount=row["last_draw_amount"],
             requested_draw_amount=row["requested_draw_amount"],
@@ -2523,16 +3031,33 @@ def _property_from_row(
             flag=(
                 "NEEDS_LINK"
                 if row["status"] == "needs_link"
-                else None if row["draw_eligible_override"] is not None else calc.flag
+                else "STATEMENT_OVERRIDE"
+                if missing_from_statement and use_override
+                else "MISSING_FROM_STATEMENT"
+                if missing_from_statement
+                else None
+                if use_override
+                else calc.flag or statement_flag
             ),
             formula=(
-                "Lender-confirmed PRO draw availability override."
-                if row["draw_eligible_override"] is not None
-                else calc.formula
+                "Manual PRO Draw Now override; this facility is absent from the latest PRO statement."
+                if use_override and missing_from_statement
+                else "Manual PRO Draw Now override."
+                if use_override
+                else (
+                    f"{calc.formula} Latest PRO statement is pending reconciliation review."
+                    if statement_flag
+                    else (
+                        f"{calc.formula} Active internal record is missing from the latest PRO statement."
+                        if missing_from_statement
+                        else calc.formula
+                    )
+                )
             ),
             facility_id=row["facility_id"],
         )
     if lender_type == "PRO":
+        missing_from_statement = pro_statement_status == "missing_from_statement"
         principal_drawn = row["already_drawn"] or Decimal("0")
         calc = calculate_draw(
             lender_type="PRO",
@@ -2541,12 +3066,18 @@ def _property_from_row(
             opening_balance=row["opening_balance"],
             already_drawn=principal_drawn,
         )
-        draw_eligible = row["draw_eligible_override"]
-        if draw_eligible is None:
-            draw_eligible = calc.draw_eligible
+        draw_override = row["draw_eligible_override"]
+        use_override = draw_override is not None
+        draw_eligible = (
+            draw_override
+            if use_override
+            else None
+            if missing_from_statement
+            else calc.draw_eligible
+        )
         cumulative_entitled = (
             principal_drawn + draw_eligible
-            if row["draw_eligible_override"] is not None
+            if use_override and draw_eligible is not None
             else calc.cumulative_entitled
         )
         return FinancingPropertyOut(
@@ -2566,6 +3097,7 @@ def _property_from_row(
             total_facility=row["total_facility"],
             opening_balance=row["opening_balance"],
             already_drawn=principal_drawn,
+            draw_eligible_override=draw_override,
             last_draw_date=row["last_draw_date"],
             last_draw_amount=row["last_draw_amount"],
             requested_draw_amount=row["requested_draw_amount"],
@@ -2599,11 +3131,25 @@ def _property_from_row(
                 if row["total_facility"] is not None
                 else None
             ),
-            flag=None if row["draw_eligible_override"] is not None else calc.flag or "NO_STATEMENT",
+            flag=(
+                "STATEMENT_OVERRIDE"
+                if missing_from_statement and use_override
+                else "MISSING_FROM_STATEMENT"
+                if missing_from_statement
+                else None
+                if use_override
+                else calc.flag or "NO_STATEMENT"
+            ),
             formula=(
-                "Lender-confirmed PRO draw availability override."
-                if row["draw_eligible_override"] is not None
-                else calc.formula
+                "Manual PRO Draw Now override; this facility is absent from the latest PRO statement."
+                if use_override and missing_from_statement
+                else "Manual PRO Draw Now override."
+                if use_override
+                else (
+                    f"{calc.formula} Active internal record is missing from the latest PRO statement."
+                    if missing_from_statement
+                    else calc.formula
+                )
             ),
             facility_id=row["facility_id"],
         )
@@ -2634,6 +3180,7 @@ def _property_from_row(
         total_facility=row["total_facility"],
         opening_balance=opening,
         already_drawn=drawn,
+        draw_eligible_override=row["draw_eligible_override"],
         last_draw_date=row["last_draw_date"],
         last_draw_amount=row["last_draw_amount"],
         requested_draw_amount=row["requested_draw_amount"],

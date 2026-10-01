@@ -9,13 +9,12 @@ OTP timeline data audit:
 - sales.deposit_schedule stores deposit_number, amount, due_date, held_by, paid_at, and paid_amount.
 - land.agreements stores agreement_date and total_purchase_price.
 - land.lot_terms stores purchase_price, balance_due_date, possession_date, and lot-specific notes.
-- land.deposit_schedule stores deposit_number, amount, due_date, paid_at, and paid_amount.
+- land.deposit_schedule stores every source-backed installment's number, amount, trigger,
+  due date, paid date, and paid amount.
 - land.security_deposit stores rate_per_lot, maximum_amount, calculated_amount, paid_at, and paid_amount,
   but no fixed due date; due_trigger is rule text only.
 - land.milestones stores expected_date and completed_at for named milestones.
 TODO: sale firm date is inferred from condition_removal_date because sales.agreements has no separate firm_sale_date.
-TODO: deposit #3 is supported from deposit_schedule rows if present, but the current promotion flow only creates
-      land deposits #1/#2 and sale deposits found in the payment schedule.
 TODO: construction dates such as framing_date and closing_date are currently exposed as null placeholders only.
 """
 from datetime import date, datetime
@@ -44,6 +43,7 @@ def verify_api_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] =
 class LotOut(BaseModel):
     id: str
     property_id: Optional[UUID] = None
+    sale_type: Optional[str] = None
     trigger_type: Optional[str] = None
     on_hold: bool = False
     cancelled: bool = False
@@ -122,6 +122,7 @@ async def _list_lots(db: AsyncSession, screen: str) -> list[LotOut]:
         SELECT
             l.id::text AS id,
             l.property_id,
+            l.sale_type,
             l.trigger_type,
             l.on_hold,
             l.cancelled,
@@ -190,8 +191,17 @@ async def _list_lots(db: AsyncSession, screen: str) -> list[LotOut]:
                             0::numeric,
                             CASE
                                 WHEN matched.stage_clean = 'FOUNDATION' THEN 125000::numeric
-                                WHEN matched.stage_clean = 'LOCKUP' THEN matched.total_facility * 0.55::numeric
-                                WHEN matched.stage_clean = 'DRYWALL' THEN matched.total_facility * 0.775::numeric
+                                WHEN matched.stage_clean = 'LOCKUP' THEN
+                                    LEAST(
+                                        matched.total_facility,
+                                        COALESCE(matched.already_drawn, 0::numeric) + 100000::numeric
+                                    )
+                                WHEN matched.stage_clean = 'DRYWALL' THEN
+                                    COALESCE(matched.already_drawn, 0::numeric)
+                                    + (
+                                        matched.total_facility
+                                        - COALESCE(matched.already_drawn, 0::numeric)
+                                    ) * 0.50::numeric
                                 WHEN matched.stage_clean IN ('CABINETRY', 'COMPLETED') THEN matched.total_facility
                                 ELSE 0::numeric
                             END - COALESCE(matched.already_drawn, 0::numeric)
@@ -260,6 +270,7 @@ async def _list_lots(db: AsyncSession, screen: str) -> list[LotOut]:
         LotOut(
             id=row["id"],
             property_id=row.get("property_id"),
+            sale_type=row.get("sale_type"),
             trigger_type=row.get("trigger_type"),
             on_hold=row.get("on_hold", False),
             cancelled=row.get("cancelled", False),
@@ -522,6 +533,7 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
         SELECT
             l.id::text AS id,
             l.property_id,
+            l.sale_type,
             l.trigger_type,
             l.on_hold,
             l.cancelled,
@@ -586,6 +598,7 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
     return LotOut(
         id=row["id"],
         property_id=row.get("property_id"),
+        sale_type=row.get("sale_type"),
         trigger_type=row.get("trigger_type"),
         on_hold=row.get("on_hold", False),
         cancelled=row.get("cancelled", False),

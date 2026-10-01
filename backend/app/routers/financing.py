@@ -44,6 +44,9 @@ from app.schemas.financing import ProDrawRequestCreate
 from app.schemas.financing import ProDrawBatchCreate
 from app.schemas.financing import ProDrawRequestOut
 from app.schemas.financing import ProDrawRequestStatusUpdate
+from app.schemas.financing import StatementDiscrepancyOut
+from app.schemas.financing import StatementDiscrepancyUpdate
+from app.schemas.financing import StatementSnapshotReview
 from app.schemas.financing import SyncResult
 from app.services import financing
 from app.services.document_extractor import extract_financing_document
@@ -445,6 +448,45 @@ async def link_statement_facility(
     return snapshot
 
 
+@router.post(
+    "/statements/snapshots/{snapshot_id}/acknowledge",
+    response_model=FacilityStatementSnapshotOut,
+)
+async def acknowledge_statement_snapshot(
+    snapshot_id: UUID,
+    data: StatementSnapshotReview,
+    db: AsyncSession = Depends(get_db),
+) -> FacilityStatementSnapshotOut:
+    snapshot = await financing.acknowledge_statement_snapshot(
+        db,
+        snapshot_id,
+        note=data.note,
+    )
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Balance mismatch snapshot not found")
+    return snapshot
+
+
+@router.patch(
+    "/statements/discrepancies/{discrepancy_id}",
+    response_model=StatementDiscrepancyOut,
+)
+async def patch_statement_discrepancy(
+    discrepancy_id: UUID,
+    data: StatementDiscrepancyUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> StatementDiscrepancyOut:
+    discrepancy = await financing.update_statement_discrepancy(
+        db,
+        discrepancy_id,
+        status=data.status,
+        review_note=data.review_note,
+    )
+    if discrepancy is None:
+        raise HTTPException(status_code=404, detail="Statement discrepancy not found")
+    return discrepancy
+
+
 @router.post("/documents/upload", response_model=DocumentUploadOut)
 async def upload_document(
     lender_type: str = Form(...),
@@ -452,6 +494,11 @@ async def upload_document(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> DocumentUploadOut:
+    if lender_type.upper() == "PRO":
+        raise HTTPException(
+            status_code=400,
+            detail="PRO portfolio PDFs must be uploaded through the statement importer",
+        )
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
@@ -510,6 +557,11 @@ async def confirm_document(
     data: ConfirmDocumentRequest,
     db: AsyncSession = Depends(get_db),
 ) -> FacilityOut:
+    if isinstance(data.values.get("items"), list):
+        raise HTTPException(
+            status_code=422,
+            detail="Bulk lender rows cannot be confirmed against a single facility",
+        )
     facility_id = data.facility_id
     if facility_id is None:
         raise HTTPException(status_code=400, detail="facility_id is required")

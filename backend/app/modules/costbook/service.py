@@ -135,6 +135,7 @@ async def create_budget(
         sqft_basement=data.sqft_basement,
         sqft_garage=data.sqft_garage,
         notes=data.notes,
+        is_prelim=data.is_prelim,
     )
     db.add(budget)
     await db.flush()

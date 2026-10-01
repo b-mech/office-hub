@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 from pathlib import Path
+from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
@@ -32,7 +33,10 @@ async def upload_photos(db:AsyncSession,item:RentalInspection,files:list[tuple[s
         if not folder: raise RuntimeError(f"Could not create Box folder: {part}")
     created=[]
     for index,(filename,content) in enumerate(files):
-        file_id,url=await asyncio.to_thread(upload_file,folder,Path(filename).name,content,"image/jpeg",raise_errors=True)
+        original_name = Path(filename).name
+        suffix = Path(original_name).suffix.lower() or ".jpg"
+        unique_name = f"inspection-{item.id}-{uuid4().hex}{suffix}"
+        file_id,url=await asyncio.to_thread(upload_file,folder,unique_name,content,"image/jpeg",raise_errors=True)
         if not file_id: raise RuntimeError(f"Box upload failed for {filename}")
         photo=RentalInspectionPhoto(inspection_id=item.id,box_file_id=file_id,box_folder_path="/".join(parts),caption=captions[index] if index<len(captions) else None)
         db.add(photo); created.append(photo)

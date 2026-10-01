@@ -20,6 +20,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 export interface Lot {
   id: string;
   property_id?: string | null;
+  sale_type?: "presale" | "spec" | "showhome" | "other" | null;
   address: string;
   lot_number?: string;
   community: string;
@@ -101,6 +102,9 @@ export interface Budget {
   lot_agreement_id?: string;
   label: string;
   status: "draft" | "active" | "locked";
+  is_prelim: boolean;
+  requested_at?: string;
+  received_at?: string;
   sqft_main_floor?: number;
   sqft_basement?: number;
   sqft_garage?: number;
@@ -127,6 +131,7 @@ export async function createBudget(data: {
   sqft_main_floor?: number;
   sqft_basement?: number;
   sqft_garage?: number;
+  is_prelim?: boolean;
 }): Promise<Budget> {
   return apiFetch<Budget>("/api/v1/costbook/budgets", {
     method: "POST",
@@ -136,7 +141,15 @@ export async function createBudget(data: {
 
 export async function updateBudget(
   id: string,
-  data: { label?: string; lot_agreement_id?: string; notes?: string; status?: string }
+  data: {
+    label?: string;
+    lot_agreement_id?: string;
+    notes?: string;
+    status?: string;
+    is_prelim?: boolean;
+    requested_at?: string;
+    received_at?: string;
+  }
 ): Promise<Budget> {
   return apiFetch<Budget>(`/api/v1/costbook/budgets/${id}`, {
     method: "PATCH",

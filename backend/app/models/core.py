@@ -66,6 +66,20 @@ class LotTriggerType(str, Enum):
     SHOWHOME = "showhome"
 
 
+class SaleType(str, Enum):
+    PRESALE = "presale"
+    SPEC = "spec"
+    SHOWHOME = "showhome"
+    OTHER = "other"
+
+
+class BuildingType(str, Enum):
+    BUNGALOW = "bungalow"
+    TWO_STOREY = "two_storey"
+    DUPLEX = "duplex"
+    OTHER = "other"
+
+
 class DevelopmentType(str, Enum):
     MUNICIPALITY = "municipality"
     COMMUNITY = "community"
@@ -155,6 +169,8 @@ class User(Base):
         default=dict,
         server_default=text("'{}'::jsonb"),
     )
+    slack_user_id: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
+    phone_e164: Mapped[str | None] = mapped_column(Text, nullable=True)
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     invite_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -306,6 +322,36 @@ class Lot(Base):
         default=False,
         server_default=text("false"),
     )
+    sale_type: Mapped[SaleType | None] = mapped_column(
+        SqlEnum(
+            SaleType,
+            name="ck_core_lots_sale_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=_enum_values,
+            validate_strings=True,
+        )
+    )
+    building_type: Mapped[BuildingType | None] = mapped_column(
+        SqlEnum(
+            BuildingType,
+            name="ck_core_lots_building_type",
+            native_enum=False,
+            create_constraint=True,
+            values_callable=_enum_values,
+            validate_strings=True,
+        )
+    )
+    realtor_name: Mapped[str | None] = mapped_column(Text)
+    realtor_email: Mapped[str | None] = mapped_column(Text)
+    realtor_brokerage: Mapped[str | None] = mapped_column(Text)
+    active_approval_letter_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.presale_approval_letters.id", ondelete="SET NULL")
+    )
+    funding_partner_suggested: Mapped[str | None] = mapped_column(Text)
+    funding_readiness: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    package_sent_to: Mapped[str | None] = mapped_column(Text)
+    package_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     legal_description_raw: Mapped[str | None] = mapped_column(Text)
     legal_description_normalized: Mapped[str] = mapped_column(
         Text,
@@ -440,6 +486,7 @@ class AuditLog(Base):
 __all__ = [
     "AuditLog",
     "BuildGroup",
+    "BuildingType",
     "Contact",
     "ContactType",
     "Development",
@@ -447,6 +494,7 @@ __all__ = [
     "LotStatus",
     "Org",
     "Reminder",
+    "SaleType",
     "User",
     "UserRole",
 ]

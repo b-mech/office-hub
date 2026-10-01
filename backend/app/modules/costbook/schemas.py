@@ -38,6 +38,7 @@ class BudgetCreate(BaseModel):
     sqft_basement:     Optional[float] = None
     sqft_garage:       Optional[float] = None
     notes:             Optional[str] = None
+    is_prelim:         bool = False
 
 
 class BudgetUpdate(BaseModel):
@@ -48,6 +49,9 @@ class BudgetUpdate(BaseModel):
     sqft_garage:       Optional[float] = None
     status:            Optional[str] = None
     notes:             Optional[str] = None
+    is_prelim:         Optional[bool] = None
+    requested_at:      Optional[datetime] = None
+    received_at:       Optional[datetime] = None
 
 
 class BudgetLineOut(BaseModel):
@@ -75,6 +79,9 @@ class BudgetOut(BaseModel):
     project_number:   Optional[int]
     label:            str
     status:           str
+    is_prelim:        bool = False
+    requested_at:     Optional[datetime] = None
+    received_at:      Optional[datetime] = None
     sqft_main_floor:  Optional[float]
     sqft_basement:    Optional[float]
     sqft_garage:      Optional[float]

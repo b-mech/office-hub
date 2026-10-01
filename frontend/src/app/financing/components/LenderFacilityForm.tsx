@@ -32,7 +32,7 @@ export function LenderFacilityForm({
     opening_balance: numeric(property.opening_balance),
     rate: numeric(property.rate),
     already_drawn: numeric(property.already_drawn ?? 0),
-    draw_eligible_override: "",
+    draw_eligible_override: numeric(property.draw_eligible_override),
     requested_draw_amount: numeric(property.requested_draw_amount),
     requested_draw_as_of: property.requested_draw_as_of || "",
     commitment_source: property.commitment_source || "",
@@ -205,7 +205,7 @@ export function LenderFacilityForm({
             <Field label="Total commitment" type="number" value={String(values.total_facility || "")} onChange={(value) => setField("total_facility", value)} />
             <Field label="Rate" type="number" step="0.0001" value={String(values.rate || "")} onChange={(value) => setField("rate", value)} />
             <Field label="Already drawn" type="number" value={String(values.already_drawn || "")} onChange={(value) => setField("already_drawn", value)} />
-            <Field label="Eligible override" type="number" value={String(values.draw_eligible_override || "")} onChange={(value) => setField("draw_eligible_override", value)} />
+            <Field label="Manual Draw Now override" type="number" value={String(values.draw_eligible_override || "")} onChange={(value) => setField("draw_eligible_override", value)} />
             <Field label="Requested draw" type="number" value={String(values.requested_draw_amount || "")} onChange={(value) => setField("requested_draw_amount", value)} />
             <Field label="Requested as of" type="date" value={values.requested_draw_as_of || ""} onChange={(value) => setField("requested_draw_as_of", value)} />
             <Field label="Commitment source" value={values.commitment_source || ""} onChange={(value) => setField("commitment_source", value)} />
@@ -218,11 +218,17 @@ export function LenderFacilityForm({
             <Field label="Opening balance" type="number" value={String(values.opening_balance || "")} onChange={(value) => setField("opening_balance", value)} />
             <Field label="Rate" type="number" step="0.0001" value={String(values.rate || "")} onChange={(value) => setField("rate", value)} />
             <Field label="Already drawn" type="number" value={String(values.already_drawn || "")} onChange={(value) => setField("already_drawn", value)} />
+            {facilityType === "PRO" ? <Field label="Manual Draw Now override" type="number" value={String(values.draw_eligible_override || "")} onChange={(value) => setField("draw_eligible_override", value)} /> : null}
             <Field label="Last draw date" type="date" value={values.last_draw_date || ""} onChange={(value) => setField("last_draw_date", value)} />
             <Field label="Last draw amount" type="number" value={String(values.last_draw_amount || "")} onChange={(value) => setField("last_draw_amount", value)} />
           </>
         ) : null}
       </div>
+      {facilityType === "PRO" ? (
+        <p className="text-xs text-[var(--ch-text-muted)]">
+          A manual Draw Now override permits a request even when this facility is absent from the latest PRO statement. Clear it to restore statement-based blocking.
+        </p>
+      ) : null}
       {isAssignment && facilityType === "CLIENT" ? (
         <p className="rounded-md border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 py-2 text-sm text-[var(--ch-text-secondary)]">
           Assign the CLIENT facility first. Then use the existing OTP panel in this drawer to upload and review the draw schedule.

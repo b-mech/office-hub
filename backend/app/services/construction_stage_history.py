@@ -10,12 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 async def record_stage_change(
     db: AsyncSession,
     *,
-    property_id: UUID,
+    property_id: UUID | None = None,
+    build_group_id: UUID | None = None,
     incoming_stage: str | None,
     synced_at: datetime,
 ) -> bool:
     if incoming_stage is None:
         return False
+    if (property_id is None) == (build_group_id is None):
+        raise ValueError("Exactly one construction stage target is required")
 
     previous_stage = (
         await db.execute(
@@ -23,13 +26,14 @@ async def record_stage_change(
                 """
                 SELECT stage_clean
                 FROM documents.construction_stage_sync
-                WHERE property_id = :property_id
+                WHERE property_id IS NOT DISTINCT FROM :property_id
+                  AND build_group_id IS NOT DISTINCT FROM :build_group_id
                 ORDER BY last_synced_at DESC
                 LIMIT 1
                 FOR UPDATE
                 """
             ),
-            {"property_id": property_id},
+            {"property_id": property_id, "build_group_id": build_group_id},
         )
     ).scalar_one_or_none()
     if previous_stage == incoming_stage:
@@ -39,15 +43,16 @@ async def record_stage_change(
         text(
             """
             INSERT INTO documents.construction_stage_history (
-                property_id, previous_stage, new_stage, changed_at, synced_at
+                property_id, build_group_id, previous_stage, new_stage, changed_at, synced_at
             )
             VALUES (
-                :property_id, :previous_stage, :new_stage, :synced_at, :synced_at
+                :property_id, :build_group_id, :previous_stage, :new_stage, :synced_at, :synced_at
             )
             """
         ),
         {
             "property_id": property_id,
+            "build_group_id": build_group_id,
             "previous_stage": previous_stage,
             "new_stage": incoming_stage,
             "synced_at": synced_at,

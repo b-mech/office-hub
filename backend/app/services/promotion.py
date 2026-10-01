@@ -28,6 +28,7 @@ from app.models.core import Lot
 from app.models.core import LotStatus
 from app.models.core import LotTriggerType
 from app.models.core import Reminder
+from app.models.core import SaleType
 from app.models.documents import Document
 from app.models.documents import DocumentStatus
 from app.models.documents import Extraction
@@ -85,7 +86,155 @@ class PromotionService:
         self._dry_run = False
         self._preview: dict[str, Any] = {}
 
-    async def promote(self, review_id: UUID, *, dry_run: bool = False) -> PromotionResult:
+    async def annotate_promoted_land_agreement(
+        self,
+        agreement_id: UUID,
+        payload: dict[str, Any],
+    ) -> list[UUID]:
+        """Apply reviewed inventory annotations to an already-promoted agreement.
+
+        This keeps Phase 3 reconciliation writes on the promotion boundary while
+        preserving the original document/review relationship.
+        """
+        agreement = await self.db.get(Agreement, agreement_id)
+        if agreement is None:
+            raise ValueError(f"Land agreement not found: {agreement_id}")
+        document = await self.db.get(Document, agreement.document_id)
+        review = await self.db.get(Review, agreement.review_id)
+        if document is None or review is None:
+            raise ValueError(f"Promotion source is incomplete for agreement {agreement_id}")
+
+        self._document = document
+        self._review = review
+        self._org_id = document.org_id
+        self._reviewed_by = review.reviewed_by
+        self._dry_run = False
+        source_metadata = {
+            key: payload.get(key)
+            for key in (
+                "source_documents",
+                "operative_selection",
+                "field_provenance",
+                "source_terms",
+                "open_legal_items",
+                "agreement_key",
+            )
+            if payload.get(key) not in (None, "", [], {})
+        }
+        agreement.metadata_ = {**(agreement.metadata_ or {}), **source_metadata}
+        reconciled_fields = payload.get("reconciled_agreement_fields", [])
+        if "agreement_date" in reconciled_fields:
+            reconciled_date = self._coerce_date(
+                payload.get("agreement", {}).get("agreement_date")
+            )
+            if reconciled_date is None:
+                raise ValueError("Reconciled agreement date is missing")
+            old_date = agreement.agreement_date
+            agreement.agreement_date = reconciled_date
+            await self._write_audit_log(
+                schema_name="land",
+                table_name="agreements",
+                record_id=agreement.id,
+                action="UPDATE",
+                old_data={"agreement_date": old_date.isoformat()},
+                new_data={"agreement_date": reconciled_date.isoformat()},
+            )
+
+        security = payload.get("security_deposit", {})
+        if isinstance(security, dict):
+            rate = self._coerce_decimal(security.get("rate_per_lot"), scale=2)
+            maximum = self._coerce_decimal(security.get("maximum_amount"), scale=2)
+            if rate is not None and maximum is not None:
+                row = await self.db.scalar(
+                    select(SecurityDeposit).where(
+                        SecurityDeposit.agreement_id == agreement.id
+                    )
+                )
+                if row is None:
+                    await self._insert_security_deposit(
+                        security_deposit=security,
+                        agreement_id=agreement.id,
+                        lot_count=len(payload.get("lots", [])),
+                    )
+                else:
+                    old_data = {
+                        "rate_per_lot": str(row.rate_per_lot),
+                        "maximum_amount": str(row.maximum_amount),
+                        "calculated_amount": str(row.calculated_amount),
+                    }
+                    row.rate_per_lot = rate
+                    row.maximum_amount = maximum
+                    row.calculated_amount = min(
+                        rate * Decimal(int(security.get("agreement_lot_count") or len(payload.get("lots", [])))),
+                        maximum,
+                    )
+                    row.due_trigger = self._as_text(security.get("due_trigger")) or row.due_trigger
+                    await self._write_audit_log(
+                        schema_name="land",
+                        table_name="security_deposit",
+                        record_id=row.id,
+                        action="UPDATE",
+                        old_data=old_data,
+                        new_data={
+                            "rate_per_lot": str(row.rate_per_lot),
+                            "maximum_amount": str(row.maximum_amount),
+                            "calculated_amount": str(row.calculated_amount),
+                        },
+                    )
+
+        annotated: list[UUID] = []
+        for lot_payload in payload.get("lots", []):
+            legal = self._build_legal_description(lot_payload)
+            terms = await self.db.scalar(
+                select(LotTerms)
+                .join(Lot, LotTerms.lot_id == Lot.id)
+                .where(
+                    LotTerms.agreement_id == agreement.id,
+                    Lot.legal_description_normalized == legal,
+                )
+            )
+            if terms is None:
+                raise ValueError(
+                    f"Existing agreement {agreement.id} has no lot terms for {legal}"
+                )
+            lot = await self.db.get(Lot, terms.lot_id)
+            if lot is None:
+                raise ValueError(f"Lot missing for terms {terms.id}")
+            old_sale_type = lot.sale_type
+            sale_type_text = self._as_text(lot_payload.get("sale_type"))
+            if sale_type_text:
+                lot.sale_type = SaleType(sale_type_text)
+            metadata = lot_payload.get("metadata", {})
+            if isinstance(metadata, dict):
+                terms.metadata_ = {**(terms.metadata_ or {}), **metadata}
+            await self._resolve_property_link(
+                lot=lot,
+                civic_address=self._as_text(lot_payload.get("civic_address")),
+                legal_description=legal,
+                preview_entry=None,
+            )
+            await self._write_audit_log(
+                schema_name="core",
+                table_name="lots",
+                record_id=lot.id,
+                action="UPDATE",
+                old_data={"sale_type": getattr(old_sale_type, "value", old_sale_type)},
+                new_data={
+                    "sale_type": getattr(lot.sale_type, "value", lot.sale_type),
+                    "property_id": str(lot.property_id) if lot.property_id else None,
+                },
+            )
+            annotated.append(lot.id)
+        await self.db.flush()
+        return annotated
+
+    async def promote(
+        self,
+        review_id: UUID,
+        *,
+        dry_run: bool = False,
+        commit: bool = True,
+    ) -> PromotionResult:
         row = await self.db.execute(
             select(Review, Document)
             .join(Extraction, Review.extraction_id == Extraction.id)
@@ -150,9 +299,19 @@ class PromotionService:
                 new_data={"status": DocumentStatus.APPROVED.value},
             )
 
+            if not dry_run and self._project_ids:
+                # Presale readiness depends on both OTP document types. Keep this
+                # local to avoid coupling the document promotion module at import time.
+                from app.services import presales as presale_service
+
+                for lot_id in dict.fromkeys(self._project_ids):
+                    lot = await self.db.get(Lot, lot_id)
+                    if lot is not None and getattr(lot.sale_type, "value", lot.sale_type) == "presale":
+                        await presale_service.recompute_readiness(self.db, lot_id)
+
             if dry_run:
                 await self.db.rollback()
-            else:
+            elif commit:
                 await self.db.commit()
 
             return PromotionResult(
@@ -269,12 +428,14 @@ class PromotionService:
         security = payload.get("security_deposit", {})
         if not isinstance(security, dict):
             security = {}
-        for field in ("rate_per_lot", "maximum_amount"):
-            if security.get(field) in (None, ""):
-                self._add_warning(
-                    "missing_required_field",
-                    f"security_deposit.{field} is missing",
-                )
+        security_values = (security.get("rate_per_lot"), security.get("maximum_amount"))
+        if any(value not in (None, "") for value in security_values) and any(
+            value in (None, "") for value in security_values
+        ):
+            self._add_warning(
+                "incomplete_security_deposit",
+                "security_deposit requires both rate_per_lot and maximum_amount when present",
+            )
         if not isinstance(lots, list):
             self._add_warning("missing_required_field", "lots must be a list")
             return
@@ -282,9 +443,10 @@ class PromotionService:
             if not isinstance(lot, dict):
                 self._add_warning("incomplete_legal_description", f"lots[{index}] is not an object")
                 continue
-            missing = [
+            has_override = bool(self._as_text(lot.get("legal_description_normalized")))
+            missing = [] if has_override else [
                 field
-                for field in ("block", "lot_number", "plan")
+                for field in ("lot_number", "plan")
                 if lot.get(field) in (None, "")
             ]
             if missing:
@@ -309,13 +471,16 @@ class PromotionService:
                         ],
                     }
                 )
-            for field in ("purchase_price", "deposit_1_amount", "deposit_2_amount"):
-                if lot.get(field) in (None, ""):
-                    self._add_warning(
-                        "missing_required_field",
-                        f"lots[{index}].{field} is missing",
-                        lot_index=index,
-                    )
+            metadata = lot.get("metadata", {})
+            price_unallocated = isinstance(metadata, dict) and metadata.get(
+                "price_allocation"
+            ) in {"agreement_only", "agreement_total_unallocated"}
+            if lot.get("purchase_price") in (None, "") and not price_unallocated:
+                self._add_warning(
+                    "missing_required_field",
+                    f"lots[{index}].purchase_price is missing without an allocation explanation",
+                    lot_index=index,
+                )
 
     def _add_warning(self, code: str, message: str, **details: Any) -> None:
         self._preview.setdefault("warnings", []).append(
@@ -374,6 +539,14 @@ class PromotionService:
             developer_contact_id=developer_contact_id,
             document_id=document_id,
             review_id=review_id,
+            promotion_metadata={
+                "source_documents": payload.get("source_documents", []),
+                "operative_selection": payload.get("operative_selection", {}),
+                "field_provenance": payload.get("field_provenance", {}),
+                "source_terms": payload.get("source_terms", {}),
+                "open_legal_items": payload.get("open_legal_items", []),
+                "agreement_key": payload.get("agreement_key"),
+            },
         )
         await self._insert_security_deposit(
             security_deposit=security_deposit_payload,
@@ -394,9 +567,7 @@ class PromotionService:
                 lot_id=lot_id,
                 agreement_id=agreement_id,
             )
-            balance_due_date = self._calculate_balance_due_date(
-                self._coerce_date(lot_payload.get("deposit_2_due_date"))
-            )
+            balance_due_date = self._lot_balance_due_date(lot_payload)
             await self._create_deposit_reminders(
                 lot_id=lot_id,
                 deposit_rows=deposit_rows,
@@ -437,6 +608,21 @@ class PromotionService:
             lot.status = LotStatus.SALE_SIGNED
             if lot.trigger_type is None:
                 lot.trigger_type = LotTriggerType.OTP
+            lot.realtor_name = self._as_text(
+                agreement.get("realtor_name")
+                or agreement.get("buyers_realtor_name")
+                or agreement.get("sellers_realtor_name")
+            ) or lot.realtor_name
+            lot.realtor_email = self._as_text(
+                agreement.get("realtor_email")
+                or agreement.get("buyers_realtor_email")
+                or agreement.get("sellers_realtor_email")
+            ) or lot.realtor_email
+            lot.realtor_brokerage = self._as_text(
+                agreement.get("realtor_brokerage")
+                or agreement.get("buyers_brokerage")
+                or agreement.get("sellers_brokerage")
+            ) or lot.realtor_brokerage
             await self._write_audit_log(
                 schema_name="core",
                 table_name="lots",
@@ -445,6 +631,9 @@ class PromotionService:
                 new_data={
                     "status": LotStatus.SALE_SIGNED.value,
                     "trigger_type": lot.trigger_type.value,
+                    "realtor_name": lot.realtor_name,
+                    "realtor_email": lot.realtor_email,
+                    "realtor_brokerage": lot.realtor_brokerage,
                 },
             )
 
@@ -457,6 +646,7 @@ class PromotionService:
         company_name: str,
         address: str,
         contact_type: str,
+        email: str = "",
     ) -> UUID:
         normalized_name = self._normalize_text(name)
         if not normalized_name:
@@ -466,6 +656,8 @@ class PromotionService:
             select(Contact).where(func.lower(func.trim(Contact.full_name)) == normalized_name)
         )
         if existing is not None:
+            if email and not existing.email:
+                existing.email = email
             if self._dry_run:
                 self._preview["contacts"].append(
                     {
@@ -492,6 +684,7 @@ class PromotionService:
             contact_type=ContactType(contact_type),
             full_name=name,
             company_name=company_name or None,
+            email=email or None,
             address=address or None,
         )
         self.db.add(contact)
@@ -680,11 +873,16 @@ class PromotionService:
     async def _upsert_lot(self, lot: dict[str, Any], development_id: UUID) -> UUID:
         legal_description_normalized = self._build_legal_description(lot)
         civic_address = self._as_text(lot.get("civic_address"))
+        sale_type_text = self._as_text(lot.get("sale_type"))
+        proposed_sale_type = SaleType(sale_type_text) if sale_type_text else None
 
         existing = await self.db.scalar(
             select(Lot).where(Lot.legal_description_normalized == legal_description_normalized)
         )
         if existing is not None:
+            old_sale_type = existing.sale_type
+            if proposed_sale_type is not None:
+                existing.sale_type = proposed_sale_type
             preview_entry = None
             if self._dry_run:
                 preview_entry = self._record_land_lot_preview(
@@ -728,13 +926,22 @@ class PromotionService:
                 table_name="lots",
                 record_id=existing.id,
                 action="MATCHED_EXISTING",
-                new_data={"legal_description_normalized": existing.legal_description_normalized},
+                old_data={
+                    "sale_type": getattr(old_sale_type, "value", old_sale_type),
+                },
+                new_data={
+                    "legal_description_normalized": existing.legal_description_normalized,
+                    "sale_type": getattr(existing.sale_type, "value", existing.sale_type),
+                },
             )
             return existing.id
 
         lot_record = Lot(
             development_id=development_id,
-            legal_description_raw=legal_description_normalized,
+            legal_description_raw=(
+                self._as_text(lot.get("legal_description_raw"))
+                or legal_description_normalized
+            ),
             legal_description_normalized=legal_description_normalized,
             civic_address=self._as_text(lot.get("civic_address")) or None,
             street_number=self._as_text(lot.get("street_number")) or None,
@@ -743,6 +950,7 @@ class PromotionService:
             block=self._as_text(lot.get("block")) or None,
             plan=self._as_text(lot.get("plan")) or None,
             status=LotStatus.LAND_CONTRACTED,
+            sale_type=proposed_sale_type,
         )
         self.db.add(lot_record)
         await self.db.flush()
@@ -787,14 +995,7 @@ class PromotionService:
             "legal_description_normalized": legal_description,
             "civic_address": civic_address or None,
             "purchase_price": lot.get("purchase_price"),
-            "deposits": [
-                {"number": 1, "amount": lot.get("deposit_1_amount")},
-                {
-                    "number": 2,
-                    "amount": lot.get("deposit_2_amount"),
-                    "due_date": lot.get("deposit_2_due_date"),
-                },
-            ],
+            "deposits": self._deposit_specs(lot),
             "existing_lot_id": str(lot_id) if action == "reuse" else None,
             "existing_civic_address": current_civic_address,
         }
@@ -962,12 +1163,16 @@ class PromotionService:
                     )
                     return existing.id
 
-        civic_address = self._normalize_text(self._as_text(agreement.get("civic_address")))
+        civic_address = self._as_text(agreement.get("civic_address"))
         if civic_address:
-            existing = await self.db.scalar(
-                select(Lot).where(func.lower(func.trim(Lot.civic_address)) == civic_address)
-            )
-            if existing is not None:
+            civic_matches = await self._lot_candidates_by_civic_address(civic_address)
+            if len(civic_matches) > 1:
+                raise ValueError(
+                    "More than one lot matches sale civic address "
+                    f"{civic_address}: {[str(item.id) for item in civic_matches]}"
+                )
+            if civic_matches:
+                existing = civic_matches[0]
                 if self._dry_run:
                     self._record_sale_lot_preview(
                         existing,
@@ -993,6 +1198,27 @@ class PromotionService:
                     lot.legal_description_normalized,
                 )
         return lot_id
+
+    async def _lot_candidates_by_civic_address(self, civic_address: str) -> list[Lot]:
+        canonical_key = normalize_address(civic_address).canonical_key
+        if not canonical_key:
+            return []
+        possible = list(
+            (
+                await self.db.scalars(
+                    select(Lot).where(Lot.civic_address.is_not(None))
+                )
+            ).all()
+        )
+        return sorted(
+            [
+                lot
+                for lot in possible
+                if normalize_address(lot.civic_address or "").canonical_key
+                == canonical_key
+            ],
+            key=lambda lot: str(lot.id),
+        )
 
     def _record_sale_lot_preview(
         self,
@@ -1087,6 +1313,7 @@ class PromotionService:
         developer_contact_id: UUID,
         document_id: UUID,
         review_id: UUID,
+        promotion_metadata: dict[str, Any] | None = None,
     ) -> UUID:
         agreement_date = self._coerce_date(agreement.get("agreement_date"))
         if agreement_date is None:
@@ -1099,6 +1326,7 @@ class PromotionService:
             "purchaser_name": agreement.get("purchaser_name"),
             "lot_draw_label": agreement.get("lot_draw_label"),
             "gst_registration": agreement.get("gst_registration"),
+            **(promotion_metadata or {}),
         }
         agreement_record = Agreement(
             document_id=document_id,
@@ -1180,6 +1408,15 @@ class PromotionService:
         agreement: dict[str, Any],
         agreement_id: UUID,
     ) -> None:
+        if agreement.get("realtor_name") and not (
+            agreement.get("buyers_realtor_name") or agreement.get("sellers_realtor_name")
+        ):
+            agreement = {
+                **agreement,
+                "buyers_realtor_name": agreement.get("realtor_name"),
+                "buyers_realtor_email": agreement.get("realtor_email"),
+                "buyers_brokerage": agreement.get("realtor_brokerage"),
+            }
         purchaser_names = agreement.get("purchaser_names")
         if isinstance(purchaser_names, str):
             purchaser_names = [purchaser_names]
@@ -1204,10 +1441,10 @@ class PromotionService:
             )
 
         realtor_fields = [
-            ("buyers_realtor_name", "buyers_brokerage", PartyRole.BUYERS_REALTOR),
-            ("sellers_realtor_name", "sellers_brokerage", PartyRole.SELLERS_REALTOR),
+            ("buyers_realtor_name", "buyers_realtor_email", "buyers_brokerage", PartyRole.BUYERS_REALTOR),
+            ("sellers_realtor_name", "sellers_realtor_email", "sellers_brokerage", PartyRole.SELLERS_REALTOR),
         ]
-        for name_field, brokerage_field, role in realtor_fields:
+        for name_field, email_field, brokerage_field, role in realtor_fields:
             name = self._as_text(agreement.get(name_field))
             if not name:
                 continue
@@ -1216,6 +1453,7 @@ class PromotionService:
                 company_name=self._as_text(agreement.get(brokerage_field)),
                 address="",
                 contact_type=ContactType.REALTOR.value,
+                email=self._as_text(agreement.get(email_field)),
             )
             await self._insert_party(
                 agreement_id=agreement_id,
@@ -1301,22 +1539,29 @@ class PromotionService:
         security_deposit: dict[str, Any],
         agreement_id: UUID,
         lot_count: int,
-    ) -> UUID:
-        rate_per_lot = self._require_decimal(
-            security_deposit.get("rate_per_lot"),
-            field_name="security_deposit.rate_per_lot",
+    ) -> UUID | None:
+        rate_per_lot = self._coerce_decimal(security_deposit.get("rate_per_lot"), scale=2)
+        maximum_amount = self._coerce_decimal(
+            security_deposit.get("maximum_amount"), scale=2
         )
-        maximum_amount = self._require_decimal(
-            security_deposit.get("maximum_amount"),
-            field_name="security_deposit.maximum_amount",
+        if rate_per_lot is None and maximum_amount is None:
+            return None
+        if rate_per_lot is None or maximum_amount is None:
+            raise ValueError(
+                "security_deposit requires both rate_per_lot and maximum_amount when present"
+            )
+        agreement_lot_count = int(security_deposit.get("agreement_lot_count") or lot_count)
+        calculated_amount = min(
+            rate_per_lot * Decimal(agreement_lot_count), maximum_amount
         )
-        calculated_amount = min(rate_per_lot * Decimal(lot_count), maximum_amount)
         deposit = SecurityDeposit(
             agreement_id=agreement_id,
             rate_per_lot=rate_per_lot,
             maximum_amount=maximum_amount,
             calculated_amount=calculated_amount,
             due_trigger=self._as_text(security_deposit.get("due_trigger")) or "on_signing",
+            paid_at=self._coerce_datetime(security_deposit.get("paid_at")),
+            paid_amount=self._coerce_decimal(security_deposit.get("paid_amount"), scale=2),
         )
         self.db.add(deposit)
         await self.db.flush()
@@ -1335,20 +1580,21 @@ class PromotionService:
         lot_id: UUID,
         agreement_id: UUID,
     ) -> UUID:
-        deposit_2_due_date = self._coerce_date(lot.get("deposit_2_due_date"))
-        balance_due_date = self._calculate_balance_due_date(deposit_2_due_date)
+        balance_due_date = self._lot_balance_due_date(lot)
 
         lot_terms = LotTerms(
             lot_id=lot_id,
             agreement_id=agreement_id,
-            purchase_price=self._require_decimal(
-                lot.get("purchase_price"),
-                field_name="lots.purchase_price",
-            ),
+            purchase_price=self._coerce_decimal(lot.get("purchase_price"), scale=2),
             frontage_metres=self._coerce_decimal(lot.get("frontage_metres"), scale=2),
             frontage_feet=self._coerce_decimal(lot.get("frontage_feet"), scale=2),
             lot_notes=self._as_text(lot.get("lot_notes")) or None,
             balance_due_date=balance_due_date,
+            possession_date=self._coerce_date(lot.get("possession_date")),
+            lot_specific_conditions=(
+                self._as_text(lot.get("lot_specific_conditions")) or None
+            ),
+            metadata_=lot.get("metadata", {}) if isinstance(lot.get("metadata", {}), dict) else {},
         )
         self.db.add(lot_terms)
         await self.db.flush()
@@ -1369,33 +1615,39 @@ class PromotionService:
         agreement_id: UUID,
     ) -> list[DepositSchedule]:
         del agreement_id
-        if self._agreement_date is None:
-            raise ValueError("Agreement date is not available for deposit schedule insertion")
-
         deposit_rows: list[DepositSchedule] = []
-
-        deposit_1 = DepositSchedule(
-            lot_terms_id=lot_terms_id,
-            lot_id=lot_id,
-            deposit_number=1,
-            amount=self._require_decimal(lot.get("deposit_1_amount"), field_name="lots.deposit_1_amount"),
-            due_date=self._agreement_date,
-            trigger_type=TriggerType.ON_SIGNING,
-            trigger_description="on_signing",
-        )
-        deposit_rows.append(deposit_1)
-
-        deposit_2_due_date = self._coerce_date(lot.get("deposit_2_due_date"))
-        deposit_2 = DepositSchedule(
-            lot_terms_id=lot_terms_id,
-            lot_id=lot_id,
-            deposit_number=2,
-            amount=self._require_decimal(lot.get("deposit_2_amount"), field_name="lots.deposit_2_amount"),
-            due_date=deposit_2_due_date,
-            trigger_type=TriggerType.FIXED_DATE,
-            trigger_description="fixed_date",
-        )
-        deposit_rows.append(deposit_2)
+        for position, deposit_spec in enumerate(self._deposit_specs(lot), start=1):
+            amount = self._coerce_decimal(deposit_spec.get("amount"), scale=2)
+            if amount is None:
+                continue
+            deposit_number = int(deposit_spec.get("deposit_number") or position)
+            due_date = self._coerce_date(deposit_spec.get("due_date"))
+            trigger_text = self._as_text(deposit_spec.get("trigger_type"))
+            if not trigger_text:
+                trigger_text = (
+                    TriggerType.FIXED_DATE.value
+                    if due_date is not None
+                    else TriggerType.ON_SIGNING.value
+                )
+            deposit_rows.append(
+                DepositSchedule(
+                    lot_terms_id=lot_terms_id,
+                    lot_id=lot_id,
+                    deposit_number=deposit_number,
+                    amount=amount,
+                    due_date=due_date,
+                    trigger_type=TriggerType(trigger_text),
+                    trigger_description=(
+                        self._as_text(deposit_spec.get("trigger_description"))
+                        or trigger_text
+                    ),
+                    notes=self._as_text(deposit_spec.get("source_text")) or None,
+                    paid_at=self._coerce_datetime(deposit_spec.get("paid_at")),
+                    paid_amount=self._coerce_decimal(
+                        deposit_spec.get("paid_amount"), scale=2
+                    ),
+                )
+            )
 
         for deposit_row in deposit_rows:
             self.db.add(deposit_row)
@@ -1417,7 +1669,7 @@ class PromotionService:
         balance_due_date: date | None = None,
     ) -> None:
         for deposit_row in deposit_rows:
-            if deposit_row.deposit_number == 2 and deposit_row.due_date is not None:
+            if deposit_row.due_date is not None and deposit_row.paid_at is None:
                 reminder = Reminder(
                     lot_id=lot_id,
                     entity_table="land.deposit_schedule",
@@ -1438,7 +1690,7 @@ class PromotionService:
                     new_data={"entity_table": reminder.entity_table, "entity_id": str(reminder.entity_id)},
                 )
 
-        if balance_due_date is not None:
+        if balance_due_date is not None and deposit_rows:
             reminder = Reminder(
                 lot_id=lot_id,
                 entity_table="land.lot_terms",
@@ -1481,12 +1733,53 @@ class PromotionService:
         await self.db.flush()
 
     def _build_legal_description(self, lot: dict[str, Any]) -> str:
+        explicit = self._as_text(lot.get("legal_description_normalized"))
+        if explicit:
+            return " ".join(explicit.upper().split())
         block = self._as_text(lot.get("block"))
         lot_number = self._as_text(lot.get("lot_number"))
         plan = self._as_text(lot.get("plan"))
-        if not block or not lot_number or not plan:
-            raise ValueError("Lot block, lot_number, and plan are required for promotion")
-        return f"BLK {block} LT {lot_number} PLAN {plan}"
+        if not lot_number or not plan:
+            raise ValueError(
+                "Lot lot_number and plan, or legal_description_normalized, are required for promotion"
+            )
+        block_text = f"BLK {block} " if block else ""
+        return f"{block_text}LT {lot_number} PLAN {plan}"
+
+    def _deposit_specs(self, lot: dict[str, Any]) -> list[dict[str, Any]]:
+        configured = lot.get("deposit_schedule")
+        if isinstance(configured, list):
+            return [item for item in configured if isinstance(item, dict)]
+        fallback: list[dict[str, Any]] = []
+        if lot.get("deposit_1_amount") not in (None, ""):
+            fallback.append(
+                {
+                    "deposit_number": 1,
+                    "amount": lot.get("deposit_1_amount"),
+                    "due_date": self._agreement_date,
+                    "trigger_type": TriggerType.ON_SIGNING.value,
+                    "trigger_description": "on_signing",
+                }
+            )
+        if lot.get("deposit_2_amount") not in (None, ""):
+            fallback.append(
+                {
+                    "deposit_number": 2,
+                    "amount": lot.get("deposit_2_amount"),
+                    "due_date": lot.get("deposit_2_due_date"),
+                    "trigger_type": TriggerType.FIXED_DATE.value,
+                    "trigger_description": "fixed_date",
+                }
+            )
+        return fallback
+
+    def _lot_balance_due_date(self, lot: dict[str, Any]) -> date | None:
+        explicit = self._coerce_date(lot.get("balance_due_date"))
+        if explicit is not None:
+            return explicit
+        return self._calculate_balance_due_date(
+            self._coerce_date(lot.get("deposit_2_due_date"))
+        )
 
     def _calculate_balance_due_date(self, deposit_2_due_date: date | None) -> date | None:
         if deposit_2_due_date is None:
@@ -1547,6 +1840,18 @@ class PromotionService:
                 return parser(text_value)
             except ValueError:
                 continue
+        return None
+
+    def _coerce_datetime(self, value: object) -> datetime | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, datetime):
+            return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        parsed_date = self._coerce_date(value)
+        if parsed_date is not None:
+            return datetime.combine(parsed_date, datetime.min.time()).replace(
+                tzinfo=timezone.utc
+            )
         return None
 
     def _extract_development_name(self, civic_address: str) -> str:

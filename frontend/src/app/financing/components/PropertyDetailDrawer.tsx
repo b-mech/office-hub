@@ -147,7 +147,13 @@ export function PropertyDetailDrawer({
         ) : null}
 
         <ClientOtpPanel property={property} onUpdated={onUpdated} />
-        {property.lender_type === "PRO" ? <ProDrawRequestPanel property={property} /> : null}
+        {property.lender_type === "PRO" ? (
+          <ProDrawRequestPanel
+            key={`${property.property_id}:${property.draw_eligible_override ?? "none"}`}
+            property={property}
+            onUpdated={onUpdated}
+          />
+        ) : null}
 
         {property.flag === "NEEDS_LINK" && property.facility_id ? (
           <div className="mb-4 rounded-lg border border-[var(--ch-warning-border)] bg-[var(--ch-surface)] p-4">
@@ -268,6 +274,8 @@ function explainFlag(flag: string): string {
   const map: Record<string, string> = {
     OVER_DRAWN: "Already drawn exceeds the cumulative stage entitlement. No new draw is available.",
     FACILITY_NOT_SET: "Facility values are missing. Add total facility and opening balance.",
+    MISSING_FROM_STATEMENT: "This internal PRO record is absent from the latest monthly report and remains blocked until a report includes it or a manual Draw Now override is applied.",
+    STATEMENT_OVERRIDE: "A manual Draw Now override is active even though this facility is absent from the latest PRO statement.",
     NOT_STARTED: "Stage is blank or NA, so no draw is available.",
     CHECK_OTP: "Client lender terms vary by property. Upload/review the OTP and use Prep Draw.",
     NO_PROGRESS_REPORT: "Calculation uses the stage estimate because no Red River progress report is recorded.",

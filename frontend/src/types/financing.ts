@@ -1,5 +1,5 @@
 export type LenderType = "SCU" | "PRO" | "STRIDE" | "RSU" | "CLIENT" | "OTHER";
-export type DrawFlag = "OVER_DRAWN" | "FACILITY_NOT_SET" | "NOT_STARTED" | "CHECK_OTP" | "NO_PROGRESS_REPORT" | "NEEDS_LINK" | "SYNC_CONFLICT" | null;
+export type DrawFlag = "OVER_DRAWN" | "FACILITY_NOT_SET" | "NOT_STARTED" | "CHECK_OTP" | "NO_PROGRESS_REPORT" | "NEEDS_LINK" | "SYNC_CONFLICT" | "MISSING_FROM_STATEMENT" | "STATEMENT_OVERRIDE" | null;
 
 export interface LenderSummary {
   total_drawable: string | number | null;
@@ -43,6 +43,7 @@ export interface FinancingProperty {
   total_facility?: string | number | null;
   opening_balance?: string | number | null;
   already_drawn?: string | number | null;
+  draw_eligible_override?: string | number | null;
   last_draw_date?: string | null;
   last_draw_amount?: string | number | null;
   requested_draw_amount?: string | number | null;
@@ -284,7 +285,32 @@ export interface FacilityStatementSnapshot {
   new_draws_detected?: Array<Record<string, unknown>> | null;
 }
 
+export interface StatementDiscrepancy {
+  id: string;
+  statement_id: string;
+  facility_id?: string | null;
+  property_id?: string | null;
+  entity_key: string;
+  issue_type: string;
+  display_name: string;
+  canonical_address_key?: string | null;
+  details: {
+    record_type?: string;
+    reason?: string;
+    facility_status?: string | null;
+    total_facility?: string | null;
+    stage?: string | null;
+    sold_or_spec?: string | null;
+  };
+  status: "open" | "acknowledged";
+  review_note?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface LenderStatementDetail extends LenderStatement {
   parse_payload?: Record<string, unknown> | null;
   snapshots: FacilityStatementSnapshot[];
+  discrepancies: StatementDiscrepancy[];
 }

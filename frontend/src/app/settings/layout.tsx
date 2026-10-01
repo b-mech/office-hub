@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const SETTINGS_NAV = [
   { href: "/settings/imports", label: "Imports" },
   { href: "/settings/users", label: "Users" },
+  { href: "/settings/presales", label: "Presale Rules" },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

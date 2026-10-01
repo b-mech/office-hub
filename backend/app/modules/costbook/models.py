@@ -42,6 +42,9 @@ class Budget(Base):
     lot_agreement_id  = Column(UUID(as_uuid=True))          # → land.agreements
     label             = Column(String(200), nullable=False)
     status            = Column(String(20), nullable=False, default="draft")
+    is_prelim         = Column(Boolean, nullable=False, default=False, server_default="false")
+    requested_at      = Column(DateTime(timezone=True))
+    received_at       = Column(DateTime(timezone=True))
     fiscal_year       = Column(Integer)
     project_number    = Column(Integer)
     sqft_main_floor   = Column(Numeric(10, 2))

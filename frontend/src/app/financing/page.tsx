@@ -209,7 +209,7 @@ export default function FinancingPage() {
           onToggle={toggleDraw}
           onToggleAll={toggleAllDraws}
         />
-        <StatementsPanel selected={selectedStatement} onSelect={setSelectedStatement} />
+        <StatementsPanel selected={selectedStatement} onSelect={setSelectedStatement} onChanged={load} />
       </div>
       <PropertyDetailDrawer property={selected} properties={dashboard?.properties || []} onClose={() => setSelected(null)} onUpdated={load} />
     </main>

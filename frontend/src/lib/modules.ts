@@ -4,6 +4,8 @@ export const MODULES = [
   { id: "change_orders", label: "Change Orders" },
   { id: "reports", label: "Reports" },
   { id: "documents", label: "Documents" },
+  { id: "presales", label: "Presales" },
+  { id: "maintenance", label: "Maintenance" },
   { id: "settings", label: "Settings" },
 ] as const;
 

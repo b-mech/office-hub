@@ -77,6 +77,44 @@ class ProStatementParserTest(unittest.TestCase):
         self.assertEqual(date(2026, 3, 30), statements[0].period_end_date)
         self.assertEqual(Decimal("100000.00"), statements[0].draws[0].amount)
 
+    def test_statement_totals_drive_reported_principal_despite_ocr_noise(self) -> None:
+        text = """
+        Connection Homes - 64 Woodland Way, West St Paul, MB
+        AMOUNT BORROWED: $165,000.00 advanced on 3/12/2026
+        ANNUAL INTEREST RATE: 11.00% (Monthly compounding) (360)
+        3/30/2026 18 1 .00 11.0000 878.23 -100,878.23 265,878.23 -100,000.60 878.23 PAP Chq#4675
+        5/27/2026 15 4 .00 11.0000 1,194.68 -101,194.68 370,541.56 -100,000.00 5,541.56 chq#47610
+        7/27/2026 15 7 .00 11.0000 1,666.44 -121,666.44 497,373.80 -120,000.00 12,373.80 chq#47661
+        8/42/2026 16 8 .00 11.0000 2,353.17 -2,353.17 499,726.97 .00 14,726.97
+        Totals for schedule .00 14,726.97 -334,726.97 -320,000.00
+        """
+
+        statement = parse_statement_text(text, period="2026-08")[0]
+
+        self.assertEqual(date(2026, 8, 12), statement.period_end_date)
+        self.assertEqual(Decimal("320000.00"), statement.total_drawn)
+        self.assertEqual(Decimal("485000.00"), statement.reported_principal_drawn)
+        self.assertEqual(Decimal("14726.97"), statement.reported_accrued_interest)
+        self.assertEqual(Decimal("100000.00"), statement.draws[0].amount)
+
+    def test_invalid_ocr_draw_date_is_repaired_from_common_zero_substitution(self) -> None:
+        text = """
+        Connection Homes Inc - 153 Ramona Gallos Way, Winnipeg, MB
+        AMOUNT BORROWED: $140,000.00 advanced on 2/25/2026
+        ANNUAL INTEREST RATE: 11.00% (Monthly compounding) (360)
+        3/25/2026 28 1 .00 11.0000 1,283.33 -1,283.33 141,283.33 .00 1,283.33
+        3/36/2026 5 2 .00 11.0000 208.89 -62,708.89 203,992.22 -62,500.00 1,492.22 chq#47571
+        5/27/2026 2 5 .00 11.0000 122.68 -100,122.68 307,567.54 -100,000.00 5,067.54 chq#47615
+        8/25/2026 31 8 .00 11.0000 2,869.61 -2,869.61 315,918.17 .00 13,418.17
+        Totals for schedule .00 13,418.17 -175,918.17 -162,500.00
+        """
+
+        statement = parse_statement_text(text, period="2026-08")[0]
+
+        self.assertEqual(date(2026, 3, 30), statement.draws[0].txn_date)
+        self.assertEqual(Decimal("162500.00"), statement.total_drawn)
+        self.assertEqual(Decimal("302500.00"), statement.reported_principal_drawn)
+
 
 if __name__ == "__main__":
     unittest.main()

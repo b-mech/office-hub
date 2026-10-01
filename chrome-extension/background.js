@@ -1,4 +1,5 @@
-const OFFICE_HUB_API = "http://localhost:8000";
+const OFFICE_HUB_API = "https://officehub.n10z.ca/backend-api";
+const OFFICE_HUB_APP = "https://officehub.n10z.ca";
 const OFFICE_HUB_API_KEY = "b253ca1b038185185289506cd64642a1b8e478d86b09c8c58c8cad7faded8960";
 const GMAIL_FETCH_TIMEOUT_MS = 45000;
 const OFFICE_HUB_POST_TIMEOUT_MS = 600000;
@@ -27,6 +28,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         });
       });
 
+    return true;
+  }
+
+  if (message?.type === "LIST_PRESALE_LOTS") {
+    listPresaleLots(message.search || "")
+      .then((lots) => sendResponse({ ok: true, lots }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Could not load lots." }));
+    return true;
+  }
+
+  if (message?.type === "CAPTURE_APPROVAL_LETTER") {
+    captureApprovalLetter(message)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Approval letter capture failed." }));
     return true;
   }
 
@@ -151,10 +166,64 @@ async function extractChangeOrder({ emailBody }) {
   await setPendingChangeOrderBadge(false);
   const draftParam = encodeURIComponent(JSON.stringify(draft));
   await chrome.tabs.create({
-    url: `http://localhost:3000/change-orders/new?draft=${draftParam}`,
+    url: `${OFFICE_HUB_APP}/change-orders/new?draft=${draftParam}`,
   });
 
   return { draft };
+}
+
+async function listPresaleLots(search) {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  const response = await fetch(`${OFFICE_HUB_API}/api/presales/extension/lots?${params.toString()}`, {
+    headers: { "X-API-Key": OFFICE_HUB_API_KEY },
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!response.ok) throw new Error(`Could not load lots (${response.status}).`);
+  return await response.json();
+}
+
+async function captureApprovalLetter({ attachments, lotId, markAsPresale = false, email }) {
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    throw new Error("Select at least one PDF approval letter.");
+  }
+  const payloadAttachments = [];
+  for (const item of attachments) {
+    const attachment = await downloadAttachment({ url: item.url, filename: item.filename });
+    payloadAttachments.push({
+      filename: attachment.filename,
+      mime: "application/pdf",
+      content_base64: arrayBufferToBase64(attachment.buffer),
+    });
+  }
+  const response = await fetch(`${OFFICE_HUB_API}/api/presales/approval-letters/intake`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": OFFICE_HUB_API_KEY },
+    body: JSON.stringify({
+      lot_id: lotId || null,
+      mark_as_presale: Boolean(lotId && markAsPresale),
+      email,
+      attachments: payloadAttachments,
+    }),
+    signal: AbortSignal.timeout(OFFICE_HUB_POST_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    const detail = typeof body.detail === "string" ? body.detail : body.detail?.message;
+    if (response.status === 409) throw new Error(detail || "This approval letter was already captured for the selected lot.");
+    throw new Error(detail || `Office Hub capture failed (${response.status}).`);
+  }
+  return { intake: await response.json() };
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
 }
 
 async function setPendingChangeOrderBadge(hasPending) {
