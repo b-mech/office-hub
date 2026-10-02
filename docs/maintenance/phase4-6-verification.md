@@ -6,7 +6,7 @@ Date: 2026-10-01
 
 Phase 4 tenant intake and the Phase 6 SMS layer are implemented on the existing maintenance worktree. `PUBLIC_BASE_URL` remains blank; no production hostname was guessed, nothing was deployed, no worker was installed or started, and the live database was not migrated. No file under `ops/` was changed for this work.
 
-The checked-out Git branch is `feature/docusign`, and neither local nor remote branch listings contain a name matching `maintenance` or `ticket`. Because the worktree already contained the uncommitted Phase 1–3 maintenance implementation plus unrelated user changes, it was not safe to switch or create a branch implicitly. This work therefore continued in that existing worktree and leaves branch organization for the owner.
+The work was initially implemented on `feature/docusign`. It is now present on the ops-owned `ops/prod-uncommitted-2026-10-01` branch.
 
 Celery is not new to Office Hub. The repository already had `app.workers.celery_app` and scheduled/background work (including QBO reconciliation) before maintenance. Maintenance extends that existing Celery app with the five-second due-SMS task. Test sessions force Celery eager mode in `backend/tests/conftest.py`.
 
@@ -45,6 +45,8 @@ All maintenance environment variables were explicitly set to empty strings while
 
 - Added the `SmsProvider` boundary, recording `FakeProvider`, HTTP-based `TwilioProvider`, and JWT-authenticated `RingCentralProvider`. The configured RingCentral server, client, secret, JWT, and sending number are read through typed settings; all RingCentral fields are excluded from settings representations, HTTP client request logging is suppressed, and none of their values are printed or logged. No live authentication or message send was attempted.
 - The RingCentral provider reuses short-lived OAuth access tokens and sends SMS through the extension SMS endpoint. Outbound media uses RingCentral's multipart MMS endpoint.
+- Added `/api/webhooks/ringcentral/sms` for RingCentral's empty-body validation handshake and validation-token-protected inbound SMS/MMS notifications. Notifications are normalized into the existing idempotent inbound router, and authenticated MMS downloads are restricted to the configured RingCentral API origin.
+- Added an explicit `backend/scripts/create_ringcentral_sms_subscription.py` ops command. Service or worker startup never creates a live subscription as a side effect.
 - Twilio webhook signatures are validated in every environment; the fake provider uses the same signature algorithm for tests.
 - Every outbound message is persisted first. Staff relays use the configured hold, the first relay in 24 hours gets the configured signature, and automated non-emergency messages defer through quiet hours. Staff relays and emergencies bypass quiet-hour deferral.
 - The existing Celery scheduler scans due pending/held rows every five seconds. Failed sends retain a non-sensitive error class and notifier callback.
@@ -66,8 +68,8 @@ The pre-0035 production-copy backup was restored to a new isolated database name
 
 ## Verification results
 
-- Focused maintenance suite: **77 passed**.
-- Full backend suite: **163 passed, 1 failed**. The sole failure is the unrelated existing unmarked async test `tests/test_lots_timeline.py::test_timeline_excludes_paid_land_and_sale_deposits`; pytest reports that the async function has no async marker. Maintenance tests are all green.
+- Focused maintenance suite: **81 passed**.
+- Full backend suite: **167 passed, 1 failed**. The sole failure is the unrelated existing unmarked async test `tests/test_lots_timeline.py::test_timeline_excludes_paid_land_and_sale_deposits`; pytest reports that the async function has no async marker. Maintenance tests are all green.
 - SQLAlchemy mapper configuration: passed.
 - Python compilation: passed.
 - `pip check`: no broken requirements.
@@ -86,7 +88,7 @@ The focused suite covers the Phase 4/6 portions of §12: Turnstile rejection, to
 ## Deliberately outstanding
 
 - A real-phone QR/intake/SMS round trip cannot be performed until the permanent `PUBLIC_BASE_URL`, Connect Properties emergency number, and production Turnstile keys are confirmed.
-- The RingCentral variables are currently present in `backend/.env`, while the installed backend service and the checked-in worker unit point at the repository-root `.env`; that root file still selects Twilio. In keeping with the instruction that the ops branch owns systemd and that secret values must not be copied or exposed, neither environment file nor any unit was modified here. The ops branch must align the service `EnvironmentFile` or securely place the RingCentral variables in the root environment before RingCentral can be selected by the running services.
-- RingCentral inbound SMS requires a RingCentral notification subscription and validation-token-protected webhook (or WebSocket subscription). Those subscription details are not present in configuration, so this change does not pretend the existing Twilio webhook is a RingCentral inbound endpoint.
+- The ops-owned root `.env` now selects RingCentral and contains the five outbound provider settings; the installed backend service already reads that file. No values are exposed in this report. A service restart and live authentication have not been performed.
+- RingCentral inbound code is present, but `RINGCENTRAL_WEBHOOK_VALIDATION_TOKEN` and `PUBLIC_BASE_URL` must be configured before running `cd backend && .venv/bin/python scripts/create_ringcentral_sms_subscription.py`. That command authenticates and creates a live subscription, so it has not been run. The subscription uses the official instant-SMS event filter and currently requests a seven-day lifetime; renewal remains an ops responsibility.
 - Slack card/thread delivery remains the no-op notifier by design until Phase 7.
 - SMS template editing in Office Hub remains part of the Phase 9 Maintenance Settings screen; templates are centralized now so that storage-backed overrides can replace them there.

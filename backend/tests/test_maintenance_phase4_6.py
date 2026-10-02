@@ -9,6 +9,7 @@ import pytest
 import httpx
 
 from app.core.config import settings
+from app.main import app
 from app.models.maintenance import MaintStatus
 from app.models.maintenance import MaintDirection, MaintSmsMessage
 from app.services.maintenance.qr import printable_pdf, verify_print_token
@@ -18,6 +19,7 @@ from app.services.maintenance.sms.inbound import (
     choose_route,
     is_close_confirmation,
     opt_keyword,
+    ringcentral_notification_form,
 )
 from app.services.maintenance.sms.outbound import SmsOptedOutError, normalized_delivery_status, quiet_hours_release, queue_sms, send_due_messages
 from app.services.maintenance.notifier import NoopMaintenanceNotifier
@@ -136,6 +138,99 @@ async def test_ringcentral_provider_uses_jwt_token_and_configured_number() -> No
     assert sum(request.url.path == "/restapi/oauth/token" for request in requests) == 1
 
 
+@pytest.mark.asyncio
+async def test_ringcentral_subscription_uses_sms_filter_and_validation_token() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/restapi/oauth/token":
+            return httpx.Response(200, json={"access_token": "access", "expires_in": 3600})
+        return httpx.Response(200, json={"id": "subscription-1", "status": "Active"})
+
+    provider = RingCentralProvider(
+        "https://platform.ringcentral.test",
+        "client",
+        "secret",
+        "jwt",
+        "+12045550999",
+        transport=httpx.MockTransport(handler),
+    )
+    result = await provider.create_sms_webhook_subscription(
+        "https://maintenance.invalid/api/webhooks/ringcentral/sms", "validation-secret"
+    )
+    assert result["id"] == "subscription-1"
+    request = requests[-1]
+    payload = json.loads(request.content)
+    assert payload["eventFilters"] == [
+        "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"
+    ]
+    assert payload["deliveryMode"]["validationToken"] == "validation-secret"
+
+
+@pytest.mark.asyncio
+async def test_ringcentral_media_rejects_urls_outside_configured_origin() -> None:
+    provider = RingCentralProvider(
+        "https://platform.ringcentral.test",
+        "client",
+        "secret",
+        "jwt",
+        "+12045550999",
+    )
+    with pytest.raises(ValueError, match="outside the configured API origin"):
+        await provider.fetch_media("https://attacker.invalid/restapi/v1.0/content/1")
+
+
+def test_ringcentral_notification_normalizes_sms_and_mms() -> None:
+    form = ringcentral_notification_form(
+        {
+            "body": {
+                "id": "82063400004",
+                "from": {"phoneNumber": "+12045550100"},
+                "to": [
+                    {"phoneNumber": "+12045550101"},
+                    {"phoneNumber": "+12045550999", "target": True},
+                ],
+                "type": "SMS",
+                "direction": "Inbound",
+                "subject": "Leaking sink",
+                "attachments": [
+                    {"type": "Text", "contentType": "text/plain", "uri": "ignored"},
+                    {
+                        "type": "MmsAttachment",
+                        "contentType": "image/jpeg",
+                        "uri": "https://platform.ringcentral.test/restapi/v1.0/content/1",
+                    },
+                ],
+            }
+        }
+    )
+    assert form == {
+        "From": "+12045550100",
+        "To": "+12045550999",
+        "Body": "Leaking sink",
+        "MessageSid": "82063400004",
+        "NumMedia": "1",
+        "MediaUrl0": "https://platform.ringcentral.test/restapi/v1.0/content/1",
+        "MediaContentType0": "image/jpeg",
+    }
+
+
+@pytest.mark.asyncio
+async def test_ringcentral_webhook_echoes_validation_challenge() -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://maintenance.invalid"
+    ) as client:
+        response = await client.post(
+            "/api/webhooks/ringcentral/sms",
+            headers={"Validation-Token": "challenge-token"},
+            content=b"",
+        )
+    assert response.status_code == 200
+    assert response.headers["Validation-Token"] == "challenge-token"
+    assert response.headers["Content-Type"].startswith("application/json")
+
+
 def test_ringcentral_secrets_are_excluded_from_settings_repr() -> None:
     rendered = repr(settings)
     assert "ringcentral_server_url" not in rendered
@@ -143,6 +238,7 @@ def test_ringcentral_secrets_are_excluded_from_settings_repr() -> None:
     assert "ringcentral_client_secret" not in rendered
     assert "ringcentral_jwt" not in rendered
     assert "ringcentral_from_number" not in rendered
+    assert "ringcentral_webhook_validation_token" not in rendered
 
 
 def test_quiet_hours_defer_only_during_window(monkeypatch: pytest.MonkeyPatch) -> None:

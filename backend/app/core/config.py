@@ -112,6 +112,9 @@ class Settings(BaseSettings):
     )
     ringcentral_jwt: SecretStr = Field(default=SecretStr(""), alias="RINGCENTRAL_JWT", repr=False)
     ringcentral_from_number: str = Field(default="", alias="RINGCENTRAL_FROM_NUMBER", repr=False)
+    ringcentral_webhook_validation_token: SecretStr = Field(
+        default=SecretStr(""), alias="RINGCENTRAL_WEBHOOK_VALIDATION_TOKEN", repr=False
+    )
     sms_signature: str = Field(default="— Connect Properties", alias="SMS_SIGNATURE")
     public_brand_name: str = Field(default="Connect Properties", alias="PUBLIC_BRAND_NAME")
     sms_relay_hold_seconds: int = Field(default=30, ge=0, alias="SMS_RELAY_HOLD_SECONDS")
@@ -193,6 +196,11 @@ class Settings(BaseSettings):
                 issues.append("PRIVI_EMERGENCY_PHONE is not configured")
             if self.sms_provider.casefold() == "ringcentral" and not self.ringcentral_configured:
                 issues.append("RingCentral is not configured")
+            elif (
+                self.sms_provider.casefold() == "ringcentral"
+                and not self.ringcentral_webhook_validation_token.get_secret_value()
+            ):
+                issues.append("RingCentral webhook validation token is not configured")
             elif self.sms_provider.casefold() == "twilio" and not self.twilio_configured:
                 issues.append("Twilio is not configured")
             elif self.sms_provider.casefold() not in {"ringcentral", "twilio", "fake"}:

@@ -9,7 +9,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Mapping, Protocol, Sequence
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 
@@ -21,6 +21,11 @@ logger = logging.getLogger("uvicorn.error")
 # media tokens, and provider configuration values must never enter logs.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+
+RINGCENTRAL_SMS_EVENT_FILTER = (
+    "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"
+)
 
 
 def twilio_signature(url: str, params: Mapping[str, str], auth_token: str) -> str:
@@ -176,12 +181,49 @@ class RingCentralProvider:
             response.raise_for_status()
             return str(response.json()["id"])
 
+    async def create_sms_webhook_subscription(
+        self,
+        address: str,
+        validation_token: str,
+        *,
+        expires_in: int = 604799,
+    ) -> Mapping[str, object]:
+        """Create an inbound-SMS webhook subscription after explicit ops invocation."""
+        token = await self._bearer_token()
+        async with httpx.AsyncClient(timeout=30, transport=self.transport) as client:
+            response = await client.post(
+                f"{self.server_url}/restapi/v1.0/subscription",
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                json={
+                    "eventFilters": [RINGCENTRAL_SMS_EVENT_FILTER],
+                    "deliveryMode": {
+                        "transportType": "WebHook",
+                        "address": address,
+                        "validationToken": validation_token,
+                    },
+                    "expiresIn": expires_in,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("RingCentral returned an invalid subscription response")
+        return payload
+
     def validate_signature(self, url: str, params: Mapping[str, str], signature: str) -> bool:
         # RingCentral notifications use subscription validation tokens, not the
         # Twilio form-signature scheme handled by this interface.
         return False
 
     async def fetch_media(self, url: str) -> bytes:
+        expected = urlsplit(self.server_url)
+        supplied = urlsplit(url)
+        if (
+            supplied.scheme != expected.scheme
+            or supplied.netloc != expected.netloc
+            or not supplied.path.startswith("/restapi/")
+        ):
+            raise ValueError("RingCentral media URL is outside the configured API origin")
         token = await self._bearer_token()
         async with httpx.AsyncClient(timeout=20, transport=self.transport) as client:
             response = await client.get(url, headers={"Authorization": f"Bearer {token}"})

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
+import json
 from datetime import date, datetime, timezone
 from io import BytesIO
 from typing import Annotated
@@ -47,7 +49,7 @@ from app.services.maintenance.qr import (
     verify_print_token,
 )
 from app.services.maintenance.rate_limit import RateLimitExceeded, get_rate_limiter
-from app.services.maintenance.sms.inbound import receive_sms
+from app.services.maintenance.sms.inbound import receive_sms, ringcentral_notification_form
 from app.services.maintenance.sms.outbound import SmsOptedOutError, normalized_delivery_status, queue_sms
 from app.services.maintenance.sms.providers import get_sms_provider
 from app.services.maintenance.sms.templates import render_template
@@ -319,6 +321,48 @@ async def twilio_inbound(request: Request, db: AsyncSession = Depends(get_db)) -
         await db.rollback()
         raise HTTPException(422, str(exc)) from exc
     return Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', media_type="application/xml")
+
+
+@router.post("/api/webhooks/ringcentral/sms")
+async def ringcentral_inbound(request: Request, db: AsyncSession = Depends(get_db)) -> Response:
+    raw_body = await request.body()
+    supplied_token = request.headers.get("Validation-Token", "")
+
+    # RingCentral validates a new callback URL with an empty POST and requires
+    # the supplied challenge token to be echoed in a small JSON response.
+    if not raw_body:
+        if not supplied_token:
+            raise HTTPException(400, "Validation-Token is required")
+        return Response(
+            status_code=200,
+            headers={"Validation-Token": supplied_token},
+            media_type="application/json",
+        )
+
+    configured_token = settings.ringcentral_webhook_validation_token.get_secret_value()
+    if not configured_token or not hmac.compare_digest(configured_token, supplied_token):
+        raise HTTPException(403, "Invalid RingCentral validation token")
+    if settings.sms_provider.casefold() != "ringcentral":
+        raise HTTPException(503, "RingCentral is not the selected SMS provider")
+
+    try:
+        payload = json.loads(raw_body)
+        notifications = payload if isinstance(payload, list) else [payload]
+        if not notifications or not all(isinstance(item, dict) for item in notifications):
+            raise ValueError("RingCentral notification payload is invalid")
+        provider = get_sms_provider()
+        for notification in notifications:
+            await receive_sms(
+                db,
+                provider,
+                get_maintenance_notifier(),
+                ringcentral_notification_form(notification),
+            )
+        await db.commit()
+    except (json.JSONDecodeError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return Response(status_code=200, media_type="application/json")
 
 
 class PrintToken(BaseModel):

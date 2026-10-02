@@ -52,6 +52,63 @@ ACTIVE_WO_STATUSES = {
 CLOSE_KEYWORDS = {"YES", "Y", "FIXED", "DONE"}
 
 
+def ringcentral_notification_form(payload: Mapping[str, object]) -> dict[str, str]:
+    """Normalize a RingCentral instant-message notification for shared SMS routing."""
+    body = payload.get("body")
+    if not isinstance(body, Mapping):
+        raise ValueError("RingCentral notification body is missing")
+    if str(body.get("direction", "")).casefold() != "inbound":
+        raise ValueError("RingCentral notification is not an inbound message")
+    if str(body.get("type", "")).casefold() not in {"sms", "mms"}:
+        raise ValueError("RingCentral notification is not SMS/MMS")
+
+    sender = body.get("from")
+    recipients = body.get("to")
+    if not isinstance(sender, Mapping) or not isinstance(recipients, list) or not recipients:
+        raise ValueError("RingCentral notification is missing sender or recipient")
+    sender_phone = str(sender.get("phoneNumber", ""))
+    recipient = next(
+        (
+            item
+            for item in recipients
+            if isinstance(item, Mapping) and item.get("target") is True
+        ),
+        recipients[0],
+    )
+    if not isinstance(recipient, Mapping):
+        raise ValueError("RingCentral notification recipient is invalid")
+
+    message_id = str(body.get("id", ""))
+    if not sender_phone or not message_id:
+        raise ValueError("RingCentral notification is missing sender or message ID")
+
+    form = {
+        "From": sender_phone,
+        "To": str(recipient.get("phoneNumber", "")),
+        "Body": str(body.get("subject", "")),
+        "MessageSid": message_id,
+    }
+    attachments = body.get("attachments", [])
+    media = (
+        [
+            item
+            for item in attachments
+            if isinstance(item, Mapping)
+            and str(item.get("type", "")).casefold() == "mmsattachment"
+            and item.get("uri")
+        ]
+        if isinstance(attachments, list)
+        else []
+    )
+    form["NumMedia"] = str(len(media))
+    for index, attachment in enumerate(media):
+        form[f"MediaUrl{index}"] = str(attachment["uri"])
+        form[f"MediaContentType{index}"] = str(
+            attachment.get("contentType", "application/octet-stream")
+        )
+    return form
+
+
 class RouteKind(str, Enum):
     VENDOR_WORK_ORDER = "vendor_work_order"
     TENANT_OPEN = "tenant_open"
@@ -214,7 +271,7 @@ async def receive_sms(
             db,
             ticket_id=None,
             content=await provider.fetch_media(media_url),
-            original_filename=f"twilio-{message.provider_sid or message.id}-{index}",
+            original_filename=f"sms-{message.provider_sid or message.id}-{index}",
             uploaded_by_party=media_party,
         )
         attachment_ids.append(attachment.id)

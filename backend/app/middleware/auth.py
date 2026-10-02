@@ -27,6 +27,7 @@ PUBLIC_PATHS = {
 }
 PUBLIC_PREFIXES = (
     "/api/public/",
+    "/api/webhooks/ringcentral/",
     "/api/webhooks/twilio/",
     "/api/rentals/reports/public/",
     "/api/presales/extension/",
