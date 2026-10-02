@@ -22,6 +22,7 @@ from app.models.rentals import RentalTenant
 from app.services.maintenance.media import create_signed_media_token
 from app.services.maintenance.notifier import MaintenanceNotifier
 from app.services.maintenance.sms.providers import SmsProvider
+from app.services.maintenance.state_machine import ActorContext
 
 
 class SmsOptedOutError(ValueError):
@@ -149,6 +150,48 @@ async def queue_sms(
             )
         )
         await db.flush()
+    return message
+
+
+async def cancel_held_sms(
+    db: AsyncSession,
+    message_id: UUID,
+    actor: ActorContext,
+    *,
+    now: datetime | None = None,
+) -> MaintSmsMessage:
+    message = await db.scalar(
+        select(MaintSmsMessage).where(MaintSmsMessage.id == message_id).with_for_update()
+    )
+    if message is None:
+        raise ValueError("SMS message was not found")
+    if (
+        message.direction != MaintDirection.OUTBOUND
+        or message.status != "held"
+        or message.cancelled_at is not None
+        or message.provider_sid is not None
+    ):
+        raise ValueError("SMS message is no longer cancellable")
+    cancelled_at = now or datetime.now(timezone.utc)
+    message.cancelled_at = cancelled_at
+    message.status = "cancelled"
+    message.updated_at = cancelled_at
+    if message.ticket_id:
+        db.add(
+            MaintEvent(
+                ticket_id=message.ticket_id,
+                work_order_id=message.work_order_id,
+                event_type="sms_cancelled",
+                channel=MaintEventChannel.SLACK,
+                visibility=MaintVisibility.INTERNAL,
+                direction=MaintDirection.NONE,
+                actor_party=actor.party,
+                actor_user_id=actor.user_id,
+                sms_message_id=message.id,
+                created_at=cancelled_at,
+            )
+        )
+    await db.flush()
     return message
 
 

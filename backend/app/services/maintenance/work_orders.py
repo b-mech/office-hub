@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
@@ -17,7 +17,14 @@ from app.models.maintenance import (
     MaintVisibility,
     MaintWorkOrder,
     MaintWorkOrderStatus,
+    MaintVendor,
 )
+from app.models.rentals import RentalProperty, RentalUnit
+from app.core.config import settings
+from app.services.maintenance.entry_notice import EntryNoticePolicy, validate_entry_notice
+from app.services.maintenance.errors import PermissionDeniedError
+from app.services.maintenance.sms.outbound import queue_sms
+from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext, transition
 from app.services.maintenance.tokens import generate_token
 
@@ -114,16 +121,109 @@ async def schedule_work_order(
     actor: ActorContext,
     start: datetime,
     end: datetime,
+    *,
+    admin_override_reason: str | None = None,
+    now: datetime | None = None,
 ) -> MaintWorkOrder:
     if end <= start:
         raise ValueError("Scheduled end must be after the start")
+    if admin_override_reason and not actor.is_admin:
+        raise PermissionDeniedError("Only a maintenance admin can override entry-notice policy")
+    scheduled_at = now or datetime.now(timezone.utc)
+    notice_basis = validate_entry_notice(
+        start,
+        scheduled_at,
+        entry_permission=ticket.entry_permission,
+        is_emergency=ticket.is_emergency,
+        admin_override_reason=admin_override_reason,
+        policy=EntryNoticePolicy(
+            minimum_notice=timedelta(hours=settings.entry_notice_min_hours),
+            window_start=settings.entry_window_start,
+            window_end=settings.entry_window_end,
+        ),
+    )
     work_order.scheduled_start = start
     work_order.scheduled_end = end
     work_order.status = MaintWorkOrderStatus.SCHEDULED
+    db.add(
+        MaintEvent(
+            ticket_id=ticket.id,
+            work_order_id=work_order.id,
+            event_type="work_order_scheduled",
+            channel=MaintEventChannel.SLACK,
+            visibility=MaintVisibility.INTERNAL,
+            direction=MaintDirection.NONE,
+            actor_party=actor.party,
+            actor_user_id=actor.user_id,
+            payload={
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "entry_notice": notice_basis,
+                **(
+                    {"override_reason": admin_override_reason.strip()}
+                    if admin_override_reason and admin_override_reason.strip()
+                    else {}
+                ),
+            },
+            created_at=scheduled_at,
+        )
+    )
     derived_status = status_after_schedule(MaintStatus(ticket.status))
     if derived_status is not None:
         await transition(db, ticket, derived_status, actor)
     await db.flush()
+    return work_order
+
+
+async def assign_vendor_work_order(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    actor: ActorContext,
+    *,
+    vendor_id: UUID,
+    scope: str,
+    cost_estimate: Decimal | None = None,
+) -> MaintWorkOrder:
+    if not settings.public_base_url.strip():
+        raise ValueError("PUBLIC_BASE_URL is required before assigning a vendor")
+    vendor = await db.get(MaintVendor, vendor_id)
+    if vendor is None or not vendor.is_active:
+        raise ValueError("Active vendor not found")
+    prop = await db.get(RentalProperty, ticket.property_id)
+    unit = await db.get(RentalUnit, ticket.unit_id) if ticket.unit_id else None
+    if prop is None:
+        raise ValueError("Ticket property not found")
+    area = prop.street_address
+    if unit and unit.unit_label:
+        area = f"{area} · {unit.unit_label}"
+
+    work_order, raw_token = await create_work_order(
+        db,
+        ticket,
+        actor,
+        assignee_type="vendor",
+        scope=scope,
+        vendor_id=vendor.id,
+        cost_estimate=cost_estimate,
+    )
+    if raw_token is None:
+        raise RuntimeError("Vendor work order token was not generated")
+    link = f"{settings.public_base_url.rstrip('/')}/w/{raw_token}"
+    await queue_sms(
+        db,
+        to=vendor.phone_e164,
+        body=render_template(
+            "vendor_offer",
+            number=work_order.number,
+            area=area,
+            scope=work_order.scope,
+            link=link,
+        ),
+        ticket_id=ticket.id,
+        work_order_id=work_order.id,
+        automated=True,
+        actor_party=actor.party,
+    )
     return work_order
 
 

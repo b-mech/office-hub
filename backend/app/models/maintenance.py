@@ -291,6 +291,13 @@ class MaintSmsMessage(Base):
     __table_args__ = (
         CheckConstraint("direction IN ('inbound','outbound')", name="ck_maint_sms_direction"),
         CheckConstraint("status IN ('pending','held','queued','sent','delivered','failed','cancelled','received')", name="ck_maint_sms_status"),
+        Index(
+            "uq_maint_sms_messages_slack_message",
+            "slack_channel_id",
+            "slack_ts",
+            unique=True,
+            postgresql_where=text("slack_channel_id IS NOT NULL AND slack_ts IS NOT NULL"),
+        ),
     )
 
 
