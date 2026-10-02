@@ -70,16 +70,6 @@ from app.models.rentals import RentalLeaseTenant
 from app.models.rentals import RentalProperty
 from app.models.rentals import RentalTenant
 from app.models.rentals import RentalUnit
-from app.models.maintenance import MaintAttachment
-from app.models.maintenance import MaintEvent
-from app.models.maintenance import MaintIntakeToken
-from app.models.maintenance import MaintOnCall
-from app.models.maintenance import MaintSlackCard
-from app.models.maintenance import MaintSmsMessage
-from app.models.maintenance import MaintTicket
-from app.models.maintenance import MaintUnitToken
-from app.models.maintenance import MaintVendor
-from app.models.maintenance import MaintWorkOrder
 from app.models.program_allocations import AllocationRequest
 from app.models.program_allocations import AllocationTier
 from app.models.program_allocations import BuildGroupFundingDecision
@@ -170,16 +160,6 @@ __all__ = [
     "RentalProperty",
     "RentalTenant",
     "RentalUnit",
-    "MaintAttachment",
-    "MaintEvent",
-    "MaintIntakeToken",
-    "MaintOnCall",
-    "MaintSlackCard",
-    "MaintSmsMessage",
-    "MaintTicket",
-    "MaintUnitToken",
-    "MaintVendor",
-    "MaintWorkOrder",
     "User",
     "UserRole",
     "ApprovalLetterStatus",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 import json
@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.rentals import RentalCompany, RentalLease, RentalLeaseImportBatch, RentalLeaseImportRow, RentalLeaseTenant, RentalProperty, RentalTenant, RentalUnit
 from app.schemas.rentals import LeaseImportRowPatch, LeaseParsedData
 from app.services.extraction.claude_provider import ClaudeProvider
-from app.services.maintenance.phones import normalize_phone
 
 
 HEADERS = ["Property Street Address", "Unit Label", "Tenant 1 Name", "Tenant 1 Phone", "Tenant 1 Email", "Tenant 2 Name", "Tenant 2 Phone", "Tenant 2 Email", "Tenant 3 Name", "Tenant 3 Phone", "Tenant 3 Email", "Rent", "Rent Discount", "Deposit", "Water Credit", "Lease Start", "Lease End", "Notes"]
@@ -195,10 +194,6 @@ async def approve_row(db: AsyncSession, row: RentalLeaseImportRow) -> RentalLeas
             existing_notes = lease.lease_notes
             before = {"rent": str(lease.rent), "deposit": str(lease.deposit), "lease_start": str(lease.lease_start), "lease_end": str(lease.lease_end)}
             _apply_lease_values(lease, parsed)
-            if lease.status == "expired":
-                unit = await db.get(RentalUnit, lease.unit_id)
-                if unit:
-                    unit.maintenance_qr_rotation_recommended_at = datetime.now(timezone.utc)
             change_note = f"[lease import update] Previous values: {json.dumps(before)}"
             lease.lease_notes = "\n".join(filter(None, [existing_notes, change_note, parsed.lease_notes]))
         else:
@@ -212,9 +207,6 @@ async def approve_row(db: AsyncSession, row: RentalLeaseImportRow) -> RentalLeas
                 prior = await db.get(RentalLease, row.existing_lease_id)
                 if prior:
                     prior.status = "expired"
-                    unit = await db.get(RentalUnit, prior.unit_id)
-                    if unit:
-                        unit.maintenance_qr_rotation_recommended_at = datetime.now(timezone.utc)
                     proposed_end = parsed.lease_start - timedelta(days=1) if parsed.lease_start else prior.lease_end
                     if proposed_end and (prior.lease_end is None or prior.lease_end < proposed_end):
                         prior.lease_end = proposed_end
@@ -260,13 +252,12 @@ async def _replace_tenants(db: AsyncSession, lease: RentalLease, parsed: LeasePa
     await db.execute(RentalLeaseTenant.__table__.delete().where(RentalLeaseTenant.lease_id == lease.id))
     for position, incoming in enumerate(parsed.tenants):
         tenant = await db.scalar(select(RentalTenant).where(func.lower(RentalTenant.full_name) == incoming.full_name.casefold()))
-        normalized_phone = normalize_phone(incoming.phone) if incoming.phone else None
         if not tenant:
-            tenant = RentalTenant(full_name=incoming.full_name, phone=normalized_phone, email=incoming.email)
+            tenant = RentalTenant(full_name=incoming.full_name, phone=incoming.phone, email=incoming.email)
             db.add(tenant)
             await db.flush()
         else:
-            tenant.phone = normalized_phone or tenant.phone
+            tenant.phone = incoming.phone or tenant.phone
             tenant.email = incoming.email or tenant.email
         db.add(RentalLeaseTenant(lease_id=lease.id, tenant_id=tenant.id, is_primary_contact=incoming.is_primary_contact or position == 0))
 

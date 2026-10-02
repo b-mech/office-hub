@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -42,10 +43,10 @@ class _RecordingSession:
         return _EmptyResult()
 
 
-async def test_timeline_excludes_paid_land_and_sale_deposits() -> None:
+def test_timeline_excludes_paid_land_and_sale_deposits() -> None:
     session = _RecordingSession()
 
-    result = await list_otp_timeline(session)  # type: ignore[arg-type]
+    result = asyncio.run(list_otp_timeline(session))  # type: ignore[arg-type]
 
     assert result == []
     assert "sds.paid_at IS NULL" in session.statement

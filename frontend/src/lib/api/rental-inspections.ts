@@ -3,7 +3,7 @@ const P = "/api/rentals";
 
 export type Photo = { id: number; preview_url: string | null; caption: string | null };
 export type Inspection = { id:number; unit_id:number; inspection_type:string; inspection_date:string; inspector_name:string|null; front_yard_score:number|null; front_yard_notes:string|null; back_yard_score:number|null; back_yard_notes:string|null; building_condition:string|null; building_notes:string|null; occupancy_flag:string|null; general_notes:string|null; status:string; photos:Photo[] };
-export type Unit = { id:number; property_id:number; street_address:string; group_name:string|null; unit_label:string|null; maintenance_qr_rotation_recommended:boolean; last_inspection:{id:number;inspection_date:string;inspection_type:string;status:string}|null };
+export type Unit = { id:number; street_address:string; group_name:string|null; unit_label:string|null; last_inspection:{id:number;inspection_date:string;inspection_type:string;status:string}|null };
 
 async function req<T>(path:string, options?:RequestInit):Promise<T> {
   const response = await fetch(BASE + path, { ...options, cache:"no-store" });

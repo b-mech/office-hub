@@ -114,7 +114,7 @@ async def rental_units(q:str|None=Query(None),property_id:int|None=Query(None),d
     rows=(await db.execute(stmt.order_by(RentalProperty.group_name,RentalProperty.street_address,RentalUnit.unit_label))).all(); result=[]
     for unit,prop in rows:
         last=await db.scalar(select(RentalInspection).where(RentalInspection.unit_id==unit.id,RentalInspection.status=="submitted").order_by(RentalInspection.inspection_date.desc(),RentalInspection.id.desc()).limit(1))
-        result.append({"id":unit.id,"property_id":prop.id,"street_address":prop.street_address,"group_name":prop.group_name,"unit_label":unit.unit_label,"maintenance_qr_rotation_recommended":unit.maintenance_qr_rotation_recommended_at is not None,"last_inspection":None if not last else {"id":last.id,"inspection_date":last.inspection_date,"inspection_type":last.inspection_type,"status":last.status}})
+        result.append({"id":unit.id,"street_address":prop.street_address,"group_name":prop.group_name,"unit_label":unit.unit_label,"last_inspection":None if not last else {"id":last.id,"inspection_date":last.inspection_date,"inspection_type":last.inspection_type,"status":last.status}})
     return result
 
 @inspections_router.get("/properties/map")
