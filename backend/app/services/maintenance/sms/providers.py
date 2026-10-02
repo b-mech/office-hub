@@ -147,6 +147,10 @@ class RingCentralProvider:
             self._access_token_expires_at = time.monotonic() + expires_in - 60
             return self._access_token
 
+    async def authenticate(self) -> None:
+        """Validate the configured JWT grant without exposing the access token."""
+        await self._bearer_token()
+
     async def send(self, to: str, body: str, media_urls: Sequence[str]) -> str:
         token = await self._bearer_token()
         payload = {

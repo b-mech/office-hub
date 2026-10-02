@@ -133,6 +133,7 @@ async def test_ringcentral_provider_uses_jwt_token_and_configured_number() -> No
         "+12045550999",
         transport=transport,
     )
+    await provider.authenticate()
     assert await provider.send("+12045550100", "Hello", []) == "12345"
     assert await provider.send("+12045550100", "Again", []) == "12345"
     assert sum(request.url.path == "/restapi/oauth/token" for request in requests) == 1
