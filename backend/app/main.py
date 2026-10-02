@@ -17,6 +17,7 @@ from app.routers.financing import router as financing_router
 from app.routers.facility_assignments import router as facility_assignments_router
 from app.routers.financial_summaries import router as financial_summaries_router
 from app.routers.lenders import router as lenders_router
+from app.routers.maintenance import router as maintenance_router
 from app.routers.program_allocations import router as program_allocations_router
 from app.routers.presales import router as presales_router
 from app.routers.rentals import inspections_router, router as rentals_router
@@ -27,12 +28,16 @@ from app.middleware.auth import AuthenticationMiddleware
 from app.routers.auth import router as auth_router
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     logger.info("Office Hub API starting")
+    if settings.maintenance_enabled:
+        logger.info("PRIVI maintenance enabled")
+    else:
+        logger.info("PRIVI maintenance disabled: %s", "; ".join(settings.maintenance_config_issues))
     yield
 
 
@@ -73,6 +78,7 @@ app.include_router(financing_router)
 app.include_router(facility_assignments_router)
 app.include_router(financial_summaries_router)
 app.include_router(lenders_router)
+app.include_router(maintenance_router)
 app.include_router(program_allocations_router)
 app.include_router(presales_router)
 app.include_router(rentals_router)

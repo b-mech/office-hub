@@ -26,6 +26,9 @@ PUBLIC_PATHS = {
     "/api/presales/approval-letters/intake",
 }
 PUBLIC_PREFIXES = (
+    "/api/public/",
+    "/api/webhooks/ringcentral/",
+    "/api/webhooks/twilio/",
     "/api/rentals/reports/public/",
     "/api/presales/extension/",
 )

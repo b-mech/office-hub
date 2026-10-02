@@ -45,6 +45,7 @@ class RentalUnit(Base):
     water_credit_amount: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))
     water_deal_raw: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="unknown")
+    maintenance_qr_rotation_recommended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -57,6 +58,7 @@ class RentalTenant(Base):
     phone: Mapped[str | None] = mapped_column(String(30))
     email: Mapped[str | None] = mapped_column(String(150))
     secondary_email: Mapped[str | None] = mapped_column(String(150))
+    sms_opted_out: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

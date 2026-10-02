@@ -169,6 +169,8 @@ class User(Base):
         default=dict,
         server_default=text("'{}'::jsonb"),
     )
+    slack_user_id: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
+    phone_e164: Mapped[str | None] = mapped_column(Text, nullable=True)
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     invite_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
