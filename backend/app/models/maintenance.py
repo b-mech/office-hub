@@ -365,6 +365,38 @@ class MaintSlackCard(Base):
     )
 
 
+class MaintSlackOutbox(Base):
+    __tablename__ = "maint_slack_outbox"
+
+    id: Mapped[UUID] = _uuid_pk()
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    ticket_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_tickets.id"))
+    work_order_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_work_orders.id"))
+    sms_message_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_sms_messages.id"))
+    payload: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("attempts >= 0", name="ck_maint_slack_outbox_attempts"),
+        Index(
+            "idx_maint_slack_outbox_due",
+            "available_at",
+            "created_at",
+            postgresql_where=text("delivered_at IS NULL AND failed_at IS NULL"),
+        ),
+    )
+
+
 class MaintOnCall(Base):
     __tablename__ = "maint_on_call"
 

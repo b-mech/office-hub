@@ -281,7 +281,7 @@ async def receive_sms(
     if opt_state is not None:
         await mirror_opt_out(db, phone, opt_state)
         if opt_state:
-            await notifier.opted_out(phone)
+            await notifier.opted_out(db, phone, source_key=f"sms:{message.id}")
 
     ticket = await db.get(MaintTicket, decision.ticket_id) if decision.ticket_id else None
     message.ticket_id = ticket.id if ticket else None
@@ -331,10 +331,10 @@ async def receive_sms(
                 automated=True,
             )
         except SmsOptedOutError:
-            await notifier.opted_out(phone)
-        await notifier.unmatched_message(message, known_tenant=True)
+            await notifier.opted_out(db, phone, source_key=f"sms:{message.id}")
+        await notifier.unmatched_message(db, message, known_tenant=True)
     else:
-        await notifier.unmatched_message(message, known_tenant=False)
-    await notifier.inbound_message(message, ticket)
+        await notifier.unmatched_message(db, message, known_tenant=False)
+    await notifier.inbound_message(db, message, ticket)
     await db.flush()
     return message

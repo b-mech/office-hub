@@ -75,6 +75,7 @@ from app.models.maintenance import MaintEvent
 from app.models.maintenance import MaintIntakeToken
 from app.models.maintenance import MaintOnCall
 from app.models.maintenance import MaintSlackCard
+from app.models.maintenance import MaintSlackOutbox
 from app.models.maintenance import MaintSmsMessage
 from app.models.maintenance import MaintTicket
 from app.models.maintenance import MaintUnitToken
@@ -175,6 +176,7 @@ __all__ = [
     "MaintIntakeToken",
     "MaintOnCall",
     "MaintSlackCard",
+    "MaintSlackOutbox",
     "MaintSmsMessage",
     "MaintTicket",
     "MaintUnitToken",

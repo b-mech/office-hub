@@ -248,7 +248,7 @@ async def send_due_messages(
                     created_at=now,
                 )
             )
-        await notifier.sms_status_changed(message)
+        await notifier.sms_status_changed(db, message)
     await db.flush()
     return processed
 

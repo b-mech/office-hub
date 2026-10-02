@@ -241,8 +241,10 @@ async def submit_intake(
                     payload={"phone_last4": normalized_phone[-4:]},
                 )
             )
-            await get_maintenance_notifier().opted_out(normalized_phone)
-        await get_maintenance_notifier().ticket_created(ticket)
+            await get_maintenance_notifier().opted_out(
+                db, normalized_phone, source_key=f"ticket:{ticket.id}"
+            )
+        await get_maintenance_notifier().ticket_created(db, ticket)
         await db.commit()
     except (InvalidMediaError, ValueError) as exc:
         await db.rollback()
@@ -300,7 +302,7 @@ async def twilio_status(request: Request, db: AsyncSession = Depends(get_db)) ->
                     payload={"status": message.status, "error_code": message.error_code},
                 )
             )
-        await get_maintenance_notifier().sms_status_changed(message)
+        await get_maintenance_notifier().sms_status_changed(db, message)
         await db.commit()
     return Response(status_code=204)
 

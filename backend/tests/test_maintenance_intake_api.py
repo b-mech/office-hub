@@ -15,6 +15,7 @@ from app.services.maintenance.turnstile import TurnstileError
 
 
 class FakeDb:
+    async def execute(self, statement): return None
     async def commit(self): return None
     async def rollback(self): return None
 
