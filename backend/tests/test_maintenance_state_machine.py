@@ -33,7 +33,11 @@ class FakeSession:
     [(current, target) for current, targets in ALLOWED_TRANSITIONS.items() for target in targets],
 )
 def test_every_allowed_transition(current: MaintStatus, target: MaintStatus) -> None:
-    validate_transition(current, target, is_admin=current == MaintStatus.CLOSED)
+    validate_transition(
+        current,
+        target,
+        is_admin=current in {MaintStatus.CLOSED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE},
+    )
 
 
 @pytest.mark.parametrize(

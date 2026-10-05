@@ -26,7 +26,10 @@ from app.models.maintenance import (
     MaintEvent,
     MaintEventChannel,
     MaintParty,
+    MaintPriority,
     MaintSmsMessage,
+    MaintStatus,
+    MaintTicket,
     MaintUnitToken,
     MaintVisibility,
 )
@@ -56,6 +59,28 @@ from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext
 from app.services.maintenance.tickets import TicketCreate, create_ticket
 from app.services.maintenance.turnstile import TurnstileError, verify_turnstile
+from app.services.maintenance.workspace import (
+    acknowledge_ticket,
+    actor_for,
+    apply_more_action,
+    apply_triage,
+    assign_work,
+    cancel_message,
+    complete_order,
+    list_ticket_views,
+    post_message,
+    resolve_ticket,
+    schedule_work,
+    ticket_detail_view,
+)
+from app.schemas.maintenance import (
+    AssignmentRequest,
+    CompleteWorkOrderRequest,
+    MoreActionRequest,
+    ResolveRequest,
+    ScheduleRequest,
+    TriageRequest,
+)
 
 
 router = APIRouter(tags=["maintenance"])
@@ -86,6 +111,21 @@ def _property_label(prop: RentalProperty) -> str:
 
 def _unit_label(unit: RentalUnit) -> str:
     return unit.unit_label or "Main building"
+
+
+async def _ticket_or_404(db: AsyncSession, ticket_id: UUID) -> MaintTicket:
+    ticket = await db.get(MaintTicket, ticket_id)
+    if ticket is None:
+        raise HTTPException(404, "Maintenance ticket not found")
+    return ticket
+
+
+async def _commit_workspace(db: AsyncSession) -> None:
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.get("/api/public/maintenance/config")
@@ -441,3 +481,239 @@ async def print_property_qrs(property_id: int, request: Request, db: AsyncSessio
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="maintenance-property-{property_id}.pdf"'},
     )
+
+
+@router.get("/api/maintenance/tickets")
+async def maintenance_tickets(
+    request: Request,
+    include_terminal: bool = False,
+    status: MaintStatus | None = None,
+    priority: MaintPriority | None = None,
+    property_id: int | None = None,
+    needs_reply: bool = False,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, object]]:
+    _staff(request, "view")
+    return await list_ticket_views(
+        db,
+        include_terminal=include_terminal,
+        status=status,
+        priority=priority,
+        property_id=property_id,
+        needs_reply_only=needs_reply,
+    )
+
+
+@router.get("/api/maintenance/tickets/{ticket_id}")
+async def maintenance_ticket(
+    ticket_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    _staff(request, "view")
+    detail = await ticket_detail_view(db, ticket_id)
+    if detail is None:
+        raise HTTPException(404, "Maintenance ticket not found")
+    return detail
+
+
+@router.get("/api/maintenance/attachments/{attachment_id}")
+async def maintenance_attachment(
+    attachment_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    _staff(request, "view")
+    attachment = await db.get(MaintAttachment, attachment_id)
+    if attachment is None or attachment.ticket_id is None:
+        raise HTTPException(404, "Attachment not found")
+    content = await asyncio.to_thread(download_attachment, attachment.minio_key)
+    filename = attachment.original_filename or str(attachment.id)
+    return StreamingResponse(
+        BytesIO(content),
+        media_type=attachment.content_type,
+        headers={"Content-Disposition": f'inline; filename="{filename.replace(chr(34), "")}"'},
+    )
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/messages")
+async def maintenance_message(
+    ticket_id: UUID,
+    request: Request,
+    target: Annotated[str, Form()],
+    body: Annotated[str, Form()] = "",
+    work_order_id: Annotated[UUID | None, Form()] = None,
+    attachments: Annotated[list[UploadFile] | None, File()] = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    user = _staff(request, "message_external")
+    ticket = await _ticket_or_404(db, ticket_id)
+    files = [(item.filename, await item.read()) for item in attachments or []]
+    try:
+        message = await post_message(
+            db,
+            ticket,
+            actor_for(user),
+            target=target,
+            body=body,
+            work_order_id=work_order_id,
+            files=files,
+        )
+        await _commit_workspace(db)
+    except (InvalidMediaError, SmsOptedOutError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True, "message_id": message.id if message else None}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/messages/{message_id}/cancel")
+async def maintenance_cancel_message(
+    ticket_id: UUID,
+    message_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "message_external")
+    message = await db.get(MaintSmsMessage, message_id)
+    if message is None or message.ticket_id != ticket_id:
+        raise HTTPException(404, "Message not found")
+    try:
+        await cancel_message(db, message_id, actor_for(user))
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/triage")
+async def maintenance_triage(
+    ticket_id: UUID,
+    data: TriageRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "triage")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        await apply_triage(db, ticket, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/assign")
+async def maintenance_assign(
+    ticket_id: UUID,
+    data: AssignmentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    user = _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        order = await assign_work(db, ticket, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except (SmsOptedOutError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True, "work_order_id": order.id}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/schedule")
+async def maintenance_schedule(
+    ticket_id: UUID,
+    data: ScheduleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        await schedule_work(db, ticket, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/work-orders/{work_order_id}/complete")
+async def maintenance_complete_work_order(
+    ticket_id: UUID,
+    work_order_id: UUID,
+    data: CompleteWorkOrderRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        all_complete = await complete_order(
+            db,
+            ticket,
+            actor_for(user),
+            work_order_id=work_order_id,
+            **data.model_dump(),
+        )
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True, "all_work_orders_complete": all_complete}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/resolve")
+async def maintenance_resolve(
+    ticket_id: UUID,
+    data: ResolveRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "triage")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        await resolve_ticket(db, ticket, actor_for(user), note=data.note)
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/more")
+async def maintenance_more_action(
+    ticket_id: UUID,
+    data: MoreActionRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    permission = "admin" if data.action == "reopen" else "triage"
+    user = _staff(request, permission)
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        await apply_more_action(db, ticket, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/acknowledge")
+async def maintenance_acknowledge(
+    ticket_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "triage")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        acknowledged = await acknowledge_ticket(db, ticket, actor_for(user))
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True, "acknowledged": acknowledged}
