@@ -228,6 +228,15 @@ class Settings(BaseSettings):
         )
 
     @property
+    def slack_configured(self) -> bool:
+        return bool(
+            self.slack_bot_token
+            and self.slack_app_token
+            and self.slack_tickets_channel_id
+            and self.slack_emergency_channel_id
+        )
+
+    @property
     def sms_from_number(self) -> str:
         if self.sms_provider.casefold() == "ringcentral":
             return self.ringcentral_from_number
