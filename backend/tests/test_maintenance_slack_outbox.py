@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -44,27 +45,19 @@ async def test_outbox_insert_is_transactional_and_idempotent() -> None:
 async def test_notifier_builds_stable_keys_without_storing_phone() -> None:
     db = RecordingSession()
     notifier = OutboxMaintenanceNotifier()
-    ticket = SimpleNamespace(id=uuid4())
+    ticket = SimpleNamespace(id=uuid4(), is_emergency=False)
     message = SimpleNamespace(
         id=uuid4(),
         ticket_id=ticket.id,
         work_order_id=None,
         status="held",
+        created_at=datetime(2026, 10, 5, 13, 5, tzinfo=timezone.utc),
     )
     await notifier.ticket_created(db, ticket)  # type: ignore[arg-type]
     await notifier.inbound_message(db, message, ticket)  # type: ignore[arg-type]
-    await notifier.sms_status_changed(db, message)  # type: ignore[arg-type]
-    await notifier.opted_out(
-        db,  # type: ignore[arg-type]
-        "+12045550123",
-        source_key=f"sms:{message.id}",
-    )
     values = [params(statement) for statement in db.statements]
     assert [item["idempotency_key"] for item in values] == [
         f"ticket:{ticket.id}:created",
-        f"sms:{message.id}:inbound",
-        f"sms:{message.id}:status:held",
-        f"sms:{message.id}:opted-out",
+        f"ticket:{ticket.id}:reply:2985342",
     ]
-    assert values[-1]["payload"] == {"phone_last4": "0123"}
-    assert "+12045550123" not in repr(values)
+    assert values[-1]["payload"] == {"party": "tenant"}

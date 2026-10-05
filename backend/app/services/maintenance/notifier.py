@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timezone
 from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,48 +44,40 @@ class OutboxMaintenanceNotifier:
             kind="ticket_created",
             ticket_id=ticket.id,
         )
+        if getattr(ticket, "is_emergency", False):
+            from app.services.maintenance.emergencies import page_emergency
+
+            await page_emergency(db, ticket, stage=0)
 
     async def inbound_message(
         self, db: AsyncSession, message: MaintSmsMessage, ticket: MaintTicket | None
     ) -> None:
+        if ticket is None:
+            return
+        created_at = message.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        bucket = int(created_at.timestamp()) // 600
         await enqueue_slack_notification(
             db,
-            idempotency_key=f"sms:{message.id}:inbound",
-            kind="inbound_message",
-            ticket_id=ticket.id if ticket else None,
+            idempotency_key=f"ticket:{ticket.id}:reply:{bucket}",
+            kind="party_replied",
+            ticket_id=ticket.id,
             work_order_id=message.work_order_id,
             sms_message_id=message.id,
+            payload={"party": "vendor" if message.work_order_id else "tenant"},
         )
 
     async def unmatched_message(
         self, db: AsyncSession, message: MaintSmsMessage, *, known_tenant: bool
     ) -> None:
-        await enqueue_slack_notification(
-            db,
-            idempotency_key=f"sms:{message.id}:unmatched",
-            kind="unmatched_message",
-            sms_message_id=message.id,
-            payload={"known_tenant": known_tenant},
-        )
+        return None
 
     async def sms_status_changed(self, db: AsyncSession, message: MaintSmsMessage) -> None:
-        await enqueue_slack_notification(
-            db,
-            idempotency_key=f"sms:{message.id}:status:{message.status}",
-            kind="sms_status_changed",
-            ticket_id=message.ticket_id,
-            work_order_id=message.work_order_id,
-            sms_message_id=message.id,
-            payload={"status": message.status},
-        )
+        return None
 
     async def opted_out(self, db: AsyncSession, phone_e164: str, *, source_key: str) -> None:
-        await enqueue_slack_notification(
-            db,
-            idempotency_key=f"{source_key}:opted-out",
-            kind="opted_out",
-            payload={"phone_last4": phone_e164[-4:]},
-        )
+        return None
 
 
 _notifier: MaintenanceNotifier = OutboxMaintenanceNotifier()

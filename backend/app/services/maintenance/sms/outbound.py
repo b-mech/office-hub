@@ -85,9 +85,8 @@ async def queue_sms(
     automated: bool,
     emergency: bool = False,
     actor_party: MaintParty = MaintParty.SYSTEM,
+    actor_user_id: UUID | None = None,
     now: datetime | None = None,
-    slack_channel_id: str | None = None,
-    slack_ts: str | None = None,
 ) -> MaintSmsMessage:
     if await is_opted_out(db, to):
         raise SmsOptedOutError("Recipient has opted out of text messages")
@@ -127,8 +126,6 @@ async def queue_sms(
         is_automated=automated,
         hold_until=hold_until,
         status=status,
-        slack_channel_id=slack_channel_id,
-        slack_ts=slack_ts,
         created_at=now,
         updated_at=now,
     )
@@ -140,10 +137,11 @@ async def queue_sms(
                 ticket_id=ticket_id,
                 work_order_id=work_order_id,
                 event_type="message",
-                channel=MaintEventChannel.SMS if automated else MaintEventChannel.SLACK,
+                channel=MaintEventChannel.SMS if automated else MaintEventChannel.WEB,
                 visibility=MaintVisibility.EXTERNAL,
                 direction=MaintDirection.OUTBOUND,
                 actor_party=actor_party,
+                actor_user_id=actor_user_id,
                 body=outgoing,
                 sms_message_id=message.id,
                 created_at=now,
@@ -182,7 +180,7 @@ async def cancel_held_sms(
                 ticket_id=message.ticket_id,
                 work_order_id=message.work_order_id,
                 event_type="sms_cancelled",
-                channel=MaintEventChannel.SLACK,
+                channel=MaintEventChannel.WEB,
                 visibility=MaintVisibility.INTERNAL,
                 direction=MaintDirection.NONE,
                 actor_party=actor.party,

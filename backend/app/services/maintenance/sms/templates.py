@@ -16,7 +16,10 @@ TEMPLATES = {
     "tenant_no_open_ticket": "{brand}: we couldn't match this text to an open request. Report an issue here: {intake_url}",
     "vendor_offer": "{brand}: work order {number} in {area}: {scope}. Review and respond: {link}",
     "vendor_scheduled_confirm": "{brand}: work order {number} is confirmed for {window}.",
-    "oncall_emergency_page": "{brand}: emergency ticket {number} at {unit}. Open Office Hub now.",
+    "oncall_emergency_page": (
+        "{brand}: emergency ticket {number} at {unit}. Open {link} now. "
+        "Reply ACK to acknowledge."
+    ),
 }
 
 

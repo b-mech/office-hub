@@ -225,11 +225,6 @@ async def test_vendor_assignment_queues_offer_in_same_session(monkeypatch: pytes
     assert "https://maintenance.invalid/w/raw-one-time-token" in str(queued["body"])
 
 
-def test_slack_message_identity_is_unique_when_present() -> None:
-    index = next(
-        item
-        for item in MaintSmsMessage.__table__.indexes
-        if item.name == "uq_maint_sms_messages_slack_message"
-    )
-    assert index.unique is True
-    assert {column.name for column in index.columns} == {"slack_channel_id", "slack_ts"}
+def test_sms_messages_have_no_inbound_slack_relay_identity() -> None:
+    assert "slack_channel_id" not in MaintSmsMessage.__table__.columns
+    assert "slack_ts" not in MaintSmsMessage.__table__.columns

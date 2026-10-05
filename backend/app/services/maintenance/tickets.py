@@ -124,6 +124,7 @@ async def triage_ticket(
     is_emergency: bool,
     title: str,
     staff_summary: str | None = None,
+    channel: MaintEventChannel = MaintEventChannel.WEB,
     now: datetime | None = None,
     sla_targets: SlaTargets = DEFAULT_SLA_TARGETS,
 ) -> MaintTicket:
@@ -137,6 +138,7 @@ async def triage_ticket(
         MaintStatus.TRIAGED,
         actor,
         staff_summary,
+        channel=channel,
         now=now,
         sla_targets=sla_targets,
     )
@@ -148,6 +150,7 @@ async def acknowledge_emergency(
     ticket: MaintTicket,
     actor: ActorContext,
     *,
+    channel: MaintEventChannel = MaintEventChannel.WEB,
     now: datetime | None = None,
 ) -> bool:
     if not ticket.is_emergency:
@@ -164,7 +167,7 @@ async def acknowledge_emergency(
         MaintEvent(
             ticket_id=ticket.id,
             event_type="emergency_acknowledged",
-            channel=MaintEventChannel.SLACK,
+            channel=channel,
             visibility=MaintVisibility.INTERNAL,
             direction=MaintDirection.NONE,
             actor_party=actor.party,
@@ -182,6 +185,7 @@ async def cancel_ticket(
     actor: ActorContext,
     *,
     reason: str,
+    channel: MaintEventChannel = MaintEventChannel.WEB,
     now: datetime | None = None,
 ) -> MaintTicket:
     if not reason.strip():
@@ -192,7 +196,7 @@ async def cancel_ticket(
         MaintStatus.CANCELLED,
         actor,
         reason.strip(),
-        channel=MaintEventChannel.SLACK,
+        channel=channel,
         now=now,
     )
 
@@ -204,6 +208,7 @@ async def mark_duplicate(
     actor: ActorContext,
     *,
     reason: str | None = None,
+    channel: MaintEventChannel = MaintEventChannel.WEB,
     now: datetime | None = None,
 ) -> MaintTicket:
     if ticket.id == canonical.id:
@@ -218,6 +223,6 @@ async def mark_duplicate(
         MaintStatus.DUPLICATE,
         actor,
         detail,
-        channel=MaintEventChannel.SLACK,
+        channel=channel,
         now=now,
     )

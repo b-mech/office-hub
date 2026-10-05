@@ -121,7 +121,6 @@ class Settings(BaseSettings):
     sms_automated_quiet_start: time = Field(default=time(21, 0), alias="SMS_AUTOMATED_QUIET_START")
     sms_automated_quiet_end: time = Field(default=time(8, 0), alias="SMS_AUTOMATED_QUIET_END")
     slack_bot_token: str = Field(default="", alias="SLACK_BOT_TOKEN")
-    slack_app_token: str = Field(default="", alias="SLACK_APP_TOKEN")
     slack_tickets_channel_id: str = Field(default="", alias="SLACK_TICKETS_CHANNEL_ID")
     slack_emergency_channel_id: str = Field(default="", alias="SLACK_EMERGENCY_CHANNEL_ID")
     public_base_url: str = Field(default="", alias="PUBLIC_BASE_URL")
@@ -225,6 +224,15 @@ class Settings(BaseSettings):
             and self.ringcentral_client_secret.get_secret_value()
             and self.ringcentral_jwt.get_secret_value()
             and self.ringcentral_from_number
+        )
+
+    @property
+    def slack_configured(self) -> bool:
+        """Outbound Slack needs only a bot token and the two destination IDs."""
+        return bool(
+            self.slack_bot_token
+            and self.slack_tickets_channel_id
+            and self.slack_emergency_channel_id
         )
 
     @property

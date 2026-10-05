@@ -6,7 +6,7 @@ from enum import Enum
 from uuid import UUID
 
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer
-from sqlalchemy import Numeric, Sequence, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Numeric, Sequence, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.orm import Mapped, mapped_column
@@ -283,21 +283,12 @@ class MaintSmsMessage(Base):
     provider_sid: Mapped[str | None] = mapped_column(Text, unique=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending", server_default="pending")
     error_code: Mapped[str | None] = mapped_column(Text)
-    slack_channel_id: Mapped[str | None] = mapped_column(Text)
-    slack_ts: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         CheckConstraint("direction IN ('inbound','outbound')", name="ck_maint_sms_direction"),
         CheckConstraint("status IN ('pending','held','queued','sent','delivered','failed','cancelled','received')", name="ck_maint_sms_status"),
-        Index(
-            "uq_maint_sms_messages_slack_message",
-            "slack_channel_id",
-            "slack_ts",
-            unique=True,
-            postgresql_where=text("slack_channel_id IS NOT NULL AND slack_ts IS NOT NULL"),
-        ),
     )
 
 
@@ -320,7 +311,6 @@ class MaintEvent(Base):
     body: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     sms_message_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_sms_messages.id"))
-    slack_ts: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (Index("idx_maint_events_ticket_created", "ticket_id", "created_at"),)
@@ -344,24 +334,6 @@ class MaintAttachment(Base):
 
     __table_args__ = (
         CheckConstraint("kind IN ('photo','invoice','document')", name="ck_maint_attachments_kind"),
-    )
-
-
-class MaintSlackCard(Base):
-    __tablename__ = "maint_slack_cards"
-
-    id: Mapped[UUID] = _uuid_pk()
-    ticket_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_tickets.id"), nullable=False)
-    work_order_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_work_orders.id"))
-    channel_id: Mapped[str] = mapped_column(Text, nullable=False)
-    message_ts: Mapped[str] = mapped_column(Text, nullable=False)
-    thread_party: Mapped[MaintParty] = mapped_column(MAINT_PARTY_DB, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
-
-    __table_args__ = (
-        UniqueConstraint("channel_id", "message_ts", name="uq_maint_slack_cards_message"),
-        Index("uq_maint_slack_cards_ticket", "ticket_id", unique=True, postgresql_where=text("work_order_id IS NULL")),
-        Index("uq_maint_slack_cards_work_order", "work_order_id", unique=True, postgresql_where=text("work_order_id IS NOT NULL")),
     )
 
 

@@ -9,11 +9,13 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.core import User, UserRole
 from app.models.maintenance import (
     MaintDirection,
     MaintAttachment,
     MaintEvent,
     MaintEventChannel,
+    MaintOnCall,
     MaintParty,
     MaintSmsMessage,
     MaintStatus,
@@ -32,6 +34,7 @@ from app.services.maintenance.sms.outbound import SmsOptedOutError, queue_sms
 from app.services.maintenance.sms.providers import SmsProvider
 from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext, transition
+from app.services.maintenance.tickets import acknowledge_emergency
 
 
 OPEN_STATUSES = {
@@ -163,6 +166,72 @@ def is_close_confirmation(body: str) -> bool:
     return body.strip().upper() in CLOSE_KEYWORDS
 
 
+async def acknowledge_from_staff_sms(
+    db: AsyncSession,
+    message: MaintSmsMessage,
+    *,
+    phone: str,
+    body: str,
+    now: datetime,
+) -> MaintTicket | None:
+    if body.strip().upper() != "ACK":
+        return None
+    user = await db.scalar(
+        select(User).where(
+            User.phone_e164 == phone,
+            User.is_active.is_(True),
+        )
+    )
+    if user is None:
+        return None
+    on_call = await db.scalar(
+        select(MaintOnCall.id).where(
+            MaintOnCall.user_id == user.id,
+            MaintOnCall.starts_at <= now,
+            MaintOnCall.ends_at > now,
+        ).limit(1)
+    )
+    if on_call is None and user.role != UserRole.ADMIN:
+        return None
+    ticket = await db.scalar(
+        select(MaintTicket)
+        .where(
+            MaintTicket.is_emergency.is_(True),
+            MaintTicket.emergency_acked_at.is_(None),
+            MaintTicket.status.notin_((MaintStatus.CLOSED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE)),
+        )
+        .order_by(MaintTicket.created_at.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    if ticket is None:
+        return None
+    message.ticket_id = ticket.id
+    db.add(
+        MaintEvent(
+            ticket_id=ticket.id,
+            event_type="emergency_ack_sms",
+            channel=MaintEventChannel.SMS,
+            visibility=MaintVisibility.INTERNAL,
+            direction=MaintDirection.INBOUND,
+            actor_party=MaintParty.STAFF,
+            actor_user_id=user.id,
+            actor_phone_e164=phone,
+            body="ACK",
+            sms_message_id=message.id,
+            created_at=now,
+        )
+    )
+    await acknowledge_emergency(
+        db,
+        ticket,
+        ActorContext(party=MaintParty.STAFF, user_id=user.id, phone_e164=phone),
+        channel=MaintEventChannel.SMS,
+        now=now,
+    )
+    return ticket
+
+
 async def _route(db: AsyncSession, phone: str, now: datetime) -> RouteDecision:
     vendor_rows = (
         await db.execute(
@@ -257,6 +326,17 @@ async def receive_sms(
     )
     db.add(message)
     await db.flush()
+
+    acknowledged = await acknowledge_from_staff_sms(
+        db,
+        message,
+        phone=phone,
+        body=body,
+        now=now,
+    )
+    if acknowledged is not None:
+        await db.flush()
+        return message
 
     decision = await _route(db, phone, now)
     media_party = MaintParty.VENDOR if decision.kind == RouteKind.VENDOR_WORK_ORDER else MaintParty.TENANT

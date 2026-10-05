@@ -150,7 +150,7 @@ async def schedule_work_order(
             ticket_id=ticket.id,
             work_order_id=work_order.id,
             event_type="work_order_scheduled",
-            channel=MaintEventChannel.SLACK,
+            channel=MaintEventChannel.WEB,
             visibility=MaintVisibility.INTERNAL,
             direction=MaintDirection.NONE,
             actor_party=actor.party,
