@@ -28,7 +28,7 @@ Before public intake goes live, confirm in the Cloudflare dashboard whether a de
 
 ## Not yet safe to enable
 
-- Do not install or start `officehub-slack.service` until the Phase 7 module and Slack credentials exist.
+- Slack is outbound notification-only. There is no Socket Mode service to install or start; keep Slack credentials unset until the staging notification test is approved.
 - Do not enable Twilio sending until the account owner, billing entity, local number, and webhook URLs are confirmed.
 - `ENTRY_NOTICE_MIN_HOURS`, `ENTRY_WINDOW_START`, and `ENTRY_WINDOW_END` are configuration defaults only. Manitoba entry rules still require a current legal review before go-live.
 - `PRIVI_EMERGENCY_PHONE` remains blank pending confirmation. The Manitoba Hydro gas emergency number must be verified from an authoritative current source during the public-intake phase.

@@ -174,7 +174,6 @@ __all__ = [
     "MaintEvent",
     "MaintIntakeToken",
     "MaintOnCall",
-    "MaintSlackCard",
     "MaintSlackOutbox",
     "MaintSmsMessage",
     "MaintTicket",

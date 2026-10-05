@@ -142,7 +142,8 @@ async def _dispatch_digest(db: AsyncSession, client: SlackClient) -> None:
     for ticket in tickets:
         view = await ticket_link_view(db, ticket)
         marker = "🔥" if ticket.sla_due_at and ticket.sla_due_at < now else "📋"
-        lines.append(render_link_notification(marker, view))
+        mentions = await _mentions(db, client, await _staff_assignees(db, ticket.id))
+        lines.append(render_link_notification(marker, view, mentions))
     await client.post_message(settings.slack_tickets_channel_id, "\n".join(lines))
 
 
@@ -172,9 +173,7 @@ async def dispatch_notification(
             await client.post_message(channel, text)
         return
 
-    mentions: tuple[str, ...] = ()
-    if row.kind in {"party_replied", "sla_warning", "sla_breached"}:
-        mentions = await _mentions(db, client, await _staff_assignees(db, ticket.id))
+    mentions = await _mentions(db, client, await _staff_assignees(db, ticket.id))
     prefixes = {
         "ticket_created": "🆕 New ticket",
         "party_replied": f"💬 {_label(payload.get('party'), 'Party')} replied",
