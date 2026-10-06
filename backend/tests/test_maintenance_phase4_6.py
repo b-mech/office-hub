@@ -232,6 +232,19 @@ async def test_ringcentral_webhook_echoes_validation_challenge() -> None:
     assert response.headers["Content-Type"].startswith("application/json")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body, expected_status", [(b"", 400), (b"{}", 403)])
+async def test_ringcentral_webhook_rejects_requests_without_validation_token(
+    body: bytes, expected_status: int
+) -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://maintenance.invalid"
+    ) as client:
+        response = await client.post("/api/webhooks/ringcentral/sms", content=body)
+
+    assert response.status_code == expected_status
+
+
 def test_ringcentral_secrets_are_excluded_from_settings_repr() -> None:
     rendered = repr(settings)
     assert "ringcentral_server_url" not in rendered

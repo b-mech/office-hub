@@ -26,7 +26,7 @@ Celery workers set `DATABASE_NULL_POOL=true`. This prevents asyncpg connections 
 
 - Local frontend: `http://127.0.0.1:3001`
 - Local API: `http://127.0.0.1:8001`
-- Intended public URL: `https://staging.officehub.n10z.ca`
+- Intended public URL: `https://officehub-staging.n10z.ca`
 - Database: `officehub_staging`, using the non-superuser runtime role `officehub_staging`
 - Redis: database index `1`
 - MinIO: bucket `officehub-staging`, with a bucket-scoped credential that cannot access the production `documents` bucket
@@ -50,7 +50,7 @@ The live worker was tested with a reserved non-allowlisted number. The row ended
 
 The server has only a remotely managed Cloudflare tunnel run token. It has no origin certificate or account API token, so it cannot create DNS/public-hostname or Access policy changes locally. In Cloudflare Zero Trust:
 
-1. Add public hostname `staging.officehub.n10z.ca` to the existing tunnel, targeting `http://localhost:3001`.
+1. Add public hostname `officehub-staging.n10z.ca` to the existing tunnel, targeting `http://localhost:3001`.
 2. Create/copy the production Access application and policies for that hostname.
 3. If RingCentral webhooks will be tested, add a narrowly scoped Access bypass for `/api/webhooks/ringcentral/sms` (or use a separate webhook hostname). RingCentral must receive HTTP 200 and the echoed validation token within three seconds and cannot complete an interactive Access login.
 
