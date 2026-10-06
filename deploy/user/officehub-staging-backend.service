@@ -1,0 +1,13 @@
+[Unit]
+Description=Office Hub staging FastAPI backend
+
+[Service]
+Type=simple
+WorkingDirectory=/home/officehub/office-hub-maint/backend
+EnvironmentFile=/home/officehub/office-hub-maint/.env.staging
+ExecStart=/home/officehub/office-hub-maint/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

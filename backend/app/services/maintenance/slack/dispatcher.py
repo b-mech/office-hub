@@ -144,7 +144,7 @@ async def _dispatch_digest(db: AsyncSession, client: SlackClient) -> None:
         marker = "🔥" if ticket.sla_due_at and ticket.sla_due_at < now else "📋"
         mentions = await _mentions(db, client, await _staff_assignees(db, ticket.id))
         lines.append(render_link_notification(marker, view, mentions))
-    await client.post_message(settings.slack_tickets_channel_id, "\n".join(lines))
+    await client.post_message(settings.slack_tickets_destination, "\n".join(lines))
 
 
 async def dispatch_notification(
@@ -167,10 +167,11 @@ async def dispatch_notification(
         stage = int(payload.get("stage", 0))
         prefix = "🚨 Emergency" if stage == 0 else "🚨 Emergency escalation"
         text = render_link_notification(prefix, view, mentions)
-        await client.post_message(settings.slack_emergency_channel_id, text)
-        for slack_user_id in mentions:
-            channel = await client.open_dm(slack_user_id)
-            await client.post_message(channel, text)
+        await client.post_message(settings.slack_emergency_destination, text)
+        if not settings.is_staging:
+            for slack_user_id in mentions:
+                channel = await client.open_dm(slack_user_id)
+                await client.post_message(channel, text)
         return
 
     mentions = await _mentions(db, client, await _staff_assignees(db, ticket.id))
@@ -183,7 +184,7 @@ async def dispatch_notification(
     prefix = prefixes.get(row.kind)
     if prefix:
         await client.post_message(
-            settings.slack_tickets_channel_id,
+            settings.slack_tickets_destination,
             render_link_notification(prefix, view, mentions),
         )
 

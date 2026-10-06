@@ -21,7 +21,7 @@ from app.models.maintenance import (
 from app.models.rentals import RentalTenant
 from app.services.maintenance.media import create_signed_media_token
 from app.services.maintenance.notifier import MaintenanceNotifier
-from app.services.maintenance.sms.providers import SmsProvider
+from app.services.maintenance.sms.providers import SmsProvider, StagingSmsRecipientBlocked
 from app.services.maintenance.state_machine import ActorContext
 
 
@@ -227,6 +227,10 @@ async def send_due_messages(
             message.provider_sid = await provider.send(message.to_e164, message.body or "", media_urls)
             message.status = "queued"
             message.error_code = None
+        except StagingSmsRecipientBlocked:
+            message.status = "cancelled"
+            message.cancelled_at = now
+            message.error_code = "staging_recipient_blocked"
         except Exception as exc:
             message.status = "failed"
             message.error_code = type(exc).__name__
@@ -236,7 +240,13 @@ async def send_due_messages(
                 MaintEvent(
                     ticket_id=message.ticket_id,
                     work_order_id=message.work_order_id,
-                    event_type="sms_send_failed" if message.status == "failed" else "sms_send_queued",
+                    event_type=(
+                        "sms_staging_dropped"
+                        if message.error_code == "staging_recipient_blocked"
+                        else "sms_send_failed"
+                        if message.status == "failed"
+                        else "sms_send_queued"
+                    ),
                     channel=MaintEventChannel.SYSTEM,
                     visibility=MaintVisibility.INTERNAL,
                     direction=MaintDirection.NONE,

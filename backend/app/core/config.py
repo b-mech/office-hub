@@ -10,9 +10,11 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", env_ignore_empty=True)
 
     database_url: str = Field(alias="DATABASE_URL")
+    database_null_pool: bool = Field(default=False, alias="DATABASE_NULL_POOL")
     minio_url: str = Field(alias="MINIO_URL")
     minio_root_user: str = Field(alias="MINIO_ROOT_USER")
     minio_root_password: str = Field(alias="MINIO_ROOT_PASSWORD")
+    minio_bucket: str = Field(default="documents", alias="MINIO_BUCKET")
     imap_host: str = Field(alias="IMAP_HOST")
     imap_user: str = Field(alias="IMAP_USER")
     imap_password: str = Field(alias="IMAP_PASSWORD")
@@ -123,6 +125,8 @@ class Settings(BaseSettings):
     slack_bot_token: str = Field(default="", alias="SLACK_BOT_TOKEN")
     slack_tickets_channel_id: str = Field(default="", alias="SLACK_TICKETS_CHANNEL_ID")
     slack_emergency_channel_id: str = Field(default="", alias="SLACK_EMERGENCY_CHANNEL_ID")
+    staging_slack_channel_id: str = Field(default="", alias="STAGING_SLACK_CHANNEL_ID")
+    staging_sms_allowlist: str = Field(default="", alias="STAGING_SMS_ALLOWLIST")
     public_base_url: str = Field(default="", alias="PUBLIC_BASE_URL")
     turnstile_site_key: str = Field(default="", alias="TURNSTILE_SITE_KEY")
     turnstile_secret_key: str = Field(default="", alias="TURNSTILE_SECRET_KEY")
@@ -229,11 +233,23 @@ class Settings(BaseSettings):
     @property
     def slack_configured(self) -> bool:
         """Outbound Slack needs only a bot token and the two destination IDs."""
-        return bool(
-            self.slack_bot_token
-            and self.slack_tickets_channel_id
-            and self.slack_emergency_channel_id
-        )
+        return bool(self.slack_bot_token and self.slack_tickets_destination and self.slack_emergency_destination)
+
+    @property
+    def is_staging(self) -> bool:
+        return self.environment.casefold() == "staging"
+
+    @property
+    def staging_sms_allowlist_values(self) -> frozenset[str]:
+        return frozenset(item.strip() for item in self.staging_sms_allowlist.split(",") if item.strip())
+
+    @property
+    def slack_tickets_destination(self) -> str:
+        return self.staging_slack_channel_id if self.is_staging else self.slack_tickets_channel_id
+
+    @property
+    def slack_emergency_destination(self) -> str:
+        return self.staging_slack_channel_id if self.is_staging else self.slack_emergency_channel_id
 
     @property
     def sms_from_number(self) -> str:

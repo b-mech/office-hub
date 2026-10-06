@@ -22,11 +22,13 @@ from app.models.maintenance import (
 )
 from app.models.rentals import RentalProperty, RentalUnit
 from app.services.maintenance.slack.outbox import enqueue_slack_notification
+from app.services.maintenance.scheduler_health import record_scheduler_heartbeat
 from app.services.maintenance.sms.outbound import SmsOptedOutError, queue_sms
 from app.services.maintenance.sms.templates import render_template
 
 
 TERMINAL_STATUSES = (MaintStatus.CLOSED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE)
+FINAL_ESCALATION_STAGE = 2
 
 
 async def _admins(db: AsyncSession) -> list[User]:
@@ -140,6 +142,54 @@ async def page_emergency(
     return True
 
 
+def escalation_catch_up_plan(
+    ticket: MaintTicket,
+    pages: list[MaintEvent],
+    *,
+    checked_at: datetime,
+    interval: timedelta,
+) -> tuple[tuple[int, ...], int | None]:
+    """Return skipped stages and the single stage that should be paged now."""
+    elapsed = max(timedelta(0), checked_at - ticket.created_at)
+    target = min(FINAL_ESCALATION_STAGE, int(elapsed // interval))
+    seen = {int((event.payload or {}).get("stage", 0)) for event in pages}
+    if target in seen:
+        return (), None
+    skipped = tuple(stage for stage in range(target) if stage not in seen)
+    return skipped, target
+
+
+async def catch_up_emergency(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    pages: list[MaintEvent],
+    *,
+    checked_at: datetime,
+    interval: timedelta,
+) -> int:
+    skipped, target = escalation_catch_up_plan(
+        ticket, pages, checked_at=checked_at, interval=interval
+    )
+    if target is None:
+        return 0
+    for stage in skipped:
+        db.add(
+            MaintEvent(
+                ticket_id=ticket.id,
+                event_type="emergency_paged",
+                channel=MaintEventChannel.SYSTEM,
+                visibility=MaintVisibility.INTERNAL,
+                direction=MaintDirection.NONE,
+                actor_party=MaintParty.SYSTEM,
+                payload={"stage": stage, "skipped": True, "caught_up_to": target},
+                created_at=checked_at,
+            )
+        )
+    if skipped:
+        await db.flush()
+    return int(await page_emergency(db, ticket, stage=target, now=checked_at))
+
+
 async def escalate_emergencies(*, now: datetime | None = None) -> int:
     checked_at = now or datetime.now(timezone.utc)
     interval = timedelta(minutes=settings.maint_emergency_ack_minutes)
@@ -171,15 +221,15 @@ async def escalate_emergencies(*, now: datetime | None = None) -> int:
                     )
                 ).all()
             )
-            if not pages:
-                count += int(await page_emergency(db, ticket, stage=0, now=checked_at))
-                continue
-            stages = [int((event.payload or {}).get("stage", 0)) for event in pages]
-            stage = max(stages)
-            last = max(event.created_at for event in pages if int((event.payload or {}).get("stage", 0)) == stage)
-            if stage < 2 and checked_at >= last + interval:
-                count += int(await page_emergency(db, ticket, stage=stage + 1, now=checked_at))
+            count += await catch_up_emergency(
+                db,
+                ticket,
+                pages,
+                checked_at=checked_at,
+                interval=interval,
+            )
         await db.commit()
+    await record_scheduler_heartbeat(now=checked_at)
     return count
 
 

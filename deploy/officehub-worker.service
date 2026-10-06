@@ -1,0 +1,18 @@
+[Unit]
+Description=Office Hub Celery worker
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=officehub
+WorkingDirectory=/home/officehub/office-hub/backend
+EnvironmentFile=/home/officehub/office-hub/.env
+Environment=DATABASE_NULL_POOL=true
+ExecStart=/home/officehub/office-hub/backend/.venv/bin/celery -A app.workers.celery_app:celery_app worker --loglevel=INFO --concurrency=4
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

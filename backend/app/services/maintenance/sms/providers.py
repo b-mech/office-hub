@@ -46,6 +46,19 @@ class SmsProvider(Protocol):
     async def fetch_media(self, url: str) -> bytes: ...
 
 
+class StagingSmsRecipientBlocked(RuntimeError):
+    """Raised at the provider boundary before a staging SMS can leave Office Hub."""
+
+
+def enforce_staging_sms_recipient(to: str) -> None:
+    if not settings.is_staging:
+        return
+    if to in settings.staging_sms_allowlist_values:
+        return
+    logger.warning("Dropped staging SMS to non-allowlisted phone ending %s", to[-4:])
+    raise StagingSmsRecipientBlocked("Staging SMS recipient is not allowlisted")
+
+
 @dataclass
 class FakeProvider:
     auth_token: str = "test-auth-token"
@@ -53,6 +66,7 @@ class FakeProvider:
     media: dict[str, bytes] = field(default_factory=dict)
 
     async def send(self, to: str, body: str, media_urls: Sequence[str]) -> str:
+        enforce_staging_sms_recipient(to)
         sid = f"SMFAKE{len(self.sent) + 1:08d}"
         self.sent.append({"sid": sid, "to": to, "body": body, "media_urls": list(media_urls)})
         logger.info("Fake SMS queued to phone ending %s", to[-4:])
@@ -74,6 +88,7 @@ class TwilioProvider:
         self.from_number = from_number
 
     async def send(self, to: str, body: str, media_urls: Sequence[str]) -> str:
+        enforce_staging_sms_recipient(to)
         url = f"https://api.twilio.com/2010-04-01/Accounts/{self.account_sid}/Messages.json"
         form: list[tuple[str, str]] = [("To", to), ("From", self.from_number), ("Body", body)]
         form.extend(("MediaUrl", media_url) for media_url in media_urls)
@@ -152,6 +167,7 @@ class RingCentralProvider:
         await self._bearer_token()
 
     async def send(self, to: str, body: str, media_urls: Sequence[str]) -> str:
+        enforce_staging_sms_recipient(to)
         token = await self._bearer_token()
         payload = {
             "from": {"phoneNumber": self.from_number},

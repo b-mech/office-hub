@@ -1,0 +1,19 @@
+[Unit]
+Description=Office Hub staging Celery beat scheduler
+After=network-online.target docker.service officehub-staging-worker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=officehub
+WorkingDirectory=/home/officehub/office-hub-maint/backend
+EnvironmentFile=/home/officehub/office-hub-maint/.env.staging
+RuntimeDirectory=officehub-staging-beat
+StateDirectory=officehub-staging
+ExecStart=/home/officehub/office-hub-maint/backend/.venv/bin/celery -A app.workers.celery_app:celery_app beat --loglevel=INFO --pidfile=/run/officehub-staging-beat/celerybeat.pid --schedule=/var/lib/officehub-staging/celerybeat-schedule
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

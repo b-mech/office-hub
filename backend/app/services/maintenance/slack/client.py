@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 import httpx
 
 from app.core.config import settings
+
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class SlackClient(Protocol):
@@ -17,6 +21,10 @@ class SlackApiError(RuntimeError):
     def __init__(self, message: str, response: httpx.Response) -> None:
         super().__init__(message)
         self.response = response
+
+
+class StagingSlackChannelBlocked(RuntimeError):
+    """Raised before staging can post outside its dedicated test channel."""
 
 
 class HttpSlackClient:
@@ -43,6 +51,9 @@ class HttpSlackClient:
         return data
 
     async def post_message(self, channel: str, text: str) -> dict[str, object]:
+        if settings.is_staging and channel != settings.staging_slack_channel_id:
+            logger.warning("Blocked staging Slack post outside the dedicated test channel")
+            raise StagingSlackChannelBlocked("Staging Slack destination is not the dedicated test channel")
         return await self._call(
             "chat.postMessage",
             {"channel": channel, "text": text, "unfurl_links": False, "unfurl_media": False},

@@ -1,9 +1,12 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
+from contextlib import suppress
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.v1 import router as api_v1_router
 from app.modules.costbook.router import router as costbook_router
@@ -26,9 +29,23 @@ from app.routers.users import router as users_router
 from app.core.config import settings
 from app.middleware.auth import AuthenticationMiddleware
 from app.routers.auth import router as auth_router
+from app.services.maintenance.scheduler_health import alert_if_scheduler_stale, scheduler_health
 
 
 logger = logging.getLogger("uvicorn.error")
+
+
+def _scheduler_health_required() -> bool:
+    return settings.environment.casefold() not in {"development", "test", "testing"}
+
+
+async def _scheduler_monitor() -> None:
+    while True:
+        try:
+            await alert_if_scheduler_stale()
+        except Exception:
+            logger.exception("Maintenance escalation scheduler monitor failed")
+        await asyncio.sleep(60)
 
 
 @asynccontextmanager
@@ -38,7 +55,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         logger.info("PRIVI maintenance enabled")
     else:
         logger.info("PRIVI maintenance disabled: %s", "; ".join(settings.maintenance_config_issues))
-    yield
+    monitor = asyncio.create_task(_scheduler_monitor()) if _scheduler_health_required() else None
+    try:
+        yield
+    finally:
+        if monitor is not None:
+            monitor.cancel()
+            with suppress(asyncio.CancelledError):
+                await monitor
 
 
 app = FastAPI(
@@ -59,13 +83,24 @@ app.add_middleware(
 )
 
 
-@app.get("/health")
-async def health_check() -> dict[str, str]:
-    return {
+@app.get("/health", response_model=None)
+async def health_check() -> dict[str, str | None] | JSONResponse:
+    payload: dict[str, str | None] = {
         "status": "ok",
         "environment": settings.environment,
         "version": app.version,
     }
+    if not _scheduler_health_required():
+        return payload
+    scheduler = await scheduler_health()
+    payload["maintenance_escalation_last_run"] = (
+        scheduler.last_run.isoformat() if scheduler.last_run else None
+    )
+    if not scheduler.healthy:
+        payload["status"] = "unhealthy"
+        payload["detail"] = scheduler.detail
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 app.include_router(api_v1_router, prefix="/api/v1")

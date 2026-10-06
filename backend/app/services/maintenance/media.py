@@ -21,7 +21,7 @@ from app.models.maintenance import MaintAttachment, MaintParty
 from app.services.maintenance.errors import InvalidMediaError
 
 
-MAINTENANCE_BUCKET = "documents"
+MAINTENANCE_BUCKET = settings.minio_bucket
 MAX_FILE_BYTES = 10 * 1024 * 1024
 IMAGE_TYPES = {"image/jpeg", "image/png", "image/heic", "image/webp"}
 

@@ -1,0 +1,14 @@
+[Unit]
+Description=Office Hub staging Celery worker
+
+[Service]
+Type=simple
+WorkingDirectory=/home/officehub/office-hub-maint/backend
+EnvironmentFile=/home/officehub/office-hub-maint/.env.staging
+Environment=DATABASE_NULL_POOL=true
+ExecStart=/home/officehub/office-hub-maint/backend/.venv/bin/celery -A app.workers.celery_app:celery_app worker --loglevel=INFO --concurrency=2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
