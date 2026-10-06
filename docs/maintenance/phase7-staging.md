@@ -1,5 +1,7 @@
 # Phase 7 staging and worker readiness
 
+Before production rollout, complete the [maintenance production go-live checklist](production-go-live-checklist.md).
+
 Date: 2026-10-06  
 Server: `officehub-MS-7D77`  
 Branch: `feature/maintenance-ticketing`
