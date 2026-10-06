@@ -27,12 +27,14 @@ Celery workers set `DATABASE_NULL_POOL=true`. This prevents asyncpg connections 
 - Local frontend: `http://127.0.0.1:3001`
 - Local API: `http://127.0.0.1:8001`
 - Intended public URL: `https://staging.officehub.n10z.ca`
-- Database: `officehub_staging`
+- Database: `officehub_staging`, using the non-superuser runtime role `officehub_staging`
 - Redis: database index `1`
 - MinIO: bucket `officehub-staging`, with a bucket-scoped credential that cannot access the production `documents` bucket
 - Environment file: `/home/officehub/office-hub-maint/.env.staging` (mode 0600, ignored by Git)
 
 The October 6 cluster backup was restored by selecting only the production `officehub` database section. Alembic advanced the restored data from `20260917_0045` to `20261005_0050`. All migrations completed. The maintenance phone backfill normalized 32 tenants and reported one pre-existing invalid phone for tenant ID 7.
+
+The staging runtime role has DML access to the restored staging schemas but cannot read production `core` tables. Migration commands remain an explicit administrative operation and are not run by the application services.
 
 Interactive sudo was unavailable, so staging currently runs as enabled user services under the already-lingering `officehub` user manager. Equivalent system-level staging units are committed under `deploy/` for later installation.
 
