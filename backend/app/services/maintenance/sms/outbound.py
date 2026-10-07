@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -21,12 +23,47 @@ from app.models.maintenance import (
 from app.models.rentals import RentalTenant
 from app.services.maintenance.media import create_signed_media_token
 from app.services.maintenance.notifier import MaintenanceNotifier
-from app.services.maintenance.sms.providers import SmsProvider, StagingSmsRecipientBlocked
+from app.services.maintenance.sms.providers import (
+    SmsProvider,
+    SmsProviderHttpError,
+    StagingSmsRecipientBlocked,
+)
 from app.services.maintenance.state_machine import ActorContext
 
 
 class SmsOptedOutError(ValueError):
     pass
+
+
+logger = logging.getLogger("uvicorn.error")
+
+
+def sms_failure_reason(error_code: str | None) -> str | None:
+    if not error_code:
+        return None
+    if error_code == "staging_recipient_blocked":
+        return "The recipient is not approved for staging SMS."
+    match = re.fullmatch(
+        r"ringcentral_(authentication|send)_http_(\d{3})(?:_([a-z0-9_]+))?",
+        error_code,
+    )
+    if match:
+        stage, status, code = match.groups()
+        reference = f", {code.upper().replace('_', '-')}" if code else ""
+        if status == "429":
+            return f"RingCentral temporarily rate-limited the SMS (HTTP 429{reference}). Retry shortly."
+        if status.startswith("5"):
+            return f"RingCentral was temporarily unavailable (HTTP {status}{reference}). Retry shortly."
+        if stage == "authentication" or status == "401":
+            return (
+                f"RingCentral authentication failed (HTTP {status}{reference}). "
+                "Retry the message; contact an administrator if it fails again."
+            )
+        return (
+            f"RingCentral rejected the SMS (HTTP {status}{reference}). "
+            "Check the recipient and message, then retry."
+        )
+    return "The SMS provider could not send this message. Retry it or contact an administrator."
 
 
 def normalized_delivery_status(provider_status: str) -> str | None:
@@ -193,6 +230,49 @@ async def cancel_held_sms(
     return message
 
 
+async def retry_failed_sms(
+    db: AsyncSession,
+    message_id: UUID,
+    actor: ActorContext,
+    *,
+    now: datetime | None = None,
+) -> MaintSmsMessage:
+    message = await db.scalar(
+        select(MaintSmsMessage).where(MaintSmsMessage.id == message_id).with_for_update()
+    )
+    if message is None:
+        raise ValueError("SMS message was not found")
+    if (
+        message.direction != MaintDirection.OUTBOUND
+        or message.status != "failed"
+        or message.cancelled_at is not None
+        or message.provider_sid is not None
+    ):
+        raise ValueError("SMS message is not retryable")
+    retried_at = now or datetime.now(timezone.utc)
+    message.status = "pending"
+    message.error_code = None
+    message.hold_until = None
+    message.updated_at = retried_at
+    if message.ticket_id:
+        db.add(
+            MaintEvent(
+                ticket_id=message.ticket_id,
+                work_order_id=message.work_order_id,
+                event_type="sms_retry_queued",
+                channel=MaintEventChannel.WEB,
+                visibility=MaintVisibility.INTERNAL,
+                direction=MaintDirection.NONE,
+                actor_party=actor.party,
+                actor_user_id=actor.user_id,
+                sms_message_id=message.id,
+                created_at=retried_at,
+            )
+        )
+    await db.flush()
+    return message
+
+
 async def send_due_messages(
     db: AsyncSession,
     provider: SmsProvider,
@@ -223,6 +303,7 @@ async def send_due_messages(
             f"{create_signed_media_token(item, settings.secret_key)}"
             for item in message.media_attachment_ids
         ]
+        failure_metadata: dict[str, object] = {}
         try:
             message.provider_sid = await provider.send(message.to_e164, message.body or "", media_urls)
             message.status = "queued"
@@ -231,11 +312,27 @@ async def send_due_messages(
             message.status = "cancelled"
             message.cancelled_at = now
             message.error_code = "staging_recipient_blocked"
+        except SmsProviderHttpError as exc:
+            message.status = "failed"
+            message.error_code = exc.machine_code
+            failure_metadata = {
+                "provider_status_code": exc.status_code,
+                "provider_error_code": exc.provider_code or None,
+                "provider_message": exc.provider_message or None,
+            }
+            logger.warning(
+                "SMS provider rejected message %s: %s; provider_message=%s",
+                message.id,
+                exc,
+                exc.provider_message or "not supplied",
+            )
         except Exception as exc:
             message.status = "failed"
             message.error_code = type(exc).__name__
+            logger.exception("SMS provider failed for message %s", message.id)
         message.updated_at = now
         if message.ticket_id:
+            failure_reason = sms_failure_reason(message.error_code)
             db.add(
                 MaintEvent(
                     ticket_id=message.ticket_id,
@@ -252,7 +349,12 @@ async def send_due_messages(
                     direction=MaintDirection.NONE,
                     actor_party=MaintParty.SYSTEM,
                     sms_message_id=message.id,
-                    payload={"status": message.status, "error_code": message.error_code},
+                    payload={
+                        "status": message.status,
+                        "error_code": message.error_code,
+                        **({"failure_reason": failure_reason} if failure_reason else {}),
+                        **failure_metadata,
+                    },
                     created_at=now,
                 )
             )

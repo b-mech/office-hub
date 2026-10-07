@@ -25,7 +25,13 @@ from app.models.maintenance import (
 )
 from app.models.rentals import RentalProperty, RentalUnit
 from app.services.maintenance.media import store_attachment, validate_file_count
-from app.services.maintenance.sms.outbound import SmsOptedOutError, cancel_held_sms, queue_sms
+from app.services.maintenance.sms.outbound import (
+    SmsOptedOutError,
+    cancel_held_sms,
+    queue_sms,
+    retry_failed_sms,
+    sms_failure_reason,
+)
 from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext, transition
 from app.services.maintenance.tickets import (
@@ -268,7 +274,16 @@ async def _timeline(db: AsyncSession, ticket_id: UUID) -> list[dict[str, object]
                         "status": sms_display_status(sms.status),
                         "hold_until": sms.hold_until,
                         "cancellable": sms.status == "held" and sms.cancelled_at is None,
+                        "retryable": (
+                            event.event_type == "message"
+                            and sms.status == "failed"
+                            and sms.cancelled_at is None
+                            and sms.provider_sid is None
+                        ),
                         "error_code": sms.error_code,
+                        "failure_reason": (
+                            sms_failure_reason(sms.error_code) if sms.status == "failed" else None
+                        ),
                     }
                     if sms
                     else None
@@ -654,6 +669,14 @@ async def cancel_message(
     actor: ActorContext,
 ) -> None:
     await cancel_held_sms(db, message_id, actor)
+
+
+async def retry_message(
+    db: AsyncSession,
+    message_id: UUID,
+    actor: ActorContext,
+) -> None:
+    await retry_failed_sms(db, message_id, actor)
 
 
 async def acknowledge_ticket(db: AsyncSession, ticket: MaintTicket, actor: ActorContext) -> bool:

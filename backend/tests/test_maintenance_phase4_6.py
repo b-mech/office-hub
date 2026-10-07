@@ -11,7 +11,7 @@ import httpx
 from app.core.config import settings
 from app.main import app
 from app.models.maintenance import MaintStatus
-from app.models.maintenance import MaintDirection, MaintSmsMessage
+from app.models.maintenance import MaintDirection, MaintParty, MaintSmsMessage
 from app.services.maintenance.qr import printable_pdf, verify_print_token
 from app.services.maintenance.rate_limit import RateLimitExceeded, RedisRateLimiter
 from app.services.maintenance.sms.inbound import (
@@ -21,15 +21,25 @@ from app.services.maintenance.sms.inbound import (
     opt_keyword,
     ringcentral_notification_form,
 )
-from app.services.maintenance.sms.outbound import SmsOptedOutError, normalized_delivery_status, quiet_hours_release, queue_sms, send_due_messages
+from app.services.maintenance.sms.outbound import (
+    SmsOptedOutError,
+    normalized_delivery_status,
+    quiet_hours_release,
+    queue_sms,
+    retry_failed_sms,
+    send_due_messages,
+    sms_failure_reason,
+)
 from app.services.maintenance.notifier import NoopMaintenanceNotifier
 from app.services.maintenance.sms.providers import (
     FakeProvider,
     RingCentralProvider,
+    SmsProviderHttpError,
     TwilioProvider,
     twilio_signature,
 )
 from app.services.maintenance.sms.templates import render_template
+from app.services.maintenance.state_machine import ActorContext
 from app.services.maintenance.tokens import generate_token
 from app.services.maintenance.turnstile import TurnstileError, verify_turnstile
 
@@ -138,6 +148,70 @@ async def test_ringcentral_provider_uses_jwt_token_and_configured_number() -> No
     assert await provider.send("+12045550100", "Hello", []) == "12345"
     assert await provider.send("+12045550100", "Again", []) == "12345"
     assert sum(request.url.path == "/restapi/oauth/token" for request in requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_ringcentral_provider_refreshes_and_retries_once_after_unauthorized() -> None:
+    token_calls = 0
+    send_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal token_calls, send_calls
+        if request.url.path == "/restapi/oauth/token":
+            token_calls += 1
+            return httpx.Response(
+                200,
+                json={"access_token": f"access-{token_calls}", "expires_in": 3600},
+            )
+        send_calls += 1
+        if send_calls == 1:
+            assert request.headers["Authorization"] == "Bearer access-1"
+            return httpx.Response(
+                401,
+                json={"errorCode": "OAU-128", "message": "Access token expired"},
+            )
+        assert request.headers["Authorization"] == "Bearer access-2"
+        return httpx.Response(200, json={"id": "message-1"})
+
+    provider = RingCentralProvider(
+        "https://platform.ringcentral.test",
+        "client",
+        "secret",
+        "jwt",
+        "+12045550999",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert await provider.send("+12045550100", "Hello", []) == "message-1"
+    assert token_calls == 2
+    assert send_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_ringcentral_provider_exposes_secret_free_http_failure() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/restapi/oauth/token":
+            return httpx.Response(200, json={"access_token": "access", "expires_in": 3600})
+        return httpx.Response(
+            400,
+            json={"errorCode": "SMS-001", "message": "The SMS was rejected"},
+        )
+
+    provider = RingCentralProvider(
+        "https://platform.ringcentral.test",
+        "client",
+        "secret",
+        "jwt",
+        "+12045550999",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(SmsProviderHttpError) as captured:
+        await provider.send("+12045550100", "Hello", [])
+    assert captured.value.status_code == 400
+    assert captured.value.provider_code == "SMS-001"
+    assert captured.value.machine_code == "ringcentral_send_http_400_sms_001"
+    assert "RingCentral rejected" in captured.value.staff_reason
 
 
 @pytest.mark.asyncio
@@ -326,6 +400,44 @@ class ScalarSequenceSession:
 
 
 @pytest.mark.asyncio
+async def test_failed_sms_can_be_retried_without_changing_its_body() -> None:
+    message = MaintSmsMessage(
+        id=uuid4(),
+        direction=MaintDirection.OUTBOUND,
+        from_e164="+12045550999",
+        to_e164="+12045550100",
+        body="Original reply — Connect Properties",
+        media_attachment_ids=[],
+        is_automated=False,
+        status="failed",
+        error_code="ringcentral_send_http_401_oau_128",
+        ticket_id=uuid4(),
+    )
+    db = ScalarSequenceSession([message])
+
+    await retry_failed_sms(
+        db,  # type: ignore[arg-type]
+        message.id,
+        ActorContext(party=MaintParty.STAFF, user_id=uuid4()),
+        now=datetime(2026, 10, 7, 18, 45, tzinfo=timezone.utc),
+    )
+
+    assert message.status == "pending"
+    assert message.error_code is None
+    assert message.hold_until is None
+    assert message.body == "Original reply — Connect Properties"
+    assert db.added[-1].event_type == "sms_retry_queued"  # type: ignore[attr-defined]
+
+
+def test_staff_safe_sms_failure_reasons() -> None:
+    assert "authentication failed" in str(
+        sms_failure_reason("ringcentral_authentication_http_401_oau_128")
+    )
+    assert "rate-limited" in str(sms_failure_reason("ringcentral_send_http_429"))
+    assert "could not send" in str(sms_failure_reason("HTTPStatusError"))
+
+
+@pytest.mark.asyncio
 async def test_staff_relay_is_held_and_first_in_day_gets_signature(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "sms_relay_hold_seconds", 30)
     monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
@@ -350,8 +462,9 @@ class ScalarRows:
 
 
 class SenderSession:
-    def __init__(self, values): self.values=values
+    def __init__(self, values): self.values=values; self.added=[]
     async def scalars(self, statement): return ScalarRows(self.values)
+    def add(self, value): self.added.append(value)
     async def flush(self): return None
 
 
@@ -367,6 +480,50 @@ async def test_held_to_sent_and_cancelled_is_not_sent(monkeypatch: pytest.Monkey
     assert due.status == "queued"
     assert cancelled.status == "held"
     assert [item["body"] for item in provider.sent] == ["due"]
+
+
+@pytest.mark.asyncio
+async def test_provider_http_failure_is_persisted_with_staff_safe_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "public_base_url", "https://maintenance.invalid")
+    now = datetime(2026, 10, 7, 18, 45, tzinfo=timezone.utc)
+    message = MaintSmsMessage(
+        id=uuid4(),
+        direction=MaintDirection.OUTBOUND,
+        from_e164="+12045550999",
+        to_e164="+12045550100",
+        body="test",
+        media_attachment_ids=[],
+        is_automated=False,
+        status="pending",
+        ticket_id=uuid4(),
+    )
+
+    class RejectingProvider:
+        async def send(self, *args: object) -> str:
+            raise SmsProviderHttpError(
+                "ringcentral",
+                "send",
+                httpx.Response(
+                    401,
+                    json={"errorCode": "OAU-128", "message": "Access token expired"},
+                ),
+            )
+
+    db = SenderSession([message])
+    assert await send_due_messages(
+        db,  # type: ignore[arg-type]
+        RejectingProvider(),  # type: ignore[arg-type]
+        NoopMaintenanceNotifier(),
+        now=now,
+    ) == 1
+    assert message.status == "failed"
+    assert message.error_code == "ringcentral_send_http_401_oau_128"
+    failure_event = db.added[-1]
+    assert failure_event.payload["provider_status_code"] == 401  # type: ignore[attr-defined]
+    assert failure_event.payload["provider_error_code"] == "OAU-128"  # type: ignore[attr-defined]
+    assert "authentication failed" in failure_event.payload["failure_reason"]  # type: ignore[attr-defined]
 
 
 @pytest.mark.parametrize(

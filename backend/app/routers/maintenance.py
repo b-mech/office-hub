@@ -70,6 +70,7 @@ from app.services.maintenance.workspace import (
     list_ticket_views,
     post_message,
     resolve_ticket,
+    retry_message,
     schedule_work,
     ticket_detail_view,
 )
@@ -579,6 +580,26 @@ async def maintenance_cancel_message(
         raise HTTPException(404, "Message not found")
     try:
         await cancel_message(db, message_id, actor_for(user))
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/messages/{message_id}/retry")
+async def maintenance_retry_message(
+    ticket_id: UUID,
+    message_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "message_external")
+    message = await db.get(MaintSmsMessage, message_id)
+    if message is None or message.ticket_id != ticket_id:
+        raise HTTPException(404, "Message not found")
+    try:
+        await retry_message(db, message_id, actor_for(user))
         await _commit_workspace(db)
     except ValueError as exc:
         await db.rollback()

@@ -50,7 +50,15 @@ export type TimelineItem = {
   payload: Record<string, unknown>;
   created_at: string;
   attachments: TimelineAttachment[];
-  sms: null | { id: string; status: "held" | "sent" | "failed" | "cancelled" | "received"; hold_until: string | null; cancellable: boolean; error_code: string | null };
+  sms: null | {
+    id: string;
+    status: "held" | "sent" | "failed" | "cancelled" | "received";
+    hold_until: string | null;
+    cancellable: boolean;
+    retryable: boolean;
+    error_code: string | null;
+    failure_reason: string | null;
+  };
 };
 
 export type WorkOrder = {
@@ -110,6 +118,7 @@ export async function sendTicketMessage(ticketId: string, values: { target: "ten
 }
 
 export const cancelTicketMessage = (ticketId: string, messageId: string) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/messages/${messageId}/cancel`, "POST");
+export const retryTicketMessage = (ticketId: string, messageId: string) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/messages/${messageId}/retry`, "POST");
 export const triageTicket = (ticketId: string, body: object) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/triage`, "POST", body);
 export const assignTicket = (ticketId: string, body: object) => jsonRequest<{ ok: true; work_order_id: string }>(`/api/maintenance/tickets/${ticketId}/assign`, "POST", body);
 export const scheduleTicket = (ticketId: string, body: object) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/schedule`, "POST", body);

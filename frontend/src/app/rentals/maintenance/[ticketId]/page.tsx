@@ -13,6 +13,7 @@ import {
   completeWorkOrder,
   getTicket,
   resolveTicket,
+  retryTicketMessage,
   scheduleTicket,
   sendTicketMessage,
   ticketMoreAction,
@@ -41,10 +42,15 @@ function StatusPill({ children, tone = "neutral" }: { children: React.ReactNode;
   return <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${classes}`}>{children}</span>;
 }
 
-function TimelineRow({ item, now, onCancel }: { item: TimelineItem; now: number; onCancel: (messageId: string) => Promise<void> }) {
+function TimelineRow({ item, now, onCancel, onRetry }: { item: TimelineItem; now: number; onCancel: (messageId: string) => Promise<void>; onRetry: (messageId: string) => Promise<void> }) {
   const outbound = item.direction === "outbound";
   const internal = item.visibility === "internal";
   const remaining = item.sms?.hold_until ? Math.max(0, Math.ceil((new Date(item.sms.hold_until).getTime() - now) / 1000)) : 0;
+  const failureReason = item.sms?.status === "failed"
+    ? item.sms.failure_reason
+    : item.event_type === "sms_send_failed" && typeof item.payload.failure_reason === "string"
+      ? item.payload.failure_reason
+      : null;
   const bubble = internal
     ? "border-[var(--ch-warning-border)] bg-[var(--ch-warning-bg)]"
     : outbound
@@ -61,10 +67,12 @@ function TimelineRow({ item, now, onCancel }: { item: TimelineItem; now: number;
         </div>
         {item.body ? <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{item.body}</p> : <p className="mt-2 text-sm font-medium">{title}</p>}
         {item.event_type === "status_changed" && typeof item.payload.to === "string" ? <p className="mt-1 text-xs text-[var(--ch-text-muted)]">Status → {label(item.payload.to)}</p> : null}
+        {failureReason ? <p className="mt-2 rounded-lg border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-2 py-1.5 text-xs text-[var(--ch-error-text)]">{failureReason}</p> : null}
         {item.attachments.length ? <div className="mt-3 flex flex-wrap gap-2">{item.attachments.map((file) => <a key={file.id} href={attachmentUrl(file.url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-2 py-1 text-xs font-semibold text-[var(--ch-accent)]"><FileText size={13} />{file.filename || "Attachment"}</a>)}</div> : null}
         {item.sms ? <div className="mt-2 flex items-center justify-end gap-2 text-xs text-[var(--ch-text-muted)]">
           <span>{item.sms.status}{item.sms.status === "held" && remaining ? ` · ${remaining}s` : ""}</span>
           {item.sms.cancellable && remaining > 0 ? <button type="button" onClick={() => void onCancel(item.sms!.id)} className="rounded-lg border border-[var(--ch-error-border)] px-2 py-1 font-semibold text-[var(--ch-error-text)]">Cancel</button> : null}
+          {item.sms.retryable ? <button type="button" onClick={() => void onRetry(item.sms!.id)} className="inline-flex items-center gap-1 rounded-lg border border-[var(--ch-error-border)] px-2 py-1 font-semibold text-[var(--ch-error-text)]"><RefreshCw size={12} /> Retry</button> : null}
         </div> : null}
       </div>
     </article>
@@ -156,7 +164,7 @@ export default function MaintenanceTicketPage() {
         <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <section className="flex min-h-[65vh] flex-col overflow-hidden rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface-muted)]">
             <div className="border-b border-[var(--ch-border)] px-4 py-3"><h2 className="font-semibold">Conversation & activity</h2><p className="mt-1 line-clamp-2 text-xs text-[var(--ch-text-muted)]">{ticket.description}</p></div>
-            <div className="flex-1 space-y-3 overflow-y-auto p-3 sm:p-5">{ticket.timeline.map((item) => <TimelineRow key={item.id} item={item} now={now} onCancel={(messageId) => mutate(() => cancelTicketMessage(ticketId, messageId), false)} />)}<div ref={timelineEnd} /></div>
+            <div className="flex-1 space-y-3 overflow-y-auto p-3 sm:p-5">{ticket.timeline.map((item) => <TimelineRow key={item.id} item={item} now={now} onCancel={(messageId) => mutate(() => cancelTicketMessage(ticketId, messageId), false)} onRetry={(messageId) => mutate(() => retryTicketMessage(ticketId, messageId), false)} />)}<div ref={timelineEnd} /></div>
             <form onSubmit={submitMessage} className="border-t border-[var(--ch-border)] bg-[var(--ch-surface)] p-3 sm:p-4">
               {!ticket.messaging_allowed ? <p className="mb-3 rounded-lg border border-[var(--ch-warning-border)] bg-[var(--ch-warning-bg)] p-2 text-sm text-[var(--ch-warning-text)]">Messaging is blocked. An admin must reopen this ticket.</p> : null}
               <div className="flex gap-1 rounded-xl bg-[var(--ch-surface-muted)] p-1">{(["tenant", "vendor", "internal"] as ComposerTarget[]).map((choice) => <button key={choice} type="button" disabled={choice === "vendor" && vendorOrders.length === 0} onClick={() => setTarget(choice)} className={`min-h-9 flex-1 rounded-lg px-2 text-xs font-semibold disabled:opacity-40 ${target === choice ? "bg-[var(--ch-surface-strong)] text-[var(--ch-accent)] shadow-sm" : "text-[var(--ch-text-muted)]"}`}>{choice === "internal" ? "Internal note" : `Reply to ${choice}`}</button>)}</div>
