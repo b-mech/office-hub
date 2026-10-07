@@ -15,7 +15,11 @@ from app.services.maintenance.scheduler_health import (
     record_subscription_scheduler_heartbeat,
 )
 from app.services.maintenance.slack.client import HttpSlackClient, SlackClient
-from app.services.maintenance.sms.providers import RingCentralProvider, get_sms_provider
+from app.services.maintenance.sms.providers import (
+    RingCentralProvider,
+    SmsProviderHttpError,
+    get_sms_provider,
+)
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -166,7 +170,11 @@ async def maintain_ringcentral_subscription(
             active_match_count=len(matches),
         )
     except Exception as exc:
-        detail = str(exc) if isinstance(exc, RingCentralSubscriptionError) else type(exc).__name__
+        detail = (
+            str(exc)
+            if isinstance(exc, (RingCentralSubscriptionError, SmsProviderHttpError))
+            else type(exc).__name__
+        )
         try:
             await record_subscription_scheduler_heartbeat(
                 expires_at=expires_at,
