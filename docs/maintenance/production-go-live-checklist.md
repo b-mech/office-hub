@@ -2,6 +2,7 @@
 
 Complete these items before enabling Phase 7 maintenance ticketing in production:
 
+- [ ] Set the production RingCentral SMS sending number to `+12042598093` and verify its `SmsSender` feature before enabling outbound messages.
 - [ ] Delete the staging RingCentral webhook subscription before creating the production subscription. Confirm that only the intended production subscription is active afterward.
 - [ ] Install the committed `deploy/officehub-worker.service` and `deploy/officehub-beat.service` units, then enable and start both services at boot.
 - [ ] Configure the on-call roster and confirm every admin fallback has `phone_e164` set before launch.

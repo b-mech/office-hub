@@ -58,6 +58,8 @@ The server has only a remotely managed Cloudflare tunnel run token. It has no or
 
 Set `STAGING_SLACK_CHANNEL_ID` to the dedicated test channel ID. Set `STAGING_SMS_ALLOWLIST` to comma-separated E.164 test numbers only. Restart the four staging services after either change.
 
+The designated production RingCentral SMS sending number is `+12042598093`. Staging uses this sender during the approved phone-flow test; `PRIVI_EMERGENCY_PHONE` remains a separate tenant-facing voice-line decision.
+
 Once the public hostname and webhook bypass exist, create the RingCentral subscription explicitly with:
 
 ```sh
