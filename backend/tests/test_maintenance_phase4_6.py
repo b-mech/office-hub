@@ -29,6 +29,7 @@ from app.services.maintenance.sms.providers import (
     TwilioProvider,
     twilio_signature,
 )
+from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.tokens import generate_token
 from app.services.maintenance.turnstile import TurnstileError, verify_turnstile
 
@@ -297,6 +298,24 @@ def test_quiet_hours_defer_only_during_window(monkeypatch: pytest.MonkeyPatch) -
     release = quiet_hours_release(datetime(2026, 10, 2, 4, 0, tzinfo=timezone.utc))
     assert release == datetime(2026, 10, 2, 13, 0, tzinfo=timezone.utc)
     assert quiet_hours_release(datetime(2026, 10, 2, 17, 0, tzinfo=timezone.utc)) is None
+
+
+def test_tenant_intake_link_is_friendly_and_has_one_brand_signature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
+    monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
+
+    message = render_template(
+        "tenant_no_open_ticket",
+        intake_url="https://maintenance.invalid/r/test-token",
+    )
+
+    assert message == (
+        "Thanks for your message. To report a maintenance issue, tap here: "
+        "https://maintenance.invalid/r/test-token — Connect Properties"
+    )
+    assert message.count("Connect Properties") == 1
 
 
 class ScalarSequenceSession:

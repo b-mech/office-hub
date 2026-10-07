@@ -13,7 +13,7 @@ TEMPLATES = {
     "tenant_entry_notice": "{brand}: notice of entry for {unit} on {window}. {details}",
     "tenant_resolved_check": "{brand}: we marked {number} resolved. Reply YES if it's fixed, or tell us what's still wrong.",
     "tenant_autoclosed": "{brand}: {number} has been closed. Reply if the issue returns.",
-    "tenant_no_open_ticket": "{brand}: we couldn't match this text to an open request. Report an issue here: {intake_url}",
+    "tenant_no_open_ticket": "Thanks for your message. To report a maintenance issue, tap here: {intake_url}",
     "vendor_offer": "{brand}: work order {number} in {area}: {scope}. Review and respond: {link}",
     "vendor_scheduled_confirm": "{brand}: work order {number} is confirmed for {window}.",
     "oncall_emergency_page": (
