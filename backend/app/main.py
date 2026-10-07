@@ -29,7 +29,12 @@ from app.routers.users import router as users_router
 from app.core.config import settings
 from app.middleware.auth import AuthenticationMiddleware
 from app.routers.auth import router as auth_router
-from app.services.maintenance.scheduler_health import alert_if_scheduler_stale, scheduler_health
+from app.services.maintenance.scheduler_health import (
+    alert_if_scheduler_stale,
+    alert_if_subscription_scheduler_stale,
+    scheduler_health,
+    subscription_scheduler_health,
+)
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -43,6 +48,7 @@ async def _scheduler_monitor() -> None:
     while True:
         try:
             await alert_if_scheduler_stale()
+            await alert_if_subscription_scheduler_stale()
         except Exception:
             logger.exception("Maintenance escalation scheduler monitor failed")
         await asyncio.sleep(60)
@@ -93,12 +99,29 @@ async def health_check() -> dict[str, str | None] | JSONResponse:
     if not _scheduler_health_required():
         return payload
     scheduler = await scheduler_health()
+    subscription_scheduler = await subscription_scheduler_health()
     payload["maintenance_escalation_last_run"] = (
         scheduler.last_run.isoformat() if scheduler.last_run else None
     )
-    if not scheduler.healthy:
+    payload["ringcentral_renewal_last_run"] = (
+        subscription_scheduler.last_run.isoformat() if subscription_scheduler.last_run else None
+    )
+    payload["ringcentral_subscription_expires_at"] = (
+        subscription_scheduler.expires_at.isoformat()
+        if subscription_scheduler.expires_at
+        else None
+    )
+    if not scheduler.healthy or not subscription_scheduler.healthy:
         payload["status"] = "unhealthy"
-        payload["detail"] = scheduler.detail
+        details = [
+            detail
+            for healthy, detail in (
+                (scheduler.healthy, scheduler.detail),
+                (subscription_scheduler.healthy, subscription_scheduler.detail),
+            )
+            if not healthy
+        ]
+        payload["detail"] = "; ".join(details)
         return JSONResponse(status_code=503, content=payload)
     return payload
 

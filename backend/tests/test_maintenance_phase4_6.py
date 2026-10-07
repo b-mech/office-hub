@@ -170,6 +170,42 @@ async def test_ringcentral_subscription_uses_sms_filter_and_validation_token() -
 
 
 @pytest.mark.asyncio
+async def test_ringcentral_subscription_list_and_renew_use_existing_id_only() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/restapi/oauth/token":
+            return httpx.Response(200, json={"access_token": "access", "expires_in": 3600})
+        if request.method == "GET":
+            return httpx.Response(200, json={"records": [{"id": "subscription-1"}]})
+        return httpx.Response(
+            200,
+            json={"id": "subscription-1", "expirationTime": "2026-10-14T12:00:00Z"},
+        )
+
+    provider = RingCentralProvider(
+        "https://platform.ringcentral.test",
+        "client",
+        "secret",
+        "jwt",
+        "+12045550999",
+        transport=httpx.MockTransport(handler),
+    )
+    assert (await provider.list_subscriptions())[0]["id"] == "subscription-1"
+    renewed = await provider.renew_subscription("subscription-1", expires_in=604799)
+    assert renewed["id"] == "subscription-1"
+    renewal_request = requests[-1]
+    assert renewal_request.method == "POST"
+    assert renewal_request.url.path == "/restapi/v1.0/subscription/subscription-1/renew"
+    assert json.loads(renewal_request.content) == {"expiresIn": 604799}
+    assert not any(
+        request.method == "POST" and request.url.path == "/restapi/v1.0/subscription"
+        for request in requests
+    )
+
+
+@pytest.mark.asyncio
 async def test_ringcentral_media_rejects_urls_outside_configured_origin() -> None:
     provider = RingCentralProvider(
         "https://platform.ringcentral.test",

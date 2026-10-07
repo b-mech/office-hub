@@ -19,6 +19,10 @@ celery_app.conf.beat_schedule = {
     "maintenance-dispatch-slack-outbox": {"task": "maintenance.dispatch_slack_outbox", "schedule": 5.0},
     "maintenance-watch-sla": {"task": "maintenance.watch_sla", "schedule": 300.0},
     "maintenance-escalate-emergencies": {"task": "maintenance.escalate_emergencies", "schedule": 60.0},
+    "maintenance-renew-ringcentral-subscription": {
+        "task": "maintenance.renew_ringcentral_subscription",
+        "schedule": 3600.0,
+    },
     "maintenance-morning-digest": {
         "task": "maintenance.morning_digest",
         "schedule": crontab(hour=settings.maint_digest_time.hour, minute=settings.maint_digest_time.minute),

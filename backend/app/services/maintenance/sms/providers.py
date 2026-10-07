@@ -9,7 +9,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Mapping, Protocol, Sequence
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 
@@ -228,6 +228,44 @@ class RingCentralProvider:
             payload = response.json()
         if not isinstance(payload, dict):
             raise ValueError("RingCentral returned an invalid subscription response")
+        return payload
+
+    async def list_subscriptions(self) -> list[Mapping[str, object]]:
+        """Return subscriptions visible to the authenticated extension."""
+        token = await self._bearer_token()
+        async with httpx.AsyncClient(timeout=30, transport=self.transport) as client:
+            response = await client.get(
+                f"{self.server_url}/restapi/v1.0/subscription",
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        records = payload.get("records") if isinstance(payload, dict) else None
+        if not isinstance(records, list) or not all(isinstance(item, dict) for item in records):
+            raise ValueError("RingCentral returned an invalid subscription list")
+        return records
+
+    async def renew_subscription(
+        self,
+        subscription_id: str,
+        *,
+        expires_in: int = 604799,
+    ) -> Mapping[str, object]:
+        """Renew one existing subscription without creating a replacement."""
+        if not subscription_id.strip():
+            raise ValueError("RingCentral subscription ID is required")
+        token = await self._bearer_token()
+        safe_id = quote(subscription_id, safe="")
+        async with httpx.AsyncClient(timeout=30, transport=self.transport) as client:
+            response = await client.post(
+                f"{self.server_url}/restapi/v1.0/subscription/{safe_id}/renew",
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                json={"expiresIn": expires_in},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("RingCentral returned an invalid subscription renewal response")
         return payload
 
     def validate_signature(self, url: str, params: Mapping[str, str], signature: str) -> bool:
