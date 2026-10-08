@@ -38,7 +38,10 @@ async def create_subscription() -> None:
     if not isinstance(provider, RingCentralProvider):
         raise SystemExit("RingCentral provider is not available")
     address = f"{settings.public_base_url.rstrip('/')}/api/webhooks/ringcentral/sms"
-    result = await provider.create_sms_webhook_subscription(address, validation_token)
+    try:
+        result = await provider.create_sms_webhook_subscription(address)
+    finally:
+        await provider.aclose()
     print(f"Subscription ID: {result.get('id', 'unknown')}")
     print(f"Status: {result.get('status', 'unknown')}")
     print(f"Expiration: {result.get('expirationTime', 'unknown')}")

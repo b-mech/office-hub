@@ -96,13 +96,18 @@ def load_provider() -> tuple[object, tuple[str, ...]]:
 
 
 async def run_test(provider: object, *, dry_run: bool, number: str | None) -> Result:
-    authenticate = getattr(provider, "authenticate")
-    await authenticate()
-    if dry_run:
-        return Result(success=True)
-    send = getattr(provider, "send")
-    message_id = await send(number, TEST_MESSAGE, [])
-    return Result(success=True, message_id=_single_line(str(message_id)))
+    try:
+        authenticate = getattr(provider, "authenticate")
+        await authenticate()
+        if dry_run:
+            return Result(success=True)
+        send = getattr(provider, "send")
+        message_id = await send(number, TEST_MESSAGE, [])
+        return Result(success=True, message_id=_single_line(str(message_id)))
+    finally:
+        close = getattr(provider, "aclose", None)
+        if close is not None:
+            await close()
 
 
 def _single_line(value: str) -> str:

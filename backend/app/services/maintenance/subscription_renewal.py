@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Mapping, Protocol
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
 from redis.asyncio import Redis
 
 from app.core.config import settings
@@ -23,15 +25,15 @@ from app.services.maintenance.sms.providers import (
 
 
 logger = logging.getLogger("uvicorn.error")
-RENEWAL_THRESHOLD = timedelta(hours=48)
-SUBSCRIPTION_TTL_SECONDS = 604799
 
 
 class SubscriptionProvider(Protocol):
     async def list_subscriptions(self) -> list[Mapping[str, object]]: ...
 
-    async def renew_subscription(
-        self, subscription_id: str, *, expires_in: int
+    async def update_sms_webhook_subscription(
+        self,
+        subscription_id: str,
+        address: str,
     ) -> Mapping[str, object]: ...
 
 
@@ -43,12 +45,30 @@ class NoActiveRingCentralSubscription(RingCentralSubscriptionError):
     pass
 
 
+class MultipleActiveRingCentralSubscriptions(RingCentralSubscriptionError):
+    pass
+
+
 @dataclass(frozen=True)
 class SubscriptionRenewalResult:
     subscription_id: str
     expires_at: datetime
     renewed: bool
     active_match_count: int
+
+
+async def verify_public_webhook_token(callback_url: str, validation_token: str) -> None:
+    """Verify the public route accepts the same private token written to RingCentral."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.post(
+            callback_url,
+            headers={"Verification-Token": validation_token},
+            json={"officeHubProbe": True},
+        )
+    if response.status_code != 200:
+        raise RingCentralSubscriptionError(
+            f"public webhook validation-token probe returned HTTP {response.status_code}"
+        )
 
 
 def _parse_expiration(value: object) -> datetime:
@@ -112,8 +132,9 @@ async def maintain_ringcentral_subscription(
     client: SlackClient | None = None,
     redis: Redis | None = None,
     now: datetime | None = None,
+    probe: Callable[[str, str], Awaitable[None]] = verify_public_webhook_token,
 ) -> SubscriptionRenewalResult:
-    """Renew the matching active webhook when needed; never create a subscription."""
+    """Reconcile one active webhook and its private token; never create a subscription."""
     checked_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     callback_url = f"{settings.public_base_url.rstrip('/')}/api/webhooks/ringcentral/sms"
     expires_at: datetime | None = None
@@ -132,32 +153,35 @@ async def maintain_ringcentral_subscription(
             raise NoActiveRingCentralSubscription(
                 "no active SMS webhook subscription exists for this environment"
             )
+        if len(matches) != 1:
+            raise MultipleActiveRingCentralSubscriptions(
+                f"expected one active SMS webhook subscription; found {len(matches)}"
+            )
 
-        # Keep one canonical subscription alive if an old duplicate already exists.
-        # Choosing the longest-lived record allows the others to expire naturally.
-        record, expires_at = max(matches, key=lambda item: item[1])
+        record, expires_at = matches[0]
         subscription_id = str(record.get("id", "")).strip()
         if not subscription_id:
             raise RingCentralSubscriptionError("active subscription has no ID")
-        if len(matches) > 1:
-            logger.warning(
-                "Found %d active RingCentral SMS subscriptions for this callback; renewing only the longest-lived ID",
-                len(matches),
+        validation_token = settings.ringcentral_webhook_validation_token.get_secret_value()
+        if not validation_token:
+            raise RingCentralSubscriptionError(
+                "RingCentral webhook validation token is not configured"
             )
 
-        renewed = False
-        if expires_at - checked_at < RENEWAL_THRESHOLD:
-            renewed_payload = await selected_provider.renew_subscription(
-                subscription_id,
-                expires_in=SUBSCRIPTION_TTL_SECONDS,
-            )
-            expires_at = _parse_expiration(renewed_payload.get("expirationTime"))
-            renewed = True
+        # RingCentral does not return the private verification token from reads.
+        # A full PUT is therefore the only deterministic reconciliation: it
+        # renews the existing ID and overwrites the live token on every run.
+        renewed_payload = await selected_provider.update_sms_webhook_subscription(
+            subscription_id,
+            callback_url,
+        )
+        expires_at = _parse_expiration(renewed_payload.get("expirationTime"))
+        await probe(callback_url, validation_token)
 
         await record_subscription_scheduler_heartbeat(
             expires_at=expires_at,
             healthy=True,
-            detail="ok",
+            detail="validation token reconciled and public probe passed",
             redis=redis,
             now=checked_at,
         )
@@ -166,7 +190,7 @@ async def maintain_ringcentral_subscription(
         return SubscriptionRenewalResult(
             subscription_id=subscription_id,
             expires_at=expires_at,
-            renewed=renewed,
+            renewed=True,
             active_match_count=len(matches),
         )
     except Exception as exc:

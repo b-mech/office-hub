@@ -1,5 +1,6 @@
 from app.services.maintenance.emergencies import run_escalation_sync
 from app.services.maintenance.jobs import run_digest_sync, run_sla_watch_sync
+from app.services.maintenance.ringcentral_reconciliation import run_reconciliation_sync
 from app.services.maintenance.slack.dispatcher import run_dispatch_sync
 from app.services.maintenance.sms.outbound import run_sender_sync
 from app.services.maintenance.subscription_renewal import run_subscription_renewal_sync
@@ -39,4 +40,15 @@ def renew_ringcentral_subscription() -> dict[str, object]:
         "expires_at": result.expires_at.isoformat(),
         "renewed": result.renewed,
         "active_match_count": result.active_match_count,
+    }
+
+
+@celery_app.task(name="maintenance.reconcile_ringcentral_messages")
+def reconcile_ringcentral_messages() -> dict[str, int]:
+    result = run_reconciliation_sync()
+    return {
+        "scanned": result.scanned,
+        "ingested": result.ingested,
+        "existing": result.existing,
+        "ignored": result.ignored,
     }

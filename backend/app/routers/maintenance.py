@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 from datetime import date, datetime, timezone
 from io import BytesIO
 from typing import Annotated
@@ -59,6 +60,7 @@ from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext
 from app.services.maintenance.tickets import TicketCreate, create_ticket
 from app.services.maintenance.turnstile import TurnstileError, verify_turnstile
+from app.services.maintenance.webhook_alerts import alert_ringcentral_webhook_failure
 from app.services.maintenance.workspace import (
     acknowledge_ticket,
     actor_for,
@@ -85,6 +87,7 @@ from app.schemas.maintenance import (
 
 
 router = APIRouter(tags=["maintenance"])
+logger = logging.getLogger("uvicorn.error")
 
 
 def _invalid_link() -> str:
@@ -369,27 +372,50 @@ async def twilio_inbound(request: Request, db: AsyncSession = Depends(get_db)) -
 @router.post("/api/webhooks/ringcentral/sms")
 async def ringcentral_inbound(request: Request, db: AsyncSession = Depends(get_db)) -> Response:
     raw_body = await request.body()
-    supplied_token = request.headers.get("Validation-Token", "")
+    validation_challenge = request.headers.get("Validation-Token", "")
 
     # RingCentral validates a new callback URL with an empty POST and requires
     # the supplied challenge token to be echoed in a small JSON response.
     if not raw_body:
-        if not supplied_token:
+        if not validation_challenge:
+            try:
+                await alert_ringcentral_webhook_failure(400, "validation token missing")
+            except Exception:
+                logger.exception("Could not post RingCentral webhook rejection alert")
             raise HTTPException(400, "Validation-Token is required")
         return Response(
             status_code=200,
-            headers={"Validation-Token": supplied_token},
+            headers={"Validation-Token": validation_challenge},
             media_type="application/json",
         )
 
+    supplied_token = request.headers.get("Verification-Token", "") or validation_challenge
     configured_token = settings.ringcentral_webhook_validation_token.get_secret_value()
-    if not configured_token or not hmac.compare_digest(configured_token, supplied_token):
+    if not supplied_token:
+        try:
+            await alert_ringcentral_webhook_failure(403, "validation token missing")
+        except Exception:
+            logger.exception("Could not post RingCentral webhook rejection alert")
+        raise HTTPException(403, "Invalid RingCentral validation token")
+    if not configured_token:
+        try:
+            await alert_ringcentral_webhook_failure(403, "validation token configuration missing")
+        except Exception:
+            logger.exception("Could not post RingCentral webhook rejection alert")
+        raise HTTPException(403, "Invalid RingCentral validation token")
+    if not hmac.compare_digest(configured_token, supplied_token):
+        try:
+            await alert_ringcentral_webhook_failure(403, "validation token mismatched")
+        except Exception:
+            logger.exception("Could not post RingCentral webhook rejection alert")
         raise HTTPException(403, "Invalid RingCentral validation token")
     if settings.sms_provider.casefold() != "ringcentral":
         raise HTTPException(503, "RingCentral is not the selected SMS provider")
 
     try:
         payload = json.loads(raw_body)
+        if payload == {"officeHubProbe": True}:
+            return Response(status_code=200, media_type="application/json")
         notifications = payload if isinstance(payload, list) else [payload]
         if not notifications or not all(isinstance(item, dict) for item in notifications):
             raise ValueError("RingCentral notification payload is invalid")
@@ -404,6 +430,10 @@ async def ringcentral_inbound(request: Request, db: AsyncSession = Depends(get_d
         await db.commit()
     except (json.JSONDecodeError, ValueError) as exc:
         await db.rollback()
+        try:
+            await alert_ringcentral_webhook_failure(422, "invalid notification payload")
+        except Exception:
+            logger.exception("Could not post RingCentral webhook rejection alert")
         raise HTTPException(422, str(exc)) from exc
     return Response(status_code=200, media_type="application/json")
 

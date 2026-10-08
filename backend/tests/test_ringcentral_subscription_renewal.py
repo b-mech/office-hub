@@ -4,10 +4,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Mapping
 
 import pytest
+from pydantic import SecretStr
 
 from app.core.config import settings
 from app.services.maintenance.scheduler_health import subscription_scheduler_health
 from app.services.maintenance.subscription_renewal import (
+    MultipleActiveRingCentralSubscriptions,
     NoActiveRingCentralSubscription,
     maintain_ringcentral_subscription,
 )
@@ -36,16 +38,17 @@ class FakeRedis:
 class FakeProvider:
     def __init__(self, records: list[Mapping[str, object]]) -> None:
         self.records = records
-        self.renewed: list[str] = []
+        self.updated: list[tuple[str, str]] = []
 
     async def list_subscriptions(self) -> list[Mapping[str, object]]:
         return self.records
 
-    async def renew_subscription(
-        self, subscription_id: str, *, expires_in: int
+    async def update_sms_webhook_subscription(
+        self,
+        subscription_id: str,
+        address: str,
     ) -> Mapping[str, object]:
-        assert expires_in == 604799
-        self.renewed.append(subscription_id)
+        self.updated.append((subscription_id, address))
         return {
             "id": subscription_id,
             "status": "Active",
@@ -60,6 +63,14 @@ class RecordingSlack:
     async def post_message(self, channel: str, text: str) -> dict[str, object]:
         self.messages.append((channel, text))
         return {"ok": True}
+
+
+class RecordingProbe:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def __call__(self, callback_url: str, validation_token: str) -> None:
+        self.calls.append((callback_url, validation_token))
 
 
 def subscription(subscription_id: str, expires_at: datetime, *, address: str = CALLBACK) -> dict[str, object]:
@@ -77,47 +88,62 @@ def renewal_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "environment", "staging")
     monkeypatch.setattr(settings, "public_base_url", "https://staging.invalid")
     monkeypatch.setattr(settings, "staging_slack_channel_id", "C-STAGING")
+    monkeypatch.setattr(
+        settings,
+        "ringcentral_webhook_validation_token",
+        SecretStr("validation-secret"),
+    )
 
 
 @pytest.mark.asyncio
-async def test_renews_matching_active_subscription_inside_48_hours() -> None:
+async def test_reconciles_matching_subscription_token_and_probes_public_route() -> None:
     provider = FakeProvider([subscription("sub-1", NOW + timedelta(hours=47, minutes=59))])
     redis = FakeRedis()
+    probe = RecordingProbe()
     result = await maintain_ringcentral_subscription(
-        provider=provider, redis=redis, now=NOW  # type: ignore[arg-type]
+        provider=provider, redis=redis, now=NOW, probe=probe  # type: ignore[arg-type]
     )
     assert result.renewed
     assert result.expires_at == NOW + timedelta(days=7)
-    assert provider.renewed == ["sub-1"]
+    assert provider.updated == [("sub-1", CALLBACK)]
+    assert probe.calls == [(CALLBACK, "validation-secret")]
     health = await subscription_scheduler_health(redis=redis, now=NOW)  # type: ignore[arg-type]
     assert health.healthy
     assert health.expires_at == result.expires_at
 
 
 @pytest.mark.asyncio
-async def test_does_not_renew_early_or_create_a_duplicate() -> None:
+async def test_reconciles_token_even_when_expiration_is_not_near() -> None:
     provider = FakeProvider([subscription("sub-1", NOW + timedelta(hours=48))])
     result = await maintain_ringcentral_subscription(
-        provider=provider, redis=FakeRedis(), now=NOW  # type: ignore[arg-type]
+        provider=provider,
+        redis=FakeRedis(),  # type: ignore[arg-type]
+        now=NOW,
+        probe=RecordingProbe(),
     )
-    assert not result.renewed
-    assert provider.renewed == []
+    assert result.renewed
+    assert provider.updated == [("sub-1", CALLBACK)]
 
 
 @pytest.mark.asyncio
-async def test_existing_duplicates_do_not_get_multiplied_or_kept_alive() -> None:
+async def test_existing_duplicates_fail_closed_and_alert() -> None:
     provider = FakeProvider(
         [
             subscription("older", NOW + timedelta(hours=2)),
             subscription("canonical", NOW + timedelta(days=4)),
         ]
     )
-    result = await maintain_ringcentral_subscription(
-        provider=provider, redis=FakeRedis(), now=NOW  # type: ignore[arg-type]
-    )
-    assert result.subscription_id == "canonical"
-    assert result.active_match_count == 2
-    assert provider.renewed == []
+    slack = RecordingSlack()
+    with pytest.raises(MultipleActiveRingCentralSubscriptions):
+        await maintain_ringcentral_subscription(
+            provider=provider,
+            client=slack,  # type: ignore[arg-type]
+            redis=FakeRedis(),  # type: ignore[arg-type]
+            now=NOW,
+            probe=RecordingProbe(),
+        )
+    assert provider.updated == []
+    assert len(slack.messages) == 1
 
 
 @pytest.mark.asyncio
@@ -133,6 +159,7 @@ async def test_no_active_matching_subscription_alerts_and_marks_health_unhealthy
             client=slack,  # type: ignore[arg-type]
             redis=redis,  # type: ignore[arg-type]
             now=NOW,
+            probe=RecordingProbe(),
         )
     assert len(slack.messages) == 1
     assert "no active SMS webhook subscription" in slack.messages[0][1]
@@ -154,6 +181,7 @@ async def test_provider_failure_posts_non_sensitive_slack_alert() -> None:
             client=slack,  # type: ignore[arg-type]
             redis=FakeRedis(),  # type: ignore[arg-type]
             now=NOW,
+            probe=RecordingProbe(),
         )
     assert len(slack.messages) == 1
     assert "RuntimeError" in slack.messages[0][1]

@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 import httpx
+from pydantic import SecretStr
 
 from app.core.config import settings
 from app.main import app
@@ -215,7 +216,14 @@ async def test_ringcentral_provider_exposes_secret_free_http_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ringcentral_subscription_uses_sms_filter_and_validation_token() -> None:
+async def test_ringcentral_subscription_uses_sms_filter_and_validation_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        settings,
+        "ringcentral_webhook_validation_token",
+        SecretStr("validation-secret"),
+    )
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -233,7 +241,7 @@ async def test_ringcentral_subscription_uses_sms_filter_and_validation_token() -
         transport=httpx.MockTransport(handler),
     )
     result = await provider.create_sms_webhook_subscription(
-        "https://maintenance.invalid/api/webhooks/ringcentral/sms", "validation-secret"
+        "https://maintenance.invalid/api/webhooks/ringcentral/sms"
     )
     assert result["id"] == "subscription-1"
     request = requests[-1]
@@ -241,11 +249,11 @@ async def test_ringcentral_subscription_uses_sms_filter_and_validation_token() -
     assert payload["eventFilters"] == [
         "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"
     ]
-    assert payload["deliveryMode"]["validationToken"] == "validation-secret"
+    assert payload["deliveryMode"]["verificationToken"] == "validation-secret"
 
 
 @pytest.mark.asyncio
-async def test_ringcentral_subscription_list_and_renew_use_existing_id_only() -> None:
+async def test_ringcentral_subscription_update_reuses_id_and_sets_validation_token() -> None:
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -268,16 +276,70 @@ async def test_ringcentral_subscription_list_and_renew_use_existing_id_only() ->
         transport=httpx.MockTransport(handler),
     )
     assert (await provider.list_subscriptions())[0]["id"] == "subscription-1"
-    renewed = await provider.renew_subscription("subscription-1", expires_in=604799)
+    original_validation_token = settings.ringcentral_webhook_validation_token
+    settings.ringcentral_webhook_validation_token = SecretStr("validation-secret")
+    try:
+        renewed = await provider.update_sms_webhook_subscription(
+            "subscription-1",
+            "https://maintenance.invalid/api/webhooks/ringcentral/sms",
+        )
+    finally:
+        settings.ringcentral_webhook_validation_token = original_validation_token
     assert renewed["id"] == "subscription-1"
     renewal_request = requests[-1]
-    assert renewal_request.method == "POST"
-    assert renewal_request.url.path == "/restapi/v1.0/subscription/subscription-1/renew"
-    assert json.loads(renewal_request.content) == {"expiresIn": 604799}
+    assert renewal_request.method == "PUT"
+    assert renewal_request.url.path == "/restapi/v1.0/subscription/subscription-1"
+    payload = json.loads(renewal_request.content)
+    assert payload["deliveryMode"] == {
+        "transportType": "WebHook",
+        "address": "https://maintenance.invalid/api/webhooks/ringcentral/sms",
+        "verificationToken": "validation-secret",
+    }
     assert not any(
         request.method == "POST" and request.url.path == "/restapi/v1.0/subscription"
         for request in requests
     )
+
+
+@pytest.mark.asyncio
+async def test_ringcentral_message_store_reconciliation_query_follows_pages() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/restapi/oauth/token":
+            return httpx.Response(200, json={"access_token": "access", "expires_in": 3600})
+        if request.url.params.get("page") == "2":
+            return httpx.Response(200, json={"records": [{"id": "message-2"}]})
+        return httpx.Response(
+            200,
+            json={
+                "records": [{"id": "message-1"}],
+                "navigation": {
+                    "nextPage": {
+                        "uri": "https://platform.ringcentral.test/restapi/v1.0/account/~/extension/~/message-store?page=2"
+                    }
+                },
+            },
+        )
+
+    provider = RingCentralProvider(
+        "https://platform.ringcentral.test",
+        "client",
+        "secret",
+        "jwt",
+        "+12045550999",
+        transport=httpx.MockTransport(handler),
+    )
+    records = await provider.list_inbound_messages(
+        datetime(2026, 10, 8, 14, 0, tzinfo=timezone.utc),
+        datetime(2026, 10, 8, 15, 0, tzinfo=timezone.utc),
+    )
+
+    assert [record["id"] for record in records] == ["message-1", "message-2"]
+    first_request = requests[1]
+    assert first_request.url.params["messageType"] == "SMS"
+    assert first_request.url.params["direction"] == "Inbound"
 
 
 @pytest.mark.asyncio
@@ -346,14 +408,83 @@ async def test_ringcentral_webhook_echoes_validation_challenge() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("body, expected_status", [(b"", 400), (b"{}", 403)])
 async def test_ringcentral_webhook_rejects_requests_without_validation_token(
-    body: bytes, expected_status: int
+    body: bytes, expected_status: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    alerts: list[tuple[int, str]] = []
+
+    async def record_alert(status_code: int, reason: str) -> bool:
+        alerts.append((status_code, reason))
+        return True
+
+    monkeypatch.setattr(
+        "app.routers.maintenance.alert_ringcentral_webhook_failure",
+        record_alert,
+    )
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="https://maintenance.invalid"
     ) as client:
         response = await client.post("/api/webhooks/ringcentral/sms", content=body)
 
     assert response.status_code == expected_status
+    assert alerts == [
+        (
+            expected_status,
+            "validation token missing",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_ringcentral_webhook_distinguishes_mismatched_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alerts: list[tuple[int, str]] = []
+
+    async def record_alert(status_code: int, reason: str) -> bool:
+        alerts.append((status_code, reason))
+        return True
+
+    monkeypatch.setattr(
+        settings,
+        "ringcentral_webhook_validation_token",
+        SecretStr("expected-token"),
+    )
+    monkeypatch.setattr(
+        "app.routers.maintenance.alert_ringcentral_webhook_failure",
+        record_alert,
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://maintenance.invalid"
+    ) as client:
+        response = await client.post(
+            "/api/webhooks/ringcentral/sms",
+            headers={"Validation-Token": "wrong-token"},
+            json={},
+        )
+
+    assert response.status_code == 403
+    assert alerts == [(403, "validation token mismatched")]
+
+
+@pytest.mark.asyncio
+async def test_ringcentral_token_authenticated_probe_has_no_side_effects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        settings,
+        "ringcentral_webhook_validation_token",
+        SecretStr("expected-token"),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://maintenance.invalid"
+    ) as client:
+        response = await client.post(
+            "/api/webhooks/ringcentral/sms",
+            headers={"Verification-Token": "expected-token"},
+            json={"officeHubProbe": True},
+        )
+
+    assert response.status_code == 200
 
 
 def test_ringcentral_secrets_are_excluded_from_settings_repr() -> None:

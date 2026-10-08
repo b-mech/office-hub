@@ -23,6 +23,10 @@ celery_app.conf.beat_schedule = {
         "task": "maintenance.renew_ringcentral_subscription",
         "schedule": 3600.0,
     },
+    "maintenance-reconcile-ringcentral-messages": {
+        "task": "maintenance.reconcile_ringcentral_messages",
+        "schedule": 300.0,
+    },
     "maintenance-morning-digest": {
         "task": "maintenance.morning_digest",
         "schedule": crontab(hour=settings.maint_digest_time.hour, minute=settings.maint_digest_time.minute),
