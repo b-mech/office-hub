@@ -250,6 +250,7 @@ async def test_ringcentral_subscription_uses_sms_filter_and_validation_token(
         "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"
     ]
     assert payload["deliveryMode"]["verificationToken"] == "validation-secret"
+    assert payload["deliveryMode"]["validationToken"] == "validation-secret"
 
 
 @pytest.mark.asyncio
@@ -293,6 +294,7 @@ async def test_ringcentral_subscription_update_reuses_id_and_sets_validation_tok
     assert payload["deliveryMode"] == {
         "transportType": "WebHook",
         "address": "https://maintenance.invalid/api/webhooks/ringcentral/sms",
+        "validationToken": "validation-secret",
         "verificationToken": "validation-secret",
     }
     assert not any(

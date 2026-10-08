@@ -66,42 +66,56 @@ class RedisRingCentralTokenCache:
     """
 
     def __init__(self, redis_url: str, environment: str) -> None:
-        self.redis = Redis.from_url(redis_url, decode_responses=True)
+        self.redis_url = redis_url
+        self.redis: Redis | None = None
         prefix = f"officehub:{environment}:ringcentral:oauth"
         self.token_key = f"{prefix}:access-token"
         self.lock_key = f"{prefix}:refresh-lock"
 
     async def get_or_refresh(self, refresh: TokenRefresher) -> str:
-        cached = await self.redis.get(self.token_key)
-        if cached:
-            return cached
-
-        owner = uuid4().hex
-        deadline = time.monotonic() + 20
-        while not await self.redis.set(self.lock_key, owner, ex=30, nx=True):
-            cached = await self.redis.get(self.token_key)
-            if cached:
-                return cached
-            if time.monotonic() >= deadline:
-                raise RuntimeError("Timed out waiting for the RingCentral OAuth refresh lock")
-            await asyncio.sleep(0.1)
-
+        owned = self.redis is None
+        redis = self.redis or Redis.from_url(self.redis_url, decode_responses=True)
         try:
-            cached = await self.redis.get(self.token_key)
+            cached = await redis.get(self.token_key)
             if cached:
                 return cached
-            token, expires_in = await refresh()
-            await self.redis.set(
-                self.token_key,
-                token,
-                ex=max(expires_in - 60, 60),
-            )
-            return token
+
+            owner = uuid4().hex
+            deadline = time.monotonic() + 20
+            while not await redis.set(self.lock_key, owner, ex=30, nx=True):
+                cached = await redis.get(self.token_key)
+                if cached:
+                    return cached
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Timed out waiting for the RingCentral OAuth refresh lock")
+                await asyncio.sleep(0.1)
+
+            try:
+                cached = await redis.get(self.token_key)
+                if cached:
+                    return cached
+                token, expires_in = await refresh()
+                await redis.set(
+                    self.token_key,
+                    token,
+                    ex=max(expires_in - 60, 60),
+                )
+                return token
+            finally:
+                await redis.eval(self._RELEASE_LOCK, 1, self.lock_key, owner)
         finally:
-            await self.redis.eval(self._RELEASE_LOCK, 1, self.lock_key, owner)
+            if owned:
+                await redis.aclose()
 
     async def invalidate(self, token: str) -> None:
-        await self.redis.eval(self._DELETE_MATCHING, 1, self.token_key, token)
+        owned = self.redis is None
+        redis = self.redis or Redis.from_url(self.redis_url, decode_responses=True)
+        try:
+            await redis.eval(self._DELETE_MATCHING, 1, self.token_key, token)
+        finally:
+            if owned:
+                await redis.aclose()
 
     async def aclose(self) -> None:
-        await self.redis.aclose()
+        if self.redis is not None:
+            await self.redis.aclose()
