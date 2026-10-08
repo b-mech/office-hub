@@ -26,7 +26,7 @@ load_dotenv(REPOSITORY_ROOT / ".env.staging")
 from app.core.config import settings  # noqa: E402
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.core import User, UserRole  # noqa: E402
-from app.models.maintenance import MaintOnCall  # noqa: E402
+from app.models.maintenance import MaintOnCall, MaintTicket  # noqa: E402
 from app.models.rentals import (  # noqa: E402
     RentalLease,
     RentalLeaseTenant,
@@ -42,12 +42,18 @@ STAFF_EMAIL = "nicholas.maintenance-phone-test@invalid.example"
 STAFF_NAME = f"Nicholas {TEST_MARKER}"
 TENANT_EMAIL = "tenant.maintenance-phone-test@invalid.example"
 TENANT_NAME = f"Phone Flow Tenant {TEST_MARKER}"
+TENANT_PHONE_E164 = "+12049961540"
+TEST_TICKET_NUMBER = "MT-00001"
 LEASE_NOTES = f"{TEST_MARKER} Idempotent staging fixture; remove with seed script --remove."
 
 
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tenant-phone", help="Second allowlisted E.164 test number")
+    parser.add_argument(
+        "--tenant-phone",
+        default=TENANT_PHONE_E164,
+        help="Second allowlisted E.164 test number",
+    )
     parser.add_argument("--staff-phone", help="Existing allowlisted E.164 number for Nicholas")
     parser.add_argument("--property-id", type=int, help="Optional real staging rental property ID")
     parser.add_argument("--remove", action="store_true", help="Remove the owned test fixture")
@@ -92,8 +98,6 @@ async def _real_unit(db, property_id: int | None) -> tuple[RentalProperty, Renta
 
 
 async def seed(args: argparse.Namespace) -> dict[str, object]:
-    if not args.tenant_phone:
-        raise SystemExit("--tenant-phone is required unless --remove is used")
     tenant_phone = normalize_phone(args.tenant_phone)
     if tenant_phone not in settings.staging_sms_allowlist_values:
         raise SystemExit("The tenant phone must already be in STAGING_SMS_ALLOWLIST")
@@ -190,6 +194,15 @@ async def seed(args: argparse.Namespace) -> dict[str, object]:
             )
         else:
             link.is_primary_contact = True
+
+        test_ticket = await db.scalar(
+            select(MaintTicket).where(
+                MaintTicket.number == TEST_TICKET_NUMBER,
+                MaintTicket.lease_id == lease.id,
+            )
+        )
+        if test_ticket is not None:
+            test_ticket.reporter_phone_e164 = tenant_phone
         await db.commit()
         return {
             "action": "seeded",
@@ -200,6 +213,7 @@ async def seed(args: argparse.Namespace) -> dict[str, object]:
             "unit_id": unit.id,
             "property_id": rental_property.id,
             "property_address": rental_property.street_address,
+            "test_ticket_number": test_ticket.number if test_ticket else None,
             "on_call_starts_at": on_call.starts_at.isoformat(),
             "on_call_ends_at": on_call.ends_at.isoformat(),
         }
