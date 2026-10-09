@@ -70,10 +70,18 @@ export type WorkOrder = {
   scope: string;
   scheduled_start: string | null;
   scheduled_end: string | null;
+  scheduled_visit_status: "scheduled" | "completed" | "cancelled" | null;
   cost_estimate: string | null;
   cost_actual: string | null;
   completion_notes: string | null;
   external_party: boolean;
+};
+
+export type ScheduledVisit = {
+  work_order_id: string;
+  work_order_number: string;
+  scheduled_start: string;
+  scheduled_end: string | null;
 };
 
 export type TicketDetail = TicketListItem & {
@@ -122,8 +130,9 @@ export const retryTicketMessage = (ticketId: string, messageId: string) => jsonR
 export const triageTicket = (ticketId: string, body: object) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/triage`, "POST", body);
 export const assignTicket = (ticketId: string, body: object) => jsonRequest<{ ok: true; work_order_id: string }>(`/api/maintenance/tickets/${ticketId}/assign`, "POST", body);
 export const scheduleTicket = (ticketId: string, body: object) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/schedule`, "POST", body);
-export const completeWorkOrder = (ticketId: string, workOrderId: string, body: object) => jsonRequest<{ ok: true; all_work_orders_complete: boolean }>(`/api/maintenance/tickets/${ticketId}/work-orders/${workOrderId}/complete`, "POST", body);
-export const resolveTicket = (ticketId: string, note: string) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/resolve`, "POST", { note });
+export const completeWorkOrder = (ticketId: string, workOrderId: string, body: object) => jsonRequest<{ ok: true; all_work_orders_complete: boolean; future_scheduled_visits: ScheduledVisit[] }>(`/api/maintenance/tickets/${ticketId}/work-orders/${workOrderId}/complete`, "POST", body);
+export const updateScheduledVisit = (ticketId: string, workOrderId: string, status: "completed" | "cancelled") => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/work-orders/${workOrderId}/scheduled-visit`, "POST", { status });
+export const resolveTicket = (ticketId: string, note: string, cancelScheduledVisitIds: string[] = []) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/resolve`, "POST", { note, cancel_scheduled_visit_ids: cancelScheduledVisitIds });
 export const ticketMoreAction = (ticketId: string, body: object) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/more`, "POST", body);
 export const acknowledgeEmergency = (ticketId: string) => jsonRequest<{ ok: true; acknowledged: boolean }>(`/api/maintenance/tickets/${ticketId}/acknowledge`, "POST");
 export const attachmentUrl = (path: string) => `${BASE}${path}`;

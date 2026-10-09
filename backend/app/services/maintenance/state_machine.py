@@ -25,7 +25,9 @@ ALLOWED_TRANSITIONS: dict[MaintStatus, frozenset[MaintStatus]] = {
     MaintStatus.NEW: frozenset({MaintStatus.TRIAGED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}),
     MaintStatus.TRIAGED: frozenset({MaintStatus.ASSIGNED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}),
     MaintStatus.ASSIGNED: frozenset({MaintStatus.SCHEDULED, MaintStatus.IN_PROGRESS, MaintStatus.TRIAGED, MaintStatus.CANCELLED}),
-    MaintStatus.SCHEDULED: frozenset({MaintStatus.IN_PROGRESS, MaintStatus.ASSIGNED, MaintStatus.CANCELLED}),
+    MaintStatus.SCHEDULED: frozenset(
+        {MaintStatus.IN_PROGRESS, MaintStatus.ASSIGNED, MaintStatus.RESOLVED, MaintStatus.CANCELLED}
+    ),
     MaintStatus.IN_PROGRESS: frozenset({MaintStatus.AWAITING_PARTS, MaintStatus.AWAITING_TENANT, MaintStatus.RESOLVED}),
     MaintStatus.AWAITING_PARTS: frozenset({MaintStatus.IN_PROGRESS, MaintStatus.SCHEDULED, MaintStatus.RESOLVED}),
     MaintStatus.AWAITING_TENANT: frozenset({MaintStatus.IN_PROGRESS, MaintStatus.SCHEDULED, MaintStatus.RESOLVED}),

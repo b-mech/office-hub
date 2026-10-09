@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.core import User, UserRole
 from app.models.maintenance import (
     MaintAttachment,
@@ -44,6 +46,7 @@ from app.services.maintenance.work_orders import (
     assign_vendor_work_order,
     complete_work_order,
     create_work_order,
+    is_future_scheduled_visit,
     schedule_work_order,
 )
 
@@ -154,6 +157,7 @@ async def _work_order_views(db: AsyncSession, ticket_id: UUID) -> list[dict[str,
                 "scope": order.scope,
                 "scheduled_start": order.scheduled_start,
                 "scheduled_end": order.scheduled_end,
+                "scheduled_visit_status": order.scheduled_visit_status,
                 "cost_estimate": str(order.cost_estimate) if order.cost_estimate is not None else None,
                 "cost_actual": str(order.cost_actual) if order.cost_actual is not None else None,
                 "completion_notes": order.completion_notes,
@@ -535,7 +539,7 @@ async def schedule_work(
             values.update({"unit": unit_label, "details": ticket.entry_notes or "Entry is required for the scheduled work."})
         try:
             outgoing = render_template(template, **values)
-            await queue_sms(
+            message = await queue_sms(
                 db,
                 to=ticket.reporter_phone_e164,
                 body=outgoing,
@@ -558,6 +562,8 @@ async def schedule_work(
                         actor_party=MaintParty.STAFF,
                         actor_user_id=actor.user_id,
                         body=outgoing,
+                        sms_message_id=message.id,
+                        payload={"start": start.isoformat(), "end": end.isoformat()},
                     )
                 )
         except SmsOptedOutError:
@@ -580,13 +586,151 @@ async def schedule_work(
                 pass
 
 
+def _visit_view(order: MaintWorkOrder) -> dict[str, object]:
+    return {
+        "work_order_id": order.id,
+        "work_order_number": order.number,
+        "scheduled_start": order.scheduled_start,
+        "scheduled_end": order.scheduled_end,
+    }
+
+
+async def _ticket_work_orders(db: AsyncSession, ticket_id: UUID) -> list[MaintWorkOrder]:
+    return list(
+        (
+            await db.scalars(
+                select(MaintWorkOrder)
+                .where(MaintWorkOrder.ticket_id == ticket_id)
+                .order_by(MaintWorkOrder.created_at)
+            )
+        ).all()
+    )
+
+
+def _future_scheduled_visits(
+    orders: list[MaintWorkOrder],
+    *,
+    now: datetime | None = None,
+) -> list[MaintWorkOrder]:
+    return [order for order in orders if is_future_scheduled_visit(order, now=now)]
+
+
+def _visit_start_label(start: datetime) -> str:
+    local = start.astimezone(ZoneInfo(settings.timezone))
+    return local.strftime("%b %-d, %-I:%M %p")
+
+
+async def set_scheduled_visit_status(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    order: MaintWorkOrder,
+    actor: ActorContext,
+    *,
+    status: str,
+    now: datetime | None = None,
+) -> None:
+    if order.ticket_id != ticket.id:
+        raise ValueError("Work order not found")
+    if status not in {"completed", "cancelled"}:
+        raise ValueError("Scheduled visit must be completed or cancelled")
+    if order.scheduled_start is None or order.scheduled_visit_status != "scheduled":
+        raise ValueError("This work order has no active scheduled visit")
+
+    changed_at = now or datetime.now(timezone.utc)
+    order.scheduled_visit_status = status
+    db.add(
+        MaintEvent(
+            ticket_id=ticket.id,
+            work_order_id=order.id,
+            event_type=f"scheduled_visit_{status}",
+            channel=MaintEventChannel.WEB,
+            visibility=MaintVisibility.INTERNAL,
+            direction=MaintDirection.NONE,
+            actor_party=actor.party,
+            actor_user_id=actor.user_id,
+            body=(
+                f"Scheduled visit for {_visit_start_label(order.scheduled_start)} was {status}."
+            ),
+            payload={
+                "work_order": order.number,
+                "scheduled_start": order.scheduled_start.isoformat(),
+                "scheduled_end": order.scheduled_end.isoformat() if order.scheduled_end else None,
+                "status": status,
+            },
+            created_at=changed_at,
+        )
+    )
+
+    if status == "cancelled" and ticket.reporter_phone_e164:
+        notice_sent = await db.scalar(
+            select(MaintEvent.id)
+            .where(
+                MaintEvent.ticket_id == ticket.id,
+                MaintEvent.work_order_id == order.id,
+                MaintEvent.event_type == "entry_notice_sent",
+            )
+            .limit(1)
+        )
+        if notice_sent is not None:
+            try:
+                await queue_sms(
+                    db,
+                    to=ticket.reporter_phone_e164,
+                    body=render_template(
+                        "tenant_visit_cancelled",
+                        date_time=_visit_start_label(order.scheduled_start),
+                    ),
+                    ticket_id=ticket.id,
+                    work_order_id=order.id,
+                    automated=True,
+                    actor_party=MaintParty.STAFF,
+                    actor_user_id=actor.user_id,
+                    now=changed_at,
+                )
+            except SmsOptedOutError:
+                pass
+    await db.flush()
+
+
+async def update_scheduled_visit(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    actor: ActorContext,
+    *,
+    work_order_id: UUID,
+    status: str,
+) -> None:
+    order = await db.get(MaintWorkOrder, work_order_id)
+    if order is None:
+        raise ValueError("Work order not found")
+    await set_scheduled_visit_status(db, ticket, order, actor, status=status)
+
+
 async def resolve_ticket(
     db: AsyncSession,
     ticket: MaintTicket,
     actor: ActorContext,
     *,
     note: str,
+    cancel_scheduled_visit_ids: list[UUID] | None = None,
 ) -> None:
+    orders = await _ticket_work_orders(db, ticket.id)
+    blockers = _future_scheduled_visits(orders)
+    requested = set(cancel_scheduled_visit_ids or [])
+    blocker_ids = {order.id for order in blockers}
+    if requested - blocker_ids:
+        raise ValueError("A selected scheduled visit is no longer active")
+    for order in blockers:
+        if order.id in requested:
+            await set_scheduled_visit_status(db, ticket, order, actor, status="cancelled")
+    remaining = [order for order in blockers if order.id not in requested]
+    if remaining:
+        labels = ", ".join(
+            f"{order.number} ({_visit_start_label(order.scheduled_start)})"
+            for order in remaining
+            if order.scheduled_start is not None
+        )
+        raise ValueError(f"Resolve blocked by scheduled visits: {labels}")
     await transition(db, ticket, MaintStatus.RESOLVED, actor, note, channel=MaintEventChannel.WEB)
     if ticket.reporter_phone_e164:
         try:
@@ -649,11 +793,11 @@ async def complete_order(
     work_order_id: UUID,
     completion_notes: str,
     cost_actual: Decimal | None,
-) -> bool:
+) -> tuple[bool, list[dict[str, object]]]:
     order = await db.get(MaintWorkOrder, work_order_id)
     if order is None or order.ticket_id != ticket.id:
         raise ValueError("Work order not found")
-    return await complete_work_order(
+    all_complete = await complete_work_order(
         db,
         ticket,
         order,
@@ -661,6 +805,8 @@ async def complete_order(
         completion_notes=completion_notes,
         cost_actual=cost_actual,
     )
+    future_visits = [_visit_view(order)] if is_future_scheduled_visit(order) else []
+    return all_complete, future_visits
 
 
 async def cancel_message(

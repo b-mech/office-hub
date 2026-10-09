@@ -50,6 +50,19 @@ def all_active_work_orders_complete(statuses: list[MaintWorkOrderStatus]) -> boo
     return bool(active) and all(status == MaintWorkOrderStatus.COMPLETED for status in active)
 
 
+def is_future_scheduled_visit(
+    work_order: MaintWorkOrder,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    checked_at = now or datetime.now(timezone.utc)
+    return bool(
+        work_order.scheduled_visit_status == "scheduled"
+        and work_order.scheduled_start
+        and work_order.scheduled_start > checked_at
+    )
+
+
 async def create_work_order(
     db: AsyncSession,
     ticket: MaintTicket,
@@ -144,6 +157,7 @@ async def schedule_work_order(
     )
     work_order.scheduled_start = start
     work_order.scheduled_end = end
+    work_order.scheduled_visit_status = "scheduled"
     work_order.status = MaintWorkOrderStatus.SCHEDULED
     db.add(
         MaintEvent(

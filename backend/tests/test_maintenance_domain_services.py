@@ -20,7 +20,16 @@ from app.services.maintenance.errors import PermissionDeniedError
 from app.services.maintenance.sms.outbound import cancel_held_sms
 from app.services.maintenance.state_machine import ActorContext
 from app.services.maintenance.tickets import acknowledge_emergency, cancel_ticket, mark_duplicate
-from app.services.maintenance.work_orders import assign_vendor_work_order, schedule_work_order
+from app.services.maintenance.work_orders import (
+    assign_vendor_work_order,
+    is_future_scheduled_visit,
+    schedule_work_order,
+)
+from app.services.maintenance.workspace import (
+    _future_scheduled_visits,
+    resolve_ticket,
+    set_scheduled_visit_status,
+)
 
 
 NOW = datetime(2026, 10, 2, 15, 0, tzinfo=timezone.utc)
@@ -46,6 +55,23 @@ class FakeSession:
         if isinstance(value, dict):
             return value.get(identity)
         return value
+
+
+class FakeScalarResult:
+    def __init__(self, values: list[object]) -> None:
+        self.values = values
+
+    def all(self) -> list[object]:
+        return self.values
+
+
+class WorkOrderSession(FakeSession):
+    def __init__(self, orders: list[object], **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self.orders = orders
+
+    async def scalars(self, statement: object) -> FakeScalarResult:
+        return FakeScalarResult(self.orders)
 
 
 def ticket(status: MaintStatus = MaintStatus.TRIAGED, *, emergency: bool = False) -> SimpleNamespace:
@@ -146,6 +172,7 @@ async def test_schedule_enforces_entry_notice_in_orchestration(monkeypatch: pyte
         now=NOW,
     )  # type: ignore[arg-type]
     assert order.status == MaintWorkOrderStatus.SCHEDULED
+    assert order.scheduled_visit_status == "scheduled"
     scheduled_event = next(
         value for value in db.added if getattr(value, "event_type", "") == "work_order_scheduled"
     )
@@ -228,3 +255,110 @@ async def test_vendor_assignment_queues_offer_in_same_session(monkeypatch: pytes
 def test_sms_messages_have_no_inbound_slack_relay_identity() -> None:
     assert "slack_channel_id" not in MaintSmsMessage.__table__.columns
     assert "slack_ts" not in MaintSmsMessage.__table__.columns
+
+
+def test_future_scheduled_visit_is_independent_of_completed_work_order() -> None:
+    order = SimpleNamespace(
+        status=MaintWorkOrderStatus.COMPLETED,
+        scheduled_start=NOW + timedelta(days=1),
+        scheduled_visit_status="scheduled",
+    )
+    assert is_future_scheduled_visit(order, now=NOW) is True  # type: ignore[arg-type]
+    assert _future_scheduled_visits([order], now=NOW) == [order]  # type: ignore[list-item]
+    order.scheduled_visit_status = "cancelled"
+    assert is_future_scheduled_visit(order, now=NOW) is False  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_cancelling_noticed_visit_queues_exact_tenant_text_and_thread_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
+    monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
+    ticket_id = uuid4()
+    order_id = uuid4()
+    item = ticket(MaintStatus.SCHEDULED)
+    item.id = ticket_id
+    item.reporter_phone_e164 = "+12045550100"
+    order = SimpleNamespace(
+        id=order_id,
+        ticket_id=ticket_id,
+        number="MT-00001-W1",
+        scheduled_start=datetime(2026, 10, 11, 14, 27, tzinfo=timezone.utc),
+        scheduled_end=datetime(2026, 10, 11, 16, 27, tzinfo=timezone.utc),
+        scheduled_visit_status="scheduled",
+    )
+    db = FakeSession(scalar=uuid4())
+    queued: dict[str, object] = {}
+
+    async def queue(*args: object, **kwargs: object) -> SimpleNamespace:
+        queued.update(kwargs)
+        message = SimpleNamespace(id=uuid4())
+        db.added.append(
+            SimpleNamespace(
+                event_type="message",
+                body=kwargs["body"],
+                sms_message_id=message.id,
+            )
+        )
+        return message
+
+    monkeypatch.setattr("app.services.maintenance.workspace.queue_sms", queue)
+    await set_scheduled_visit_status(
+        db,  # type: ignore[arg-type]
+        item,  # type: ignore[arg-type]
+        order,  # type: ignore[arg-type]
+        ActorContext(MaintParty.STAFF, user_id=uuid4()),
+        status="cancelled",
+        now=NOW,
+    )
+
+    assert order.scheduled_visit_status == "cancelled"
+    assert queued["body"] == (
+        "The visit scheduled for Oct 11, 9:27 AM is no longer needed. — Connect Properties"
+    )
+    assert queued["ticket_id"] == ticket_id
+    assert queued["work_order_id"] == order_id
+    assert any(value.event_type == "scheduled_visit_cancelled" for value in db.added)
+    assert any(
+        value.event_type == "message" and value.body == queued["body"]
+        for value in db.added
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_lists_future_visit_until_it_is_cancelled_inline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
+    item = ticket(MaintStatus.SCHEDULED)
+    item.reporter_phone_e164 = None
+    order = SimpleNamespace(
+        id=uuid4(),
+        ticket_id=item.id,
+        number="MT-00001-W1",
+        created_at=NOW,
+        scheduled_start=datetime(2026, 10, 11, 15, 0, tzinfo=timezone.utc),
+        scheduled_end=datetime(2026, 10, 11, 17, 0, tzinfo=timezone.utc),
+        scheduled_visit_status="scheduled",
+    )
+    actor = ActorContext(MaintParty.STAFF, user_id=uuid4())
+    blocked_db = WorkOrderSession([order])
+    with pytest.raises(ValueError, match=r"Resolve blocked by scheduled visits: MT-00001-W1"):
+        await resolve_ticket(
+            blocked_db,  # type: ignore[arg-type]
+            item,  # type: ignore[arg-type]
+            actor,
+            note="Fixed",
+        )
+
+    resolved_db = WorkOrderSession([order], scalar=uuid4())
+    await resolve_ticket(
+        resolved_db,  # type: ignore[arg-type]
+        item,  # type: ignore[arg-type]
+        actor,
+        note="Fixed",
+        cancel_scheduled_visit_ids=[order.id],
+    )
+    assert order.scheduled_visit_status == "cancelled"
+    assert item.status == MaintStatus.RESOLVED

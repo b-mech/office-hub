@@ -11,6 +11,7 @@ TEMPLATES = {
     "tenant_triaged": "{brand}: {number} has been reviewed. Expected response: {timeframe}.",
     "tenant_scheduled": "{brand}: {number} is scheduled for {window}. Reply if this doesn't work.",
     "tenant_entry_notice": "{brand}: notice of entry for {unit} on {window}. {details}",
+    "tenant_visit_cancelled": "The visit scheduled for {date_time} is no longer needed.",
     "tenant_resolved_check": "{brand}: we marked {number} resolved. Reply YES if it's fixed, or tell us what's still wrong.",
     "tenant_autoclosed": "{brand}: {number} has been closed. Reply if the issue returns.",
     "tenant_no_open_ticket": "Thanks for your message. To report a maintenance issue, tap here: {intake_url}",

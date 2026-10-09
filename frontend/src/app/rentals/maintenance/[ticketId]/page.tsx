@@ -18,6 +18,8 @@ import {
   sendTicketMessage,
   ticketMoreAction,
   triageTicket,
+  updateScheduledVisit,
+  type ScheduledVisit,
   type TicketCategory,
   type TicketDetail,
   type TicketPriority,
@@ -85,6 +87,7 @@ function WorkOrderCard({ order, busy, onComplete }: { order: WorkOrder; busy: bo
     <div className="flex items-start justify-between gap-3"><div><p className="font-mono text-xs font-semibold text-[var(--ch-accent)]">{order.number}</p><h3 className="mt-1 text-sm font-semibold">{order.assignee_name}</h3></div><StatusPill tone={order.status === "completed" ? "good" : "neutral"}>{label(order.status)}</StatusPill></div>
     <p className="mt-2 text-sm text-[var(--ch-text-secondary)]">{order.scope}</p>
     <p className="mt-2 text-xs text-[var(--ch-text-muted)]">{formatDate(order.scheduled_start)}{order.scheduled_end ? ` – ${formatDate(order.scheduled_end)}` : ""}</p>
+    {order.scheduled_visit_status ? <p className={`mt-2 text-xs font-semibold ${order.scheduled_visit_status === "scheduled" ? "text-[var(--ch-warning-text)]" : "text-[var(--ch-text-muted)]"}`}>Visit: {label(order.scheduled_visit_status)}</p> : null}
     {!complete ? <button type="button" disabled={busy} onClick={() => void onComplete(order)} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 text-xs font-semibold disabled:opacity-50"><Check size={15} /> Complete work order</button> : null}
   </article>;
 }
@@ -101,7 +104,8 @@ export default function MaintenanceTicketPage() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [now, setNow] = useState(0);
+  const [visitPrompt, setVisitPrompt] = useState<ScheduledVisit | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const timelineEnd = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async (quiet = false) => {
@@ -136,8 +140,25 @@ export default function MaintenanceTicketPage() {
     const notes = window.prompt(`Completion notes for ${order.number}`, "Work completed") ?? "";
     if (!notes) return;
     let allComplete = false;
-    await mutate(async () => { const result = await completeWorkOrder(ticketId, order.id, { completion_notes: notes }); allComplete = result.all_work_orders_complete; }, false);
-    if (allComplete && window.confirm("All active work orders are complete. Mark resolved?")) setAction("resolve");
+    let futureVisit: ScheduledVisit | null = null;
+    await mutate(async () => {
+      const result = await completeWorkOrder(ticketId, order.id, { completion_notes: notes });
+      allComplete = result.all_work_orders_complete;
+      futureVisit = result.future_scheduled_visits[0] || null;
+    }, false);
+    if (futureVisit) {
+      setVisitPrompt(futureVisit);
+    } else if (allComplete && window.confirm("All active work orders are complete. Mark resolved?")) {
+      setAction("resolve");
+    }
+  }
+
+  async function dispositionVisit(status: "completed" | "cancelled") {
+    if (!visitPrompt) return;
+    await mutate(async () => {
+      await updateScheduledVisit(ticketId, visitPrompt.work_order_id, status);
+      setVisitPrompt(null);
+    }, false);
   }
 
   if (loading && !ticket) return <main className="grid min-h-[70vh] place-items-center text-sm text-[var(--ch-text-muted)]"><RefreshCw className="animate-spin" /> Loading ticket…</main>;
@@ -159,7 +180,8 @@ export default function MaintenanceTicketPage() {
         </header>
 
         {error ? <p className="mt-3 rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] p-3 text-sm text-[var(--ch-error-text)]">{error}</p> : null}
-        {action ? <ActionPanel action={action} ticket={ticket} busy={busy} onClose={() => setAction(null)} onMutate={mutate} /> : null}
+        {visitPrompt ? <section className="mt-3 rounded-2xl border border-[var(--ch-warning-border)] bg-[var(--ch-warning-bg)] p-4"><h2 className="font-semibold text-[var(--ch-warning-text)]">What happened to the scheduled visit?</h2><p className="mt-1 text-sm text-[var(--ch-text-secondary)]">{visitPrompt.work_order_number} was completed before its future visit on {formatDate(visitPrompt.scheduled_start)}. Mark that visit completed too, or cancel it. Cancelling sends the tenant a cancellation text if an entry notice was sent.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => void dispositionVisit("completed")} className="min-h-10 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 text-sm font-semibold">Mark visit completed</button><button type="button" disabled={busy} onClick={() => void dispositionVisit("cancelled")} className="min-h-10 rounded-xl bg-[var(--ch-error-text)] px-3 text-sm font-semibold text-[var(--ch-accent-text)]">Cancel visit</button></div></section> : null}
+        {action ? <ActionPanel action={action} ticket={ticket} busy={busy} now={now} onClose={() => setAction(null)} onMutate={mutate} /> : null}
 
         <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <section className="flex min-h-[65vh] flex-col overflow-hidden rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface-muted)]">
@@ -185,18 +207,19 @@ export default function MaintenanceTicketPage() {
   );
 }
 
-function ActionPanel({ action, ticket, busy, onClose, onMutate }: { action: Exclude<ActionName, null>; ticket: TicketDetail; busy: boolean; onClose: () => void; onMutate: (task: () => Promise<unknown>, closeAction?: boolean) => Promise<void> }) {
+function ActionPanel({ action, ticket, busy, now, onClose, onMutate }: { action: Exclude<ActionName, null>; ticket: TicketDetail; busy: boolean; now: number; onClose: () => void; onMutate: (task: () => Promise<unknown>, closeAction?: boolean) => Promise<void> }) {
   const field = "min-h-11 w-full rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 text-sm";
   const categories: TicketCategory[] = ["plumbing", "electrical", "heating", "cooling", "appliance", "doors_locks_windows", "pests", "exterior_grounds", "structural", "water_leak", "no_heat", "gas_smell", "no_power", "security", "other"];
   const priorities: TicketPriority[] = ["emergency", "urgent", "routine", "low"];
   const submitClass = "min-h-11 rounded-xl bg-[var(--ch-accent)] px-4 text-sm font-semibold text-[var(--ch-accent-text)] disabled:opacity-40";
+  const blockingVisits = ticket.work_orders.filter((order) => order.scheduled_visit_status === "scheduled" && order.scheduled_start && new Date(order.scheduled_start).getTime() > now);
 
   function form(task: (data: FormData) => Promise<unknown>) { return (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const data = new FormData(event.currentTarget); void onMutate(() => task(data)); }; }
   return <section className="mt-3 rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4"><div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">{label(action)} ticket</h2><button type="button" aria-label="Close action" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--ch-border)]"><X size={16} /></button></div>
     {action === "triage" ? <form onSubmit={form((data) => triageTicket(ticket.id, { category: data.get("category"), priority: data.get("priority"), is_emergency: data.get("emergency") === "on", title: data.get("title"), staff_summary: data.get("summary") || null }))} className="grid gap-3 sm:grid-cols-2"><input name="title" required defaultValue={ticket.title} className={`${field} sm:col-span-2`} /><select name="category" defaultValue={ticket.category || "other"} className={field}>{categories.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select><select name="priority" defaultValue={ticket.priority || "routine"} className={field}>{priorities.map((item) => <option key={item} value={item}>{label(item)}</option>)}</select><textarea name="summary" placeholder="Internal triage summary" className={`${field} min-h-24 py-3 sm:col-span-2`} /><label className="flex items-center gap-2 text-sm"><input name="emergency" type="checkbox" defaultChecked={ticket.is_emergency} /> Emergency</label><button disabled={busy} className={`${submitClass} sm:justify-self-end`}>Save triage</button></form> : null}
     {action === "assign" ? <form onSubmit={form((data) => assignTicket(ticket.id, { assignee_type: data.get("type"), scope: data.get("scope"), assignee_user_id: data.get("type") === "staff" ? data.get("assignee") : null, vendor_id: data.get("type") === "vendor" ? data.get("assignee") : null, cost_estimate: data.get("cost") || null }))} className="grid gap-3 sm:grid-cols-2"><select name="type" defaultValue="staff" className={field}><option value="staff">Staff</option><option value="vendor">Vendor</option></select><select name="assignee" required className={field}><option value="">Choose assignee</option><optgroup label="Staff">{ticket.staff_options.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup><optgroup label="Vendors">{ticket.vendor_options.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup></select><textarea name="scope" required placeholder="Work scope" className={`${field} min-h-24 py-3 sm:col-span-2`} /><input name="cost" type="number" min="0" step="0.01" placeholder="Estimated cost" className={field} /><button disabled={busy} className={`${submitClass} sm:justify-self-end`}>Create work order</button></form> : null}
     {action === "schedule" ? <form onSubmit={form((data) => scheduleTicket(ticket.id, { work_order_id: data.get("order"), start: new Date(String(data.get("start"))).toISOString(), end: new Date(String(data.get("end"))).toISOString(), admin_override_reason: data.get("override") || null }))} className="grid gap-3 sm:grid-cols-2"><select name="order" required className={`${field} sm:col-span-2`}><option value="">Choose work order</option>{ticket.work_orders.filter((item) => !["completed", "cancelled"].includes(item.status)).map((item) => <option key={item.id} value={item.id}>{item.number} · {item.assignee_name}</option>)}</select><label className="text-xs text-[var(--ch-text-muted)]">Start<input name="start" type="datetime-local" required className={`mt-1 ${field}`} /></label><label className="text-xs text-[var(--ch-text-muted)]">End<input name="end" type="datetime-local" required className={`mt-1 ${field}`} /></label><textarea name="override" placeholder="Admin override reason, only if entry notice is short" className={`${field} min-h-20 py-3 sm:col-span-2`} /><button disabled={busy} className={`${submitClass} sm:col-start-2 sm:justify-self-end`}>Validate & schedule</button></form> : null}
-    {action === "resolve" ? <form onSubmit={form((data) => resolveTicket(ticket.id, String(data.get("note"))))} className="grid gap-3"><textarea name="note" required placeholder="Resolution note" className={`${field} min-h-24 py-3`} /><p className="text-xs text-[var(--ch-text-muted)]">This marks the ticket resolved. It does not block follow-up messages.</p><button disabled={busy} className={`${submitClass} justify-self-end`}>Mark resolved</button></form> : null}
+    {action === "resolve" ? <form onSubmit={form((data) => resolveTicket(ticket.id, String(data.get("note")), data.getAll("cancel_visit").map(String)))} className="grid gap-3"><textarea name="note" required placeholder="Resolution note" className={`${field} min-h-24 py-3`} />{blockingVisits.length ? <fieldset className="rounded-xl border border-[var(--ch-warning-border)] bg-[var(--ch-warning-bg)] p-3"><legend className="px-1 text-sm font-semibold text-[var(--ch-warning-text)]">Scheduled visits blocking resolve</legend><p className="mb-2 text-xs text-[var(--ch-text-secondary)]">Confirm each cancellation to resolve. If an entry notice was sent, the tenant will receive a cancellation text.</p><div className="space-y-2">{blockingVisits.map((order) => <label key={order.id} className="flex items-start gap-2 text-sm"><input type="checkbox" name="cancel_visit" value={order.id} required className="mt-1" /><span><strong>{order.number}</strong><br /><span className="text-xs text-[var(--ch-text-muted)]">{formatDate(order.scheduled_start)}{order.scheduled_end ? ` – ${formatDate(order.scheduled_end)}` : ""}</span></span></label>)}</div></fieldset> : <p className="text-xs text-[var(--ch-text-muted)]">This marks the ticket resolved. It does not block follow-up messages.</p>}<button disabled={busy} className={`${submitClass} justify-self-end`}>{blockingVisits.length ? "Cancel visits & mark resolved" : "Mark resolved"}</button></form> : null}
     {action === "more" ? <form onSubmit={form((data) => ticketMoreAction(ticket.id, { action: data.get("action"), reason: data.get("reason") || null, canonical_ticket_id: data.get("canonical") || null }))} className="grid gap-3 sm:grid-cols-2"><select name="action" className={field}><option value="toggle_chargeback">Toggle chargeback flag</option><option value="cancel">Cancel ticket</option><option value="duplicate">Mark duplicate</option>{["closed", "cancelled", "duplicate"].includes(ticket.status) ? <option value="reopen">Reopen (admin)</option> : null}</select><input name="canonical" placeholder="Canonical ticket UUID (duplicate only)" className={field} /><textarea name="reason" placeholder="Reason or note" className={`${field} min-h-20 py-3 sm:col-span-2`} /><button disabled={busy} className={`${submitClass} sm:col-start-2 sm:justify-self-end`}>Apply action</button></form> : null}
   </section>;
 }

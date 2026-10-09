@@ -38,8 +38,13 @@ class CompleteWorkOrderRequest(BaseModel):
     cost_actual: Decimal | None = Field(default=None, ge=0)
 
 
+class ScheduledVisitRequest(BaseModel):
+    status: Literal["completed", "cancelled"]
+
+
 class ResolveRequest(BaseModel):
     note: str = Field(min_length=1, max_length=4000)
+    cancel_scheduled_visit_ids: list[UUID] = Field(default_factory=list)
 
 
 class MoreActionRequest(BaseModel):

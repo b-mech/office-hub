@@ -74,6 +74,7 @@ from app.services.maintenance.workspace import (
     resolve_ticket,
     retry_message,
     schedule_work,
+    update_scheduled_visit,
     ticket_detail_view,
 )
 from app.schemas.maintenance import (
@@ -82,6 +83,7 @@ from app.schemas.maintenance import (
     MoreActionRequest,
     ResolveRequest,
     ScheduleRequest,
+    ScheduledVisitRequest,
     TriageRequest,
 )
 
@@ -698,11 +700,11 @@ async def maintenance_complete_work_order(
     data: CompleteWorkOrderRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> dict[str, bool]:
+) -> dict[str, object]:
     user = _staff(request, "assign")
     ticket = await _ticket_or_404(db, ticket_id)
     try:
-        all_complete = await complete_order(
+        all_complete, future_visits = await complete_order(
             db,
             ticket,
             actor_for(user),
@@ -713,7 +715,36 @@ async def maintenance_complete_work_order(
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(422, str(exc)) from exc
-    return {"ok": True, "all_work_orders_complete": all_complete}
+    return {
+        "ok": True,
+        "all_work_orders_complete": all_complete,
+        "future_scheduled_visits": future_visits,
+    }
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/work-orders/{work_order_id}/scheduled-visit")
+async def maintenance_update_scheduled_visit(
+    ticket_id: UUID,
+    work_order_id: UUID,
+    data: ScheduledVisitRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        await update_scheduled_visit(
+            db,
+            ticket,
+            actor_for(user),
+            work_order_id=work_order_id,
+            status=data.status,
+        )
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
 
 
 @router.post("/api/maintenance/tickets/{ticket_id}/resolve")
@@ -726,7 +757,7 @@ async def maintenance_resolve(
     user = _staff(request, "triage")
     ticket = await _ticket_or_404(db, ticket_id)
     try:
-        await resolve_ticket(db, ticket, actor_for(user), note=data.note)
+        await resolve_ticket(db, ticket, actor_for(user), **data.model_dump())
         await _commit_workspace(db)
     except ValueError as exc:
         await db.rollback()

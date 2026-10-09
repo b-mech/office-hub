@@ -240,6 +240,7 @@ class MaintWorkOrder(Base):
     scope: Mapped[str] = mapped_column(Text, nullable=False)
     scheduled_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scheduled_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_visit_status: Mapped[str | None] = mapped_column(Text)
     decline_reason: Mapped[str | None] = mapped_column(Text)
     access_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -258,6 +259,10 @@ class MaintWorkOrder(Base):
     __table_args__ = (
         CheckConstraint("assignee_type IN ('staff','vendor')", name="ck_maint_work_orders_assignee_type"),
         CheckConstraint("cost_class IS NULL OR cost_class IN ('repair','capital')", name="ck_maint_work_orders_cost_class"),
+        CheckConstraint(
+            "scheduled_visit_status IS NULL OR scheduled_visit_status IN ('scheduled','completed','cancelled')",
+            name="ck_maint_work_orders_scheduled_visit_status",
+        ),
         CheckConstraint(
             "(assignee_type = 'staff' AND assignee_user_id IS NOT NULL AND vendor_id IS NULL) OR "
             "(assignee_type = 'vendor' AND vendor_id IS NOT NULL AND assignee_user_id IS NULL)",
