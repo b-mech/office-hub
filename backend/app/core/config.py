@@ -2,7 +2,7 @@ import os
 from datetime import time
 from uuid import UUID
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -156,6 +156,17 @@ class Settings(BaseSettings):
     entry_window_start: time = Field(default=time(8, 0), alias="ENTRY_WINDOW_START")
     entry_window_end: time = Field(default=time(20, 0), alias="ENTRY_WINDOW_END")
     celery_task_always_eager: bool = Field(default=False, alias="CELERY_TASK_ALWAYS_EAGER")
+
+    @model_validator(mode="after")
+    def validate_ringcentral_verification_token(self) -> "Settings":
+        if self.sms_provider.casefold() != "ringcentral":
+            return self
+        token_length = len(self.ringcentral_webhook_validation_token.get_secret_value())
+        if not 1 <= token_length <= 32:
+            raise ValueError(
+                "RINGCENTRAL_WEBHOOK_VALIDATION_TOKEN must be between 1 and 32 characters"
+            )
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -7,8 +7,9 @@ from uuid import uuid4
 
 import pytest
 import httpx
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
+from app.core.config import Settings
 from app.core.config import settings
 from app.main import app
 from app.models.maintenance import MaintStatus
@@ -51,6 +52,20 @@ def test_official_turnstile_test_keys_are_development_defaults(monkeypatch: pyte
     monkeypatch.setattr(settings, "turnstile_secret_key", "")
     assert settings.effective_turnstile_site_key == "1x00000000000000000000AA"
     assert settings.effective_turnstile_secret_key == "1x0000000000000000000000000000000AA"
+
+
+@pytest.mark.parametrize("token", ["", "a" * 33])
+def test_invalid_ringcentral_verification_token_length_fails_startup(
+    monkeypatch: pytest.MonkeyPatch,
+    token: str,
+) -> None:
+    monkeypatch.setenv("SMS_PROVIDER", "ringcentral")
+    monkeypatch.setenv("RINGCENTRAL_WEBHOOK_VALIDATION_TOKEN", token)
+    with pytest.raises(
+        ValidationError,
+        match="RINGCENTRAL_WEBHOOK_VALIDATION_TOKEN must be between 1 and 32 characters",
+    ):
+        Settings()
 
 
 @pytest.mark.asyncio
@@ -216,7 +231,7 @@ async def test_ringcentral_provider_exposes_secret_free_http_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ringcentral_subscription_uses_sms_filter_and_validation_token(
+async def test_ringcentral_subscription_uses_sms_filter_and_verification_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -250,11 +265,11 @@ async def test_ringcentral_subscription_uses_sms_filter_and_validation_token(
         "/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS"
     ]
     assert payload["deliveryMode"]["verificationToken"] == "validation-secret"
-    assert payload["deliveryMode"]["validationToken"] == "validation-secret"
+    assert "validationToken" not in payload["deliveryMode"]
 
 
 @pytest.mark.asyncio
-async def test_ringcentral_subscription_update_reuses_id_and_sets_validation_token() -> None:
+async def test_ringcentral_subscription_update_reuses_id_and_sets_verification_token() -> None:
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -294,13 +309,13 @@ async def test_ringcentral_subscription_update_reuses_id_and_sets_validation_tok
     assert payload["deliveryMode"] == {
         "transportType": "WebHook",
         "address": "https://maintenance.invalid/api/webhooks/ringcentral/sms",
-        "validationToken": "validation-secret",
         "verificationToken": "validation-secret",
     }
     assert not any(
         request.method == "POST" and request.url.path == "/restapi/v1.0/subscription"
         for request in requests
     )
+    assert not any(request.url.path.endswith("/renew") for request in requests)
 
 
 @pytest.mark.asyncio

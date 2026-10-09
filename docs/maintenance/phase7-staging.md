@@ -60,6 +60,8 @@ Set `STAGING_SLACK_CHANNEL_ID` to the dedicated test channel ID. Set `STAGING_SM
 
 The designated production RingCentral SMS sending number is `+12042598093`. Staging uses this sender during the approved phone-flow test; `PRIVI_EMERGENCY_PHONE` remains a separate tenant-facing voice-line decision.
 
+Set `RINGCENTRAL_WEBHOOK_VALIDATION_TOKEN` to a 1–32 character value; use a randomly generated 32-character alphanumeric token. RingCentral rejects longer values for `deliveryMode.verificationToken`, and Office Hub refuses to start with an empty or overlength token when RingCentral is selected.
+
 Once the public hostname and webhook bypass exist, create the RingCentral subscription explicitly with:
 
 ```sh
@@ -70,4 +72,8 @@ set +a
 .venv/bin/python scripts/create_ringcentral_sms_subscription.py
 ```
 
+Run the create command once. Its request sends the configured token only as `deliveryMode.verificationToken`; `validationToken` is the separate callback challenge header and is not a subscription-token property. Creation must complete RingCentral's callback challenge through Cloudflare before it returns an active subscription.
+
 This creates an additional instant-SMS event subscription for the authenticated extension; it does not move the phone number or stop RingCentral clients from receiving messages. Any other active subscription may also receive the same event, so using the production number can cause both production and staging to ingest the same inbound text. Prefer a dedicated staging number/extension. With a shared number, keep the staging allowlist narrow: non-allowlisted inbound messages can still be recorded in staging, but all attempted staging replies are dropped.
+
+Before treating the subscription as ready, send a real SMS from the allowlisted test phone. Confirm the webhook request carries the matching `Verification-Token`, returns HTTP 200, and persists the inbound provider message before the reconciliation task runs. A later reconciliation result must report the message as existing with `ingested: 0`. Renewal uses a full `PUT` containing `deliveryMode.verificationToken` and retains the same subscription ID; it must not call RingCentral's `/renew` endpoint.

@@ -322,7 +322,6 @@ class RingCentralProvider:
                     "deliveryMode": {
                         "transportType": "WebHook",
                         "address": address,
-                        "validationToken": validation_token,
                         "verificationToken": validation_token,
                     },
                     "expiresIn": expires_in,
@@ -356,7 +355,6 @@ class RingCentralProvider:
                     "deliveryMode": {
                         "transportType": "WebHook",
                         "address": address,
-                        "validationToken": validation_token,
                         "verificationToken": validation_token,
                     },
                 },
