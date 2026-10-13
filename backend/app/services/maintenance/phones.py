@@ -62,6 +62,13 @@ def normalize_phone(value: str, default_region: str = "CA") -> str:
     return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
 
+def format_phone(value: str, default_region: str = "CA") -> str:
+    """Return a tenant-readable national phone number."""
+    normalized = normalize_phone(value, default_region)
+    parsed = phonenumbers.parse(normalized, default_region)
+    return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.NATIONAL)
+
+
 async def resolve_phone(db: AsyncSession, e164: str) -> list[PartyMatch]:
     normalized = normalize_phone(e164)
     matches: list[PartyMatch] = []

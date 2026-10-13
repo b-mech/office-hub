@@ -84,6 +84,15 @@ export type ScheduledVisit = {
   scheduled_end: string | null;
 };
 
+export type ScheduleTicketRequest = {
+  work_order_id: string;
+  start: string;
+  end: string;
+  access_basis: "routine" | "tenant_consent" | "emergency";
+  consent_evidence: string | null;
+  reason: string | null;
+};
+
 export type TicketDetail = TicketListItem & {
   description: string;
   emergency_acked_at: string | null;
@@ -130,6 +139,7 @@ export const retryTicketMessage = (ticketId: string, messageId: string) => jsonR
 export const triageTicket = (ticketId: string, body: object) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/triage`, "POST", body);
 export const assignTicket = (ticketId: string, body: object) => jsonRequest<{ ok: true; work_order_id: string }>(`/api/maintenance/tickets/${ticketId}/assign`, "POST", body);
 export const scheduleTicket = (ticketId: string, body: object) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/schedule`, "POST", body);
+export const previewScheduledVisit = (ticketId: string, body: ScheduleTicketRequest) => jsonRequest<{ message: string }>(`/api/maintenance/tickets/${ticketId}/schedule-preview`, "POST", body);
 export const completeWorkOrder = (ticketId: string, workOrderId: string, body: object) => jsonRequest<{ ok: true; all_work_orders_complete: boolean; future_scheduled_visits: ScheduledVisit[] }>(`/api/maintenance/tickets/${ticketId}/work-orders/${workOrderId}/complete`, "POST", body);
 export const updateScheduledVisit = (ticketId: string, workOrderId: string, status: "completed" | "cancelled") => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/work-orders/${workOrderId}/scheduled-visit`, "POST", { status });
 export const resolveTicket = (ticketId: string, note: string, cancelScheduledVisitIds: string[] = []) => jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/resolve`, "POST", { note, cancel_scheduled_visit_ids: cancelScheduledVisitIds });

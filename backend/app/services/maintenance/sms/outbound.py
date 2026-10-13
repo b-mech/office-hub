@@ -124,6 +124,7 @@ async def queue_sms(
     actor_party: MaintParty = MaintParty.SYSTEM,
     actor_user_id: UUID | None = None,
     now: datetime | None = None,
+    append_signature: bool = True,
 ) -> MaintSmsMessage:
     if await is_opted_out(db, to):
         raise SmsOptedOutError("Recipient has opted out of text messages")
@@ -147,7 +148,7 @@ async def queue_sms(
                 MaintSmsMessage.status.notin_(["cancelled", "failed"]),
             ).limit(1)
         )
-        if recent is None and settings.sms_signature.strip():
+        if append_signature and recent is None and settings.sms_signature.strip():
             outgoing = f"{outgoing} {settings.sms_signature.strip()}"
         if settings.sms_relay_hold_seconds:
             hold_until = now + timedelta(seconds=settings.sms_relay_hold_seconds)

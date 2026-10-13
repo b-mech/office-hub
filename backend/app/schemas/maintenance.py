@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.maintenance import MaintCategory, MaintPriority
 
@@ -32,6 +32,15 @@ class ScheduleRequest(BaseModel):
     end: datetime
     access_basis: Literal["routine", "tenant_consent", "emergency"] = "routine"
     consent_evidence: str | None = Field(default=None, max_length=2000)
+    reason: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_reason(self) -> "ScheduleRequest":
+        if self.access_basis != "emergency" and not (self.reason and self.reason.strip()):
+            raise ValueError("Reason for entry is required")
+        if self.reason is not None:
+            self.reason = self.reason.strip() or None
+        return self
 
 
 class CompleteWorkOrderRequest(BaseModel):

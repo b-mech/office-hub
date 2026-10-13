@@ -522,7 +522,7 @@ def test_quiet_hours_defer_only_during_window(monkeypatch: pytest.MonkeyPatch) -
     assert quiet_hours_release(datetime(2026, 10, 2, 17, 0, tzinfo=timezone.utc)) is None
 
 
-def test_tenant_intake_link_is_friendly_and_has_one_brand_signature(
+def test_tenant_intake_link_has_one_brand_prefix_and_no_suffix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
@@ -534,10 +534,34 @@ def test_tenant_intake_link_is_friendly_and_has_one_brand_signature(
     )
 
     assert message == (
-        "Thanks for your message. To report a maintenance issue, tap here: "
-        "https://maintenance.invalid/r/test-token — Connect Properties"
+        "Connect Properties: Thanks for your message. To report a maintenance issue, tap here: "
+        "https://maintenance.invalid/r/test-token"
     )
     assert message.count("Connect Properties") == 1
+
+
+@pytest.mark.parametrize(
+    "template, values",
+    [
+        ("tenant_intake_confirm", {"number": "MT-00001", "unit": "Unit A"}),
+        ("tenant_triaged", {"number": "MT-00001", "timeframe": "within 7 days"}),
+        ("tenant_scheduled", {"number": "MT-00001", "window": "Sat Oct 11 at 9:30 AM"}),
+        ("tenant_resolved_check", {"number": "MT-00001"}),
+        ("tenant_autoclosed", {"number": "MT-00001"}),
+    ],
+)
+def test_all_tenant_templates_omit_internal_ids_and_suffix(
+    monkeypatch: pytest.MonkeyPatch,
+    template: str,
+    values: dict[str, str],
+) -> None:
+    monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
+    monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
+    message = render_template(template, **values)
+    assert message.startswith("Connect Properties: ")
+    assert message.count("Connect Properties") == 1
+    assert "MT-00001" not in message
+    assert "— Connect Properties" not in message
 
 
 class ScalarSequenceSession:

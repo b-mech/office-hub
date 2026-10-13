@@ -71,6 +71,7 @@ from app.services.maintenance.workspace import (
     complete_order,
     list_ticket_views,
     post_message,
+    preview_schedule_work,
     resolve_ticket,
     retry_message,
     schedule_work,
@@ -691,6 +692,22 @@ async def maintenance_schedule(
         await db.rollback()
         raise HTTPException(422, str(exc)) from exc
     return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/schedule-preview")
+async def maintenance_schedule_preview(
+    ticket_id: UUID,
+    data: ScheduleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        message = await preview_schedule_work(db, ticket, **data.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"message": message}
 
 
 @router.post("/api/maintenance/tickets/{ticket_id}/work-orders/{work_order_id}/complete")

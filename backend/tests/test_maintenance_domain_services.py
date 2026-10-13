@@ -27,6 +27,8 @@ from app.services.maintenance.work_orders import (
 )
 from app.services.maintenance.workspace import (
     _future_scheduled_visits,
+    post_message,
+    preview_schedule_work,
     resolve_ticket,
     schedule_work,
     set_scheduled_visit_status,
@@ -84,6 +86,7 @@ def ticket(status: MaintStatus = MaintStatus.TRIAGED, *, emergency: bool = False
         status=status,
         is_emergency=emergency,
         entry_permission="denied",
+        entry_notes=None,
         priority=MaintPriority.EMERGENCY if emergency else MaintPriority.ROUTINE,
         updated_at=NOW,
         triaged_at=NOW,
@@ -171,6 +174,7 @@ async def test_schedule_enforces_entry_notice_in_orchestration(monkeypatch: pyte
         actor,
         start,
         start + timedelta(hours=2),
+        reason="inspect the boiler",
         now=NOW,
     )  # type: ignore[arg-type]
     assert order.status == MaintWorkOrderStatus.SCHEDULED
@@ -188,6 +192,7 @@ async def test_schedule_enforces_entry_notice_in_orchestration(monkeypatch: pyte
             actor,
             NOW + timedelta(hours=1),
             NOW + timedelta(hours=2),
+            reason="inspect the boiler",
             now=NOW,
         )  # type: ignore[arg-type]
 
@@ -214,6 +219,7 @@ async def test_invalid_visit_never_queues_entry_notice(monkeypatch: pytest.Monke
             work_order_id=order.id,
             start=start,
             end=start + timedelta(days=30),
+            reason="repair the kitchen faucet",
             now=NOW,
         )
 
@@ -235,8 +241,8 @@ def schedulable_order(ticket_id: object) -> SimpleNamespace:
     )
 
 
-async def stub_location(*args: object, **kwargs: object) -> tuple[str, str]:
-    return "Test Property", "Unit A"
+async def stub_address(*args: object, **kwargs: object) -> tuple[str, str]:
+    return "10 Test Street", "Unit A"
 
 
 @pytest.mark.asyncio
@@ -246,7 +252,7 @@ async def test_routine_schedule_validates_then_sends_exact_entry_notice(
     monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
     monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
     monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
-    monkeypatch.setattr("app.services.maintenance.workspace._ticket_location", stub_location)
+    monkeypatch.setattr("app.services.maintenance.workspace._ticket_address_and_unit", stub_address)
     item = ticket(MaintStatus.ASSIGNED)
     item.reporter_phone_e164 = "+12045550100"
     item.entry_notes = "Fuidi"
@@ -268,15 +274,56 @@ async def test_routine_schedule_validates_then_sends_exact_entry_notice(
         start=start,
         end=start + timedelta(hours=2),
         access_basis="routine",
+        reason="repair the kitchen faucet",
         now=NOW,
     )
 
     assert queued[0]["body"] == (
-        "Connect Properties: notice of entry for Unit A on Oct 3, 11:00 AM–1:00 PM. "
-        "Fuidi — Connect Properties"
+        "Connect Properties: Notice of entry to 10 Test Street, Unit A on Sat Oct 3 between "
+        "11:00 AM and 1:00 PM to repair the kitchen faucet. Reply with any questions."
     )
+    assert "Fuidi" not in str(queued[0]["body"])
     assert any(value.event_type == "entry_notice_sent" for value in db.added)
     assert not any(value.event_type == "entry_policy_exemption" for value in db.added)
+
+
+@pytest.mark.asyncio
+async def test_schedule_preview_requires_staff_reason_and_has_no_side_effects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
+    monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
+    monkeypatch.setattr("app.services.maintenance.workspace._ticket_address_and_unit", stub_address)
+    item = ticket(MaintStatus.ASSIGNED)
+    order = schedulable_order(item.id)
+    db = FakeSession(objects={MaintWorkOrder: order})
+    start = NOW + timedelta(hours=25)
+
+    with pytest.raises(EntryNoticeError, match="Reason for entry is required"):
+        await preview_schedule_work(
+            db,  # type: ignore[arg-type]
+            item,  # type: ignore[arg-type]
+            work_order_id=order.id,
+            start=start,
+            end=start + timedelta(hours=2),
+            reason="   ",
+            now=NOW,
+        )
+
+    message = await preview_schedule_work(
+        db,  # type: ignore[arg-type]
+        item,  # type: ignore[arg-type]
+        work_order_id=order.id,
+        start=start,
+        end=start + timedelta(hours=2),
+        reason="repair the kitchen faucet",
+        now=NOW,
+    )
+    assert message == (
+        "Connect Properties: Notice of entry to 10 Test Street, Unit A on Sat Oct 3 between "
+        "11:00 AM and 1:00 PM to repair the kitchen faucet. Reply with any questions."
+    )
+    assert db.added == []
 
 
 @pytest.mark.asyncio
@@ -286,7 +333,7 @@ async def test_tenant_consent_requires_evidence_and_records_actor_and_confirmati
     monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
     monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
     monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
-    monkeypatch.setattr("app.services.maintenance.workspace._ticket_location", stub_location)
+    monkeypatch.setattr("app.services.maintenance.workspace._ticket_address_and_unit", stub_address)
     item = ticket(MaintStatus.ASSIGNED)
     item.reporter_phone_e164 = "+12045550100"
     order = schedulable_order(item.id)
@@ -309,6 +356,7 @@ async def test_tenant_consent_requires_evidence_and_records_actor_and_confirmati
             start=start,
             end=start + timedelta(hours=1),
             access_basis="tenant_consent",
+            reason="repair the kitchen faucet",
             now=NOW,
         )
 
@@ -322,12 +370,13 @@ async def test_tenant_consent_requires_evidence_and_records_actor_and_confirmati
         end=start + timedelta(hours=1),
         access_basis="tenant_consent",
         consent_evidence=evidence,
+        reason="repair the kitchen faucet",
         now=NOW,
     )
 
     assert queued[0]["body"] == (
-        "Connect Properties: confirming your requested maintenance visit for Unit A on "
-        "Oct 2, 12:00 PM–1:00 PM. Reply if this no longer works. — Connect Properties"
+        "Connect Properties: Confirming the visit you agreed to at 10 Test Street, Unit A on "
+        "Fri Oct 2, 12:00 PM–1:00 PM, to repair the kitchen faucet. Reply if this no longer works."
     )
     exemption = next(value for value in db.added if value.event_type == "entry_policy_exemption")
     assert exemption.actor_user_id == actor.user_id
@@ -343,7 +392,8 @@ async def test_emergency_schedule_skips_window_and_sends_on_the_way_text(
     monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
     monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
     monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
-    monkeypatch.setattr("app.services.maintenance.workspace._ticket_location", stub_location)
+    monkeypatch.setattr(settings, "privi_emergency_phone", "+12042598093")
+    monkeypatch.setattr("app.services.maintenance.workspace._ticket_address_and_unit", stub_address)
     item = ticket(MaintStatus.ASSIGNED, emergency=True)
     item.reporter_phone_e164 = "+12045550100"
     order = schedulable_order(item.id)
@@ -369,14 +419,43 @@ async def test_emergency_schedule_skips_window_and_sends_on_the_way_text(
     )
 
     assert queued[0]["body"] == (
-        "Connect Properties: emergency maintenance is on the way to Unit A for MT-00001. "
-        "Expected visit: Oct 3, 2:00 AM–3:00 AM. — Connect Properties"
+        "Connect Properties: A technician is on the way to 10 Test Street, Unit A for your "
+        "emergency request. Reply or call (204) 259-8093 if anything changes."
     )
     assert queued[0]["emergency"] is True
     exemption = next(value for value in db.added if value.event_type == "entry_policy_exemption")
     assert exemption.actor_user_id == actor.user_id
     assert exemption.payload["access_basis"] == "emergency"
     assert any(value.event_type == "emergency_on_way_sent" for value in db.added)
+
+
+@pytest.mark.asyncio
+async def test_staff_composer_uses_prefix_without_signature(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
+    monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
+    item = ticket(MaintStatus.ASSIGNED)
+    item.reporter_phone_e164 = "+12045550100"
+    db = FakeSession()
+    queued: dict[str, object] = {}
+
+    async def queue(*args: object, **kwargs: object) -> SimpleNamespace:
+        queued.update(kwargs)
+        return SimpleNamespace(id=uuid4())
+
+    monkeypatch.setattr("app.services.maintenance.workspace.queue_sms", queue)
+    await post_message(
+        db,  # type: ignore[arg-type]
+        item,  # type: ignore[arg-type]
+        ActorContext(MaintParty.STAFF, user_id=uuid4()),
+        target="tenant",
+        body="We can come Tuesday.",
+        work_order_id=None,
+        files=[],
+    )
+    assert queued["body"] == "Connect Properties: We can come Tuesday."
+    assert queued["append_signature"] is False
 
 
 @pytest.mark.asyncio
@@ -409,6 +488,7 @@ async def test_vendor_assignment_queues_offer_in_same_session(monkeypatch: pytes
     monkeypatch.setattr("app.services.maintenance.work_orders.create_work_order", create)
     monkeypatch.setattr("app.services.maintenance.work_orders.queue_sms", queue)
     item = ticket(MaintStatus.TRIAGED)
+    item.entry_notes = "Dog in the house; call before coming"
     result = await assign_vendor_work_order(
         db,  # type: ignore[arg-type]
         item,  # type: ignore[arg-type]
@@ -420,6 +500,7 @@ async def test_vendor_assignment_queues_offer_in_same_session(monkeypatch: pytes
     assert queued["to"] == "+12045550123"
     assert queued["ticket_id"] == item.id
     assert queued["work_order_id"] == work_order.id
+    assert "Entry notes: Dog in the house; call before coming." in str(queued["body"])
     assert "https://maintenance.invalid/w/raw-one-time-token" in str(queued["body"])
 
 
@@ -445,7 +526,9 @@ async def test_cancelling_noticed_visit_queues_exact_tenant_text_and_thread_mess
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
+    monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
     monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
+    monkeypatch.setattr("app.services.maintenance.workspace._ticket_address_and_unit", stub_address)
     ticket_id = uuid4()
     order_id = uuid4()
     item = ticket(MaintStatus.SCHEDULED)
@@ -486,7 +569,8 @@ async def test_cancelling_noticed_visit_queues_exact_tenant_text_and_thread_mess
 
     assert order.scheduled_visit_status == "cancelled"
     assert queued["body"] == (
-        "The visit scheduled for Oct 11, 9:27 AM is no longer needed. — Connect Properties"
+        "Connect Properties: The visit to 10 Test Street, Unit A scheduled for Sun Oct 11 at "
+        "9:27 AM is no longer needed."
     )
     assert queued["ticket_id"] == ticket_id
     assert queued["work_order_id"] == order_id

@@ -28,6 +28,7 @@ from app.models.maintenance import (
 )
 from app.models.rentals import RentalProperty, RentalUnit
 from app.services.maintenance.media import store_attachment, validate_file_count
+from app.services.maintenance.phones import format_phone
 from app.services.maintenance.sms.outbound import (
     SmsOptedOutError,
     cancel_held_sms,
@@ -36,7 +37,7 @@ from app.services.maintenance.sms.outbound import (
     retry_failed_sms,
     sms_failure_reason,
 )
-from app.services.maintenance.sms.templates import render_template
+from app.services.maintenance.sms.templates import render_template, render_tenant_reply
 from app.services.maintenance.state_machine import ActorContext, transition
 from app.services.maintenance.tickets import (
     acknowledge_emergency,
@@ -50,6 +51,7 @@ from app.services.maintenance.work_orders import (
     create_work_order,
     is_future_scheduled_visit,
     schedule_work_order,
+    validate_work_order_schedule,
 )
 
 
@@ -128,6 +130,19 @@ async def _ticket_location(
     property_label = (prop.group_name or prop.street_address) if prop else "Unknown property"
     unit_label = unit.unit_label if unit and unit.unit_label else "Main building"
     return property_label, unit_label
+
+
+async def _ticket_address_and_unit(
+    db: AsyncSession,
+    ticket: MaintTicket,
+) -> tuple[str, str]:
+    prop = await db.get(RentalProperty, ticket.property_id)
+    unit = await db.get(RentalUnit, ticket.unit_id) if ticket.unit_id else None
+    if prop is None:
+        raise ValueError("Ticket property not found")
+    address = prop.street_address.strip()
+    unit_label = unit.unit_label.strip() if unit and unit.unit_label else "Main building"
+    return address, unit_label
 
 
 async def _work_order_views(db: AsyncSession, ticket_id: UUID) -> list[dict[str, object]]:
@@ -417,11 +432,12 @@ async def post_message(
     message = await queue_sms(
         db,
         to=recipient,
-        body=body,
+        body=render_tenant_reply(body) if target == "tenant" else body,
         ticket_id=ticket.id,
         work_order_id=work_order_id,
         media_attachment_ids=[item.id for item in attachments],
         automated=False,
+        append_signature=target != "tenant",
         actor_party=MaintParty.STAFF,
         actor_user_id=actor.user_id,
     )
@@ -510,6 +526,79 @@ async def assign_work(
     return order
 
 
+async def render_scheduled_visit_message(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    *,
+    start: datetime,
+    end: datetime,
+    access_basis: Literal["routine", "tenant_consent", "emergency"],
+    reason: str | None,
+) -> str:
+    address, unit_label = await _ticket_address_and_unit(db, ticket)
+    local_timezone = ZoneInfo(settings.timezone)
+    local_start = start.astimezone(local_timezone)
+    local_end = end.astimezone(local_timezone)
+    values: dict[str, object] = {
+        "address": address,
+        "unit": unit_label,
+        "weekday": local_start.strftime("%a"),
+        "date": local_start.strftime("%b %-d"),
+        "start_time": local_start.strftime("%-I:%M %p"),
+        "end_time": local_end.strftime("%-I:%M %p"),
+        "reason": reason.strip() if reason else "",
+    }
+    if access_basis == "emergency":
+        values["emergency_phone"] = format_phone(settings.privi_emergency_phone)
+    template = {
+        "routine": "tenant_entry_notice",
+        "tenant_consent": "tenant_consent_confirmation",
+        "emergency": "tenant_emergency_on_way",
+    }[access_basis]
+    return render_template(template, **values)
+
+
+async def preview_schedule_work(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    *,
+    work_order_id: UUID,
+    start: datetime,
+    end: datetime,
+    access_basis: Literal["routine", "tenant_consent", "emergency"] = "routine",
+    consent_evidence: str | None = None,
+    reason: str | None = None,
+    now: datetime | None = None,
+) -> str:
+    order = await db.get(MaintWorkOrder, work_order_id)
+    if order is None or order.ticket_id != ticket.id:
+        raise ValueError("Work order not found")
+    scheduled_at = now or datetime.now(timezone.utc)
+    notice_sent_at = (
+        quiet_hours_release(scheduled_at) or scheduled_at
+        if access_basis == "routine"
+        else scheduled_at
+    )
+    validate_work_order_schedule(
+        ticket,
+        start,
+        end,
+        access_basis=access_basis,
+        consent_evidence=consent_evidence,
+        reason=reason,
+        now=scheduled_at,
+        notice_sent_at=notice_sent_at,
+    )
+    return await render_scheduled_visit_message(
+        db,
+        ticket,
+        start=start,
+        end=end,
+        access_basis=access_basis,
+        reason=reason,
+    )
+
+
 async def schedule_work(
     db: AsyncSession,
     ticket: MaintTicket,
@@ -520,6 +609,7 @@ async def schedule_work(
     end: datetime,
     access_basis: Literal["routine", "tenant_consent", "emergency"] = "routine",
     consent_evidence: str | None = None,
+    reason: str | None = None,
     now: datetime | None = None,
 ) -> None:
     order = await db.get(MaintWorkOrder, work_order_id)
@@ -541,6 +631,7 @@ async def schedule_work(
         end,
         access_basis=access_basis,
         consent_evidence=consent_evidence,
+        reason=reason,
         now=scheduled_at,
         notice_sent_at=notice_sent_at,
     )
@@ -549,18 +640,15 @@ async def schedule_work(
     local_end = end.astimezone(local_timezone)
     window = f"{local_start.strftime('%b %-d, %-I:%M %p')}–{local_end.strftime('%-I:%M %p')}"
     if ticket.reporter_phone_e164:
-        template = {
-            "routine": "tenant_entry_notice",
-            "tenant_consent": "tenant_consent_confirmation",
-            "emergency": "tenant_emergency_on_way",
-        }[access_basis]
-        values: dict[str, object] = {"number": ticket.number, "window": window}
-        _, unit_label = await _ticket_location(db, ticket)
-        values["unit"] = unit_label
-        if access_basis == "routine":
-            values.update({"unit": unit_label, "details": ticket.entry_notes or "Entry is required for the scheduled work."})
         try:
-            outgoing = render_template(template, **values)
+            outgoing = await render_scheduled_visit_message(
+                db,
+                ticket,
+                start=start,
+                end=end,
+                access_basis=access_basis,
+                reason=reason,
+            )
             message = await queue_sms(
                 db,
                 to=ticket.reporter_phone_e164,
@@ -592,6 +680,7 @@ async def schedule_work(
                     sms_message_id=message.id,
                     payload={
                         "access_basis": access_basis,
+                        "reason": reason.strip() if reason else None,
                         "start": start.isoformat(),
                         "end": end.isoformat(),
                     },
@@ -710,12 +799,18 @@ async def set_scheduled_visit_status(
         )
         if notification_sent is not None:
             try:
+                address, unit_label = await _ticket_address_and_unit(db, ticket)
+                local_start = order.scheduled_start.astimezone(ZoneInfo(settings.timezone))
                 await queue_sms(
                     db,
                     to=ticket.reporter_phone_e164,
                     body=render_template(
                         "tenant_visit_cancelled",
-                        date_time=_visit_start_label(order.scheduled_start),
+                        address=address,
+                        unit=unit_label,
+                        weekday=local_start.strftime("%a"),
+                        date=local_start.strftime("%b %-d"),
+                        start_time=local_start.strftime("%-I:%M %p"),
                     ),
                     ticket_id=ticket.id,
                     work_order_id=order.id,

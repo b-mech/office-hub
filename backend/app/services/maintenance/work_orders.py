@@ -129,21 +129,22 @@ async def create_work_order(
     return work_order, raw_token
 
 
-async def schedule_work_order(
-    db: AsyncSession,
+def validate_work_order_schedule(
     ticket: MaintTicket,
-    work_order: MaintWorkOrder,
-    actor: ActorContext,
     start: datetime,
     end: datetime,
     *,
     access_basis: Literal["routine", "tenant_consent", "emergency"] = "routine",
     consent_evidence: str | None = None,
+    reason: str | None = None,
     now: datetime | None = None,
     notice_sent_at: datetime | None = None,
-) -> MaintWorkOrder:
+) -> tuple[str, str | None, str | None]:
     scheduled_at = now or datetime.now(timezone.utc)
     evidence = consent_evidence.strip() if consent_evidence else None
+    entry_reason = reason.strip() if reason else None
+    if access_basis != "emergency" and not entry_reason:
+        raise EntryNoticeError("Reason for entry is required")
     if access_basis == "tenant_consent" and not evidence:
         raise EntryNoticeError(
             "Tenant consent scheduling requires the tenant's message or a staff note as evidence"
@@ -162,6 +163,34 @@ async def schedule_work_order(
             window_end=settings.entry_window_end,
             timezone=ZoneInfo(settings.timezone),
         ),
+    )
+    return notice_basis, evidence, entry_reason
+
+
+async def schedule_work_order(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    work_order: MaintWorkOrder,
+    actor: ActorContext,
+    start: datetime,
+    end: datetime,
+    *,
+    access_basis: Literal["routine", "tenant_consent", "emergency"] = "routine",
+    consent_evidence: str | None = None,
+    reason: str | None = None,
+    now: datetime | None = None,
+    notice_sent_at: datetime | None = None,
+) -> MaintWorkOrder:
+    scheduled_at = now or datetime.now(timezone.utc)
+    notice_basis, evidence, entry_reason = validate_work_order_schedule(
+        ticket,
+        start,
+        end,
+        access_basis=access_basis,
+        consent_evidence=consent_evidence,
+        reason=reason,
+        now=scheduled_at,
+        notice_sent_at=notice_sent_at,
     )
     work_order.scheduled_start = start
     work_order.scheduled_end = end
@@ -193,6 +222,7 @@ async def schedule_work_order(
                 payload={
                     "access_basis": access_basis,
                     "evidence": evidence,
+                    "reason": entry_reason,
                     "start": start.isoformat(),
                     "end": end.isoformat(),
                 },
@@ -214,6 +244,7 @@ async def schedule_work_order(
                 "end": end.isoformat(),
                 "entry_notice": notice_basis,
                 "access_basis": access_basis,
+                "reason": entry_reason,
             },
             created_at=scheduled_at,
         )
@@ -267,6 +298,11 @@ async def assign_vendor_work_order(
             number=work_order.number,
             area=area,
             scope=work_order.scope,
+            entry_notes=(
+                f" Entry notes: {ticket.entry_notes.strip()}."
+                if ticket.entry_notes and ticket.entry_notes.strip()
+                else ""
+            ),
             link=link,
         ),
         ticket_id=ticket.id,
