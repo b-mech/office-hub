@@ -30,7 +30,6 @@ class ScheduleRequest(BaseModel):
     work_order_id: UUID
     start: datetime
     end: datetime
-    admin_override_reason: str | None = Field(default=None, max_length=1000)
 
 
 class CompleteWorkOrderRequest(BaseModel):

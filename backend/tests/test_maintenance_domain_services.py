@@ -13,10 +13,10 @@ from app.models.maintenance import (
     MaintPriority,
     MaintSmsMessage,
     MaintStatus,
+    MaintWorkOrder,
     MaintWorkOrderStatus,
 )
 from app.services.maintenance.entry_notice import EntryNoticeError
-from app.services.maintenance.errors import PermissionDeniedError
 from app.services.maintenance.sms.outbound import cancel_held_sms
 from app.services.maintenance.state_machine import ActorContext
 from app.services.maintenance.tickets import acknowledge_emergency, cancel_ticket, mark_duplicate
@@ -28,6 +28,7 @@ from app.services.maintenance.work_orders import (
 from app.services.maintenance.workspace import (
     _future_scheduled_visits,
     resolve_ticket,
+    schedule_work,
     set_scheduled_visit_status,
 )
 
@@ -152,6 +153,7 @@ async def test_schedule_enforces_entry_notice_in_orchestration(monkeypatch: pyte
     monkeypatch.setattr(settings, "entry_notice_min_hours", 24)
     monkeypatch.setattr(settings, "entry_window_start", time(8, 0))
     monkeypatch.setattr(settings, "entry_window_end", time(20, 0))
+    monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
     item = ticket(MaintStatus.ASSIGNED)
     order = SimpleNamespace(
         id=uuid4(),
@@ -191,21 +193,32 @@ async def test_schedule_enforces_entry_notice_in_orchestration(monkeypatch: pyte
 
 
 @pytest.mark.asyncio
-async def test_schedule_override_requires_admin(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "entry_notice_min_hours", 24)
+async def test_invalid_visit_never_queues_entry_notice(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
     item = ticket(MaintStatus.ASSIGNED)
-    order = SimpleNamespace(id=uuid4())
-    with pytest.raises(PermissionDeniedError):
-        await schedule_work_order(
-            FakeSession(),  # type: ignore[arg-type]
+    order = SimpleNamespace(id=uuid4(), ticket_id=item.id)
+    db = FakeSession(objects={MaintWorkOrder: order})
+    queued = False
+
+    async def queue(*args: object, **kwargs: object) -> None:
+        nonlocal queued
+        queued = True
+
+    monkeypatch.setattr("app.services.maintenance.workspace.queue_sms", queue)
+    start = NOW + timedelta(days=2)
+    with pytest.raises(EntryNoticeError, match="same local calendar day"):
+        await schedule_work(
+            db,  # type: ignore[arg-type]
             item,  # type: ignore[arg-type]
-            order,  # type: ignore[arg-type]
             ActorContext(MaintParty.STAFF, user_id=uuid4()),
-            NOW + timedelta(hours=1),
-            NOW + timedelta(hours=2),
-            admin_override_reason="Tenant requested this time",
-            now=NOW,
+            work_order_id=order.id,
+            start=start,
+            end=start + timedelta(days=30),
         )
+
+    assert queued is False
+    assert not hasattr(order, "scheduled_start")
+    assert db.added == []
 
 
 @pytest.mark.asyncio
@@ -338,8 +351,8 @@ async def test_resolve_lists_future_visit_until_it_is_cancelled_inline(
         ticket_id=item.id,
         number="MT-00001-W1",
         created_at=NOW,
-        scheduled_start=datetime(2026, 10, 11, 15, 0, tzinfo=timezone.utc),
-        scheduled_end=datetime(2026, 10, 11, 17, 0, tzinfo=timezone.utc),
+        scheduled_start=NOW + timedelta(days=365),
+        scheduled_end=NOW + timedelta(days=365, hours=2),
         scheduled_visit_status="scheduled",
     )
     actor = ActorContext(MaintParty.STAFF, user_id=uuid4())

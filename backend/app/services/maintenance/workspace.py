@@ -30,6 +30,7 @@ from app.services.maintenance.media import store_attachment, validate_file_count
 from app.services.maintenance.sms.outbound import (
     SmsOptedOutError,
     cancel_held_sms,
+    quiet_hours_release,
     queue_sms,
     retry_failed_sms,
     sms_failure_reason,
@@ -516,11 +517,17 @@ async def schedule_work(
     work_order_id: UUID,
     start: datetime,
     end: datetime,
-    admin_override_reason: str | None,
 ) -> None:
     order = await db.get(MaintWorkOrder, work_order_id)
     if order is None or order.ticket_id != ticket.id:
         raise ValueError("Work order not found")
+    scheduled_at = datetime.now(timezone.utc)
+    entry_notice_required = not (ticket.entry_permission == "granted" or ticket.is_emergency)
+    notice_sent_at = (
+        quiet_hours_release(scheduled_at) or scheduled_at
+        if entry_notice_required
+        else scheduled_at
+    )
     await schedule_work_order(
         db,
         ticket,
@@ -528,9 +535,13 @@ async def schedule_work(
         actor,
         start,
         end,
-        admin_override_reason=admin_override_reason,
+        now=scheduled_at,
+        notice_sent_at=notice_sent_at,
     )
-    window = f"{start.astimezone().strftime('%b %-d, %-I:%M %p')}–{end.astimezone().strftime('%-I:%M %p')}"
+    local_timezone = ZoneInfo(settings.timezone)
+    local_start = start.astimezone(local_timezone)
+    local_end = end.astimezone(local_timezone)
+    window = f"{local_start.strftime('%b %-d, %-I:%M %p')}–{local_end.strftime('%-I:%M %p')}"
     if ticket.reporter_phone_e164:
         template = "tenant_scheduled" if ticket.entry_permission == "granted" or ticket.is_emergency else "tenant_entry_notice"
         values: dict[str, object] = {"number": ticket.number, "window": window}
@@ -549,6 +560,7 @@ async def schedule_work(
                 emergency=ticket.is_emergency,
                 actor_party=MaintParty.STAFF,
                 actor_user_id=actor.user_id,
+                now=scheduled_at,
             )
             if template == "tenant_entry_notice":
                 db.add(

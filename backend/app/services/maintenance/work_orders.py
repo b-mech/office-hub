@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +23,6 @@ from app.models.maintenance import (
 from app.models.rentals import RentalProperty, RentalUnit
 from app.core.config import settings
 from app.services.maintenance.entry_notice import EntryNoticePolicy, validate_entry_notice
-from app.services.maintenance.errors import PermissionDeniedError
 from app.services.maintenance.sms.outbound import queue_sms
 from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext, transition
@@ -135,24 +135,21 @@ async def schedule_work_order(
     start: datetime,
     end: datetime,
     *,
-    admin_override_reason: str | None = None,
     now: datetime | None = None,
+    notice_sent_at: datetime | None = None,
 ) -> MaintWorkOrder:
-    if end <= start:
-        raise ValueError("Scheduled end must be after the start")
-    if admin_override_reason and not actor.is_admin:
-        raise PermissionDeniedError("Only a maintenance admin can override entry-notice policy")
     scheduled_at = now or datetime.now(timezone.utc)
     notice_basis = validate_entry_notice(
         start,
-        scheduled_at,
+        end,
+        notice_sent_at or scheduled_at,
         entry_permission=ticket.entry_permission,
         is_emergency=ticket.is_emergency,
-        admin_override_reason=admin_override_reason,
         policy=EntryNoticePolicy(
             minimum_notice=timedelta(hours=settings.entry_notice_min_hours),
             window_start=settings.entry_window_start,
             window_end=settings.entry_window_end,
+            timezone=ZoneInfo(settings.timezone),
         ),
     )
     work_order.scheduled_start = start
@@ -173,11 +170,6 @@ async def schedule_work_order(
                 "start": start.isoformat(),
                 "end": end.isoformat(),
                 "entry_notice": notice_basis,
-                **(
-                    {"override_reason": admin_override_reason.strip()}
-                    if admin_override_reason and admin_override_reason.strip()
-                    else {}
-                ),
             },
             created_at=scheduled_at,
         )
