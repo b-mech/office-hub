@@ -214,11 +214,169 @@ async def test_invalid_visit_never_queues_entry_notice(monkeypatch: pytest.Monke
             work_order_id=order.id,
             start=start,
             end=start + timedelta(days=30),
+            now=NOW,
         )
 
     assert queued is False
     assert not hasattr(order, "scheduled_start")
     assert db.added == []
+
+
+def schedulable_order(ticket_id: object) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid4(),
+        ticket_id=ticket_id,
+        number="MT-00001-W1",
+        status=MaintWorkOrderStatus.ACCEPTED,
+        assignee_type="staff",
+        vendor_id=None,
+        scheduled_start=None,
+        scheduled_end=None,
+    )
+
+
+async def stub_location(*args: object, **kwargs: object) -> tuple[str, str]:
+    return "Test Property", "Unit A"
+
+
+@pytest.mark.asyncio
+async def test_routine_schedule_validates_then_sends_exact_entry_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
+    monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
+    monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
+    monkeypatch.setattr("app.services.maintenance.workspace._ticket_location", stub_location)
+    item = ticket(MaintStatus.ASSIGNED)
+    item.reporter_phone_e164 = "+12045550100"
+    item.entry_notes = "Fuidi"
+    order = schedulable_order(item.id)
+    db = FakeSession(objects={MaintWorkOrder: order})
+    queued: list[dict[str, object]] = []
+
+    async def queue(*args: object, **kwargs: object) -> SimpleNamespace:
+        queued.append(kwargs)
+        return SimpleNamespace(id=uuid4())
+
+    monkeypatch.setattr("app.services.maintenance.workspace.queue_sms", queue)
+    start = NOW + timedelta(hours=25)
+    await schedule_work(
+        db,  # type: ignore[arg-type]
+        item,  # type: ignore[arg-type]
+        ActorContext(MaintParty.STAFF, user_id=uuid4()),
+        work_order_id=order.id,
+        start=start,
+        end=start + timedelta(hours=2),
+        access_basis="routine",
+        now=NOW,
+    )
+
+    assert queued[0]["body"] == (
+        "Connect Properties: notice of entry for Unit A on Oct 3, 11:00 AM–1:00 PM. "
+        "Fuidi — Connect Properties"
+    )
+    assert any(value.event_type == "entry_notice_sent" for value in db.added)
+    assert not any(value.event_type == "entry_policy_exemption" for value in db.added)
+
+
+@pytest.mark.asyncio
+async def test_tenant_consent_requires_evidence_and_records_actor_and_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
+    monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
+    monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
+    monkeypatch.setattr("app.services.maintenance.workspace._ticket_location", stub_location)
+    item = ticket(MaintStatus.ASSIGNED)
+    item.reporter_phone_e164 = "+12045550100"
+    order = schedulable_order(item.id)
+    db = FakeSession(objects={MaintWorkOrder: order})
+    actor = ActorContext(MaintParty.STAFF, user_id=uuid4())
+    queued: list[dict[str, object]] = []
+
+    async def queue(*args: object, **kwargs: object) -> SimpleNamespace:
+        queued.append(kwargs)
+        return SimpleNamespace(id=uuid4())
+
+    monkeypatch.setattr("app.services.maintenance.workspace.queue_sms", queue)
+    start = NOW + timedelta(hours=2)
+    with pytest.raises(EntryNoticeError, match="requires the tenant's message"):
+        await schedule_work(
+            db,  # type: ignore[arg-type]
+            item,  # type: ignore[arg-type]
+            actor,
+            work_order_id=order.id,
+            start=start,
+            end=start + timedelta(hours=1),
+            access_basis="tenant_consent",
+            now=NOW,
+        )
+
+    evidence = "Tenant texted: noon works for me."
+    await schedule_work(
+        db,  # type: ignore[arg-type]
+        item,  # type: ignore[arg-type]
+        actor,
+        work_order_id=order.id,
+        start=start,
+        end=start + timedelta(hours=1),
+        access_basis="tenant_consent",
+        consent_evidence=evidence,
+        now=NOW,
+    )
+
+    assert queued[0]["body"] == (
+        "Connect Properties: confirming your requested maintenance visit for Unit A on "
+        "Oct 2, 12:00 PM–1:00 PM. Reply if this no longer works. — Connect Properties"
+    )
+    exemption = next(value for value in db.added if value.event_type == "entry_policy_exemption")
+    assert exemption.actor_user_id == actor.user_id
+    assert exemption.payload["evidence"] == evidence
+    assert evidence in exemption.body
+    assert any(value.event_type == "tenant_consent_confirmation_sent" for value in db.added)
+
+
+@pytest.mark.asyncio
+async def test_emergency_schedule_skips_window_and_sends_on_the_way_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
+    monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
+    monkeypatch.setattr(settings, "sms_signature", "— Connect Properties")
+    monkeypatch.setattr("app.services.maintenance.workspace._ticket_location", stub_location)
+    item = ticket(MaintStatus.ASSIGNED, emergency=True)
+    item.reporter_phone_e164 = "+12045550100"
+    order = schedulable_order(item.id)
+    db = FakeSession(objects={MaintWorkOrder: order})
+    actor = ActorContext(MaintParty.STAFF, user_id=uuid4())
+    queued: list[dict[str, object]] = []
+
+    async def queue(*args: object, **kwargs: object) -> SimpleNamespace:
+        queued.append(kwargs)
+        return SimpleNamespace(id=uuid4())
+
+    monkeypatch.setattr("app.services.maintenance.workspace.queue_sms", queue)
+    start = datetime(2026, 10, 3, 7, 0, tzinfo=timezone.utc)
+    await schedule_work(
+        db,  # type: ignore[arg-type]
+        item,  # type: ignore[arg-type]
+        actor,
+        work_order_id=order.id,
+        start=start,
+        end=start + timedelta(hours=1),
+        access_basis="emergency",
+        now=NOW,
+    )
+
+    assert queued[0]["body"] == (
+        "Connect Properties: emergency maintenance is on the way to Unit A for MT-00001. "
+        "Expected visit: Oct 3, 2:00 AM–3:00 AM. — Connect Properties"
+    )
+    assert queued[0]["emergency"] is True
+    exemption = next(value for value in db.added if value.event_type == "entry_policy_exemption")
+    assert exemption.actor_user_id == actor.user_id
+    assert exemption.payload["access_basis"] == "emergency"
+    assert any(value.event_type == "emergency_on_way_sent" for value in db.added)
 
 
 @pytest.mark.asyncio

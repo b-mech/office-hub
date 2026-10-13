@@ -30,6 +30,8 @@ class ScheduleRequest(BaseModel):
     work_order_id: UUID
     start: datetime
     end: datetime
+    access_basis: Literal["routine", "tenant_consent", "emergency"] = "routine"
+    consent_evidence: str | None = Field(default=None, max_length=2000)
 
 
 class CompleteWorkOrderRequest(BaseModel):

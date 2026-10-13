@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -23,6 +24,7 @@ from app.models.maintenance import (
 from app.models.rentals import RentalProperty, RentalUnit
 from app.core.config import settings
 from app.services.maintenance.entry_notice import EntryNoticePolicy, validate_entry_notice
+from app.services.maintenance.errors import EntryNoticeError
 from app.services.maintenance.sms.outbound import queue_sms
 from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext, transition
@@ -135,16 +137,25 @@ async def schedule_work_order(
     start: datetime,
     end: datetime,
     *,
+    access_basis: Literal["routine", "tenant_consent", "emergency"] = "routine",
+    consent_evidence: str | None = None,
     now: datetime | None = None,
     notice_sent_at: datetime | None = None,
 ) -> MaintWorkOrder:
     scheduled_at = now or datetime.now(timezone.utc)
+    evidence = consent_evidence.strip() if consent_evidence else None
+    if access_basis == "tenant_consent" and not evidence:
+        raise EntryNoticeError(
+            "Tenant consent scheduling requires the tenant's message or a staff note as evidence"
+        )
+    if access_basis != "tenant_consent" and evidence:
+        raise EntryNoticeError("Consent evidence can only be used with tenant consent scheduling")
     notice_basis = validate_entry_notice(
         start,
         end,
         notice_sent_at or scheduled_at,
-        entry_permission=ticket.entry_permission,
-        is_emergency=ticket.is_emergency,
+        access_basis=access_basis,
+        is_emergency_ticket=ticket.is_emergency,
         policy=EntryNoticePolicy(
             minimum_notice=timedelta(hours=settings.entry_notice_min_hours),
             window_start=settings.entry_window_start,
@@ -156,6 +167,38 @@ async def schedule_work_order(
     work_order.scheduled_end = end
     work_order.scheduled_visit_status = "scheduled"
     work_order.status = MaintWorkOrderStatus.SCHEDULED
+    if access_basis != "routine":
+        local_timezone = ZoneInfo(settings.timezone)
+        local_start = start.astimezone(local_timezone)
+        local_end = end.astimezone(local_timezone)
+        window = (
+            f"{local_start.strftime('%b %-d, %-I:%M %p')}"
+            f"–{local_end.strftime('%-I:%M %p')}"
+        )
+        label = "Tenant consent" if access_basis == "tenant_consent" else "Emergency"
+        body = f"{label} scheduling exemption selected for {window}."
+        if evidence:
+            body = f"{body} Evidence: {evidence}"
+        db.add(
+            MaintEvent(
+                ticket_id=ticket.id,
+                work_order_id=work_order.id,
+                event_type="entry_policy_exemption",
+                channel=MaintEventChannel.WEB,
+                visibility=MaintVisibility.INTERNAL,
+                direction=MaintDirection.NONE,
+                actor_party=actor.party,
+                actor_user_id=actor.user_id,
+                body=body,
+                payload={
+                    "access_basis": access_basis,
+                    "evidence": evidence,
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                },
+                created_at=scheduled_at,
+            )
+        )
     db.add(
         MaintEvent(
             ticket_id=ticket.id,
@@ -170,6 +213,7 @@ async def schedule_work_order(
                 "start": start.isoformat(),
                 "end": end.isoformat(),
                 "entry_notice": notice_basis,
+                "access_basis": access_basis,
             },
             created_at=scheduled_at,
         )

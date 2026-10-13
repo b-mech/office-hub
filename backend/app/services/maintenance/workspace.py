@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -517,12 +518,15 @@ async def schedule_work(
     work_order_id: UUID,
     start: datetime,
     end: datetime,
+    access_basis: Literal["routine", "tenant_consent", "emergency"] = "routine",
+    consent_evidence: str | None = None,
+    now: datetime | None = None,
 ) -> None:
     order = await db.get(MaintWorkOrder, work_order_id)
     if order is None or order.ticket_id != ticket.id:
         raise ValueError("Work order not found")
-    scheduled_at = datetime.now(timezone.utc)
-    entry_notice_required = not (ticket.entry_permission == "granted" or ticket.is_emergency)
+    scheduled_at = now or datetime.now(timezone.utc)
+    entry_notice_required = access_basis == "routine"
     notice_sent_at = (
         quiet_hours_release(scheduled_at) or scheduled_at
         if entry_notice_required
@@ -535,6 +539,8 @@ async def schedule_work(
         actor,
         start,
         end,
+        access_basis=access_basis,
+        consent_evidence=consent_evidence,
         now=scheduled_at,
         notice_sent_at=notice_sent_at,
     )
@@ -543,10 +549,15 @@ async def schedule_work(
     local_end = end.astimezone(local_timezone)
     window = f"{local_start.strftime('%b %-d, %-I:%M %p')}–{local_end.strftime('%-I:%M %p')}"
     if ticket.reporter_phone_e164:
-        template = "tenant_scheduled" if ticket.entry_permission == "granted" or ticket.is_emergency else "tenant_entry_notice"
+        template = {
+            "routine": "tenant_entry_notice",
+            "tenant_consent": "tenant_consent_confirmation",
+            "emergency": "tenant_emergency_on_way",
+        }[access_basis]
         values: dict[str, object] = {"number": ticket.number, "window": window}
-        if template == "tenant_entry_notice":
-            _, unit_label = await _ticket_location(db, ticket)
+        _, unit_label = await _ticket_location(db, ticket)
+        values["unit"] = unit_label
+        if access_basis == "routine":
             values.update({"unit": unit_label, "details": ticket.entry_notes or "Entry is required for the scheduled work."})
         try:
             outgoing = render_template(template, **values)
@@ -557,27 +568,35 @@ async def schedule_work(
                 ticket_id=ticket.id,
                 work_order_id=order.id,
                 automated=True,
-                emergency=ticket.is_emergency,
+                emergency=access_basis == "emergency",
                 actor_party=MaintParty.STAFF,
                 actor_user_id=actor.user_id,
                 now=scheduled_at,
             )
-            if template == "tenant_entry_notice":
-                db.add(
-                    MaintEvent(
-                        ticket_id=ticket.id,
-                        work_order_id=order.id,
-                        event_type="entry_notice_sent",
-                        channel=MaintEventChannel.SMS,
-                        visibility=MaintVisibility.EXTERNAL,
-                        direction=MaintDirection.OUTBOUND,
-                        actor_party=MaintParty.STAFF,
-                        actor_user_id=actor.user_id,
-                        body=outgoing,
-                        sms_message_id=message.id,
-                        payload={"start": start.isoformat(), "end": end.isoformat()},
-                    )
+            event_type = {
+                "routine": "entry_notice_sent",
+                "tenant_consent": "tenant_consent_confirmation_sent",
+                "emergency": "emergency_on_way_sent",
+            }[access_basis]
+            db.add(
+                MaintEvent(
+                    ticket_id=ticket.id,
+                    work_order_id=order.id,
+                    event_type=event_type,
+                    channel=MaintEventChannel.SMS,
+                    visibility=MaintVisibility.EXTERNAL,
+                    direction=MaintDirection.OUTBOUND,
+                    actor_party=MaintParty.STAFF,
+                    actor_user_id=actor.user_id,
+                    body=outgoing,
+                    sms_message_id=message.id,
+                    payload={
+                        "access_basis": access_basis,
+                        "start": start.isoformat(),
+                        "end": end.isoformat(),
+                    },
                 )
+            )
         except SmsOptedOutError:
             pass
     if order.assignee_type == "vendor" and order.vendor_id:
@@ -674,16 +693,22 @@ async def set_scheduled_visit_status(
     )
 
     if status == "cancelled" and ticket.reporter_phone_e164:
-        notice_sent = await db.scalar(
+        notification_sent = await db.scalar(
             select(MaintEvent.id)
             .where(
                 MaintEvent.ticket_id == ticket.id,
                 MaintEvent.work_order_id == order.id,
-                MaintEvent.event_type == "entry_notice_sent",
+                MaintEvent.event_type.in_(
+                    (
+                        "entry_notice_sent",
+                        "tenant_consent_confirmation_sent",
+                        "emergency_on_way_sent",
+                    )
+                ),
             )
             .limit(1)
         )
-        if notice_sent is not None:
+        if notification_sent is not None:
             try:
                 await queue_sms(
                     db,
@@ -695,6 +720,7 @@ async def set_scheduled_visit_status(
                     ticket_id=ticket.id,
                     work_order_id=order.id,
                     automated=True,
+                    emergency=ticket.is_emergency,
                     actor_party=MaintParty.STAFF,
                     actor_user_id=actor.user_id,
                     now=changed_at,
