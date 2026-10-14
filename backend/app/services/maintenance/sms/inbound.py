@@ -135,6 +135,7 @@ def choose_route(
     open_tickets: list[tuple[object, str]],
     recent_resolved_ticket: object | None,
     known_unit_id: int | None,
+    close_confirmation: bool = False,
 ) -> RouteDecision:
     if vendor_work_orders:
         ticket_id, work_order_id = vendor_work_orders[0]
@@ -146,10 +147,12 @@ def choose_route(
             ticket_id,
             other_open_numbers=tuple(number for _, number in open_tickets[1:]),
         )
-    if recent_resolved_ticket is not None:
+    if recent_resolved_ticket is not None and close_confirmation:
         return RouteDecision(RouteKind.TENANT_RECENT_RESOLVED, recent_resolved_ticket)
     if known_unit_id is not None:
         return RouteDecision(RouteKind.KNOWN_TENANT, unit_id=known_unit_id)
+    if recent_resolved_ticket is not None:
+        return RouteDecision(RouteKind.TENANT_RECENT_RESOLVED, recent_resolved_ticket)
     return RouteDecision(RouteKind.UNKNOWN)
 
 
@@ -232,7 +235,13 @@ async def acknowledge_from_staff_sms(
     return ticket
 
 
-async def _route(db: AsyncSession, phone: str, now: datetime) -> RouteDecision:
+async def _route(
+    db: AsyncSession,
+    phone: str,
+    now: datetime,
+    *,
+    close_confirmation: bool = False,
+) -> RouteDecision:
     vendor_rows = (
         await db.execute(
             select(MaintWorkOrder.ticket_id, MaintWorkOrder.id)
@@ -282,6 +291,7 @@ async def _route(db: AsyncSession, phone: str, now: datetime) -> RouteDecision:
         open_tickets=list(open_rows),
         recent_resolved_ticket=recent,
         known_unit_id=known_unit,
+        close_confirmation=close_confirmation,
     )
 
 
@@ -338,7 +348,12 @@ async def receive_sms(
         await db.flush()
         return message
 
-    decision = await _route(db, phone, now)
+    decision = await _route(
+        db,
+        phone,
+        now,
+        close_confirmation=is_close_confirmation(body),
+    )
     media_party = MaintParty.VENDOR if decision.kind == RouteKind.VENDOR_WORK_ORDER else MaintParty.TENANT
     media_count = int(form.get("NumMedia", "0") or 0)
     validate_file_count(media_count, party=media_party)

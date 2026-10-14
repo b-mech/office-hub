@@ -703,7 +703,8 @@ async def test_provider_http_failure_is_persisted_with_staff_safe_detail(
     [
         ({"vendor_work_orders": [("t1", "w1")], "open_tickets": [("t2", "MT-2")], "recent_resolved_ticket": "t3", "known_unit_id": 1}, RouteKind.VENDOR_WORK_ORDER),
         ({"vendor_work_orders": [], "open_tickets": [("t2", "MT-2"), ("t3", "MT-3")], "recent_resolved_ticket": "t4", "known_unit_id": 1}, RouteKind.TENANT_OPEN),
-        ({"vendor_work_orders": [], "open_tickets": [], "recent_resolved_ticket": "t4", "known_unit_id": 1}, RouteKind.TENANT_RECENT_RESOLVED),
+        ({"vendor_work_orders": [], "open_tickets": [], "recent_resolved_ticket": "t4", "known_unit_id": 1, "close_confirmation": True}, RouteKind.TENANT_RECENT_RESOLVED),
+        ({"vendor_work_orders": [], "open_tickets": [], "recent_resolved_ticket": "t4", "known_unit_id": 1}, RouteKind.KNOWN_TENANT),
         ({"vendor_work_orders": [], "open_tickets": [], "recent_resolved_ticket": None, "known_unit_id": 1}, RouteKind.KNOWN_TENANT),
         ({"vendor_work_orders": [], "open_tickets": [], "recent_resolved_ticket": None, "known_unit_id": None}, RouteKind.UNKNOWN),
     ],
