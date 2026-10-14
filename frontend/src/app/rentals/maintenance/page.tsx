@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ChevronRight, MessageCircleMore, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronRight, List, MessageCircleMore, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { listTickets, type TicketFilters, type TicketListItem, type TicketPriority, type TicketStatus } from "@/lib/api/maintenance";
+import MaintenanceCalendar from "@/components/maintenance/MaintenanceCalendar";
 
 const labels = (value: string | null) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Untriaged";
 
@@ -22,6 +23,19 @@ export default function MaintenanceTicketsPage() {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
+  const [view, setView] = useState<"list" | "calendar">("list");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (window.localStorage.getItem("maintenance-open-tickets-view") === "calendar") setView("calendar");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const changeView = (next: "list" | "calendar") => {
+    setView(next);
+    window.localStorage.setItem("maintenance-open-tickets-view", next);
+  };
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -31,7 +45,11 @@ export default function MaintenanceTicketsPage() {
     finally { setBusy(false); }
   }, [filters]);
 
-  useEffect(() => { const initial = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(initial); }, [load]);
+  useEffect(() => {
+    if (view !== "list") return;
+    const initial = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(initial);
+  }, [load, view]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -40,19 +58,25 @@ export default function MaintenanceTicketsPage() {
 
   return (
     <main className="min-h-screen bg-[var(--ch-page-bg)] px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-[1600px]">
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--ch-border)] pb-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[.2em] text-[var(--ch-text-muted)]">Rentals · Maintenance</p>
             <h1 className="mt-1 text-3xl font-semibold">Open tickets</h1>
             <p className="mt-2 text-sm text-[var(--ch-text-muted)]">Conversations, SLA risk, and field work in one queue.</p>
           </div>
-          <button type="button" onClick={() => void load()} disabled={busy} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 text-sm font-semibold disabled:opacity-50">
-            <RefreshCw size={16} className={busy ? "animate-spin" : ""} /> Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-1" aria-label="Open ticket view">
+              <button type="button" onClick={() => changeView("list")} className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold ${view === "list" ? "bg-[var(--ch-accent)] text-white" : ""}`}><List size={16} /> List</button>
+              <button type="button" onClick={() => changeView("calendar")} className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold ${view === "calendar" ? "bg-[var(--ch-accent)] text-white" : ""}`}><CalendarDays size={16} /> Calendar</button>
+            </div>
+            {view === "list" ? <button type="button" onClick={() => void load()} disabled={busy} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 text-sm font-semibold disabled:opacity-50">
+              <RefreshCw size={16} className={busy ? "animate-spin" : ""} /> Refresh
+            </button> : null}
+          </div>
         </header>
 
-        <section className="mt-5 grid gap-3 rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4 sm:grid-cols-2 lg:grid-cols-5" aria-label="Ticket filters">
+        {view === "calendar" ? <MaintenanceCalendar /> : <><section className="mt-5 grid gap-3 rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4 sm:grid-cols-2 lg:grid-cols-5" aria-label="Ticket filters">
           <label className="relative sm:col-span-2">
             <span className="sr-only">Search tickets</span>
             <Search size={17} className="pointer-events-none absolute left-3 top-3.5 text-[var(--ch-text-muted)]" />
@@ -100,6 +124,7 @@ export default function MaintenanceTicketsPage() {
             </Link>
           ))}
         </div>
+        </>}
       </div>
     </main>
   );

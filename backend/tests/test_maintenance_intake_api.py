@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.main import app
 from app.models.maintenance import MaintCategory
+from app.services.maintenance.media import create_ticket_upload_token
 from app.services.maintenance.rate_limit import RateLimitExceeded
 from app.services.maintenance.turnstile import TurnstileError
 
@@ -99,8 +100,68 @@ async def test_unmatched_phone_creates_unverified_ticket(configured_app, monkeyp
     response = await post_form()
     assert response.status_code == 201
     assert response.json()["ticket_number"] == "MT-00001"
+    assert response.json()["photo_upload_token"]
     assert captured["data"].reporter_verified is False
     assert captured["data"].category == MaintCategory.PLUMBING
+
+
+@pytest.mark.asyncio
+async def test_photos_upload_after_ticket_submission(
+    configured_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ticket_id = uuid4()
+    ticket = SimpleNamespace(
+        id=ticket_id,
+        source="tenant_qr",
+        reporter_phone_e164="+12045551234",
+    )
+    db = PhotoDb(ticket, existing_count=0)
+
+    async def photo_db():
+        yield db
+
+    captured = {}
+
+    async def store(db, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(id=uuid4(), event_id=None)
+
+    app.dependency_overrides[get_db] = photo_db
+    monkeypatch.setattr("app.routers.maintenance.store_attachment", store)
+    token = create_ticket_upload_token(ticket_id, settings.secret_key)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            f"/api/public/intake/photos/{token}",
+            files={"photos": ("leak.jpg", b"photo bytes", "image/jpeg")},
+        )
+
+    assert response.status_code == 201
+    assert response.json() == {"uploaded": 1}
+    assert captured["ticket_id"] == ticket_id
+    assert captured["content"] == b"photo bytes"
+    assert db.committed is True
+
+
+class PhotoDb:
+    def __init__(self, ticket, *, existing_count: int):
+        self.results = [ticket, existing_count]
+        self.committed = False
+
+    async def scalar(self, statement):
+        return self.results.pop(0)
+
+    def add(self, item):
+        return None
+
+    async def flush(self):
+        return None
+
+    async def commit(self):
+        self.committed = True
+
+    async def rollback(self):
+        return None
 
 
 async def _resolved(*args, **kwargs):

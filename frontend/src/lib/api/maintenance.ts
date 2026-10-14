@@ -113,6 +113,44 @@ export type TicketFilters = {
   needs_reply?: boolean;
 };
 
+export type CalendarVisitType = "routine" | "tenant_consent" | "emergency";
+export type CalendarVisit = {
+  id: string; ticket_id: string; work_order_id: string; ticket_number: string; work_order_number: string;
+  address: string; property: string; property_id: number; unit: string; title: string;
+  assignee_id: string | null; assignee_name: string; assignee_type: "staff" | "vendor";
+  start: string; end: string; visit_type: CalendarVisitType; visit_status: "scheduled" | "completed";
+  ticket_status: TicketStatus; priority: TicketPriority | null;
+  notice_status: "queued" | "sent" | "delivered" | "failed" | null; notice_error: string | null;
+  draggable: boolean; href: string;
+};
+export type CalendarUnscheduled = {
+  id: string; ticket_id: string; work_order_id: string | null; ticket_number: string; work_order_number?: string;
+  address: string; property: string; property_id: number; unit: string; title: string;
+  assignee_id: string | null; assignee_name: string; assignee_type: "staff" | "vendor" | null;
+  priority: TicketPriority | null; ticket_status: TicketStatus; created_at: string;
+  visit_type: CalendarVisitType; is_emergency: boolean; draggable: boolean;
+};
+export type MaintenanceCalendarResponse = {
+  timezone: string;
+  visits: CalendarVisit[];
+  unscheduled: CalendarUnscheduled[];
+  properties: { id: number; name: string }[];
+  assignees: { id: string; name: string; type: "staff" | "vendor" }[];
+};
+export type MaintenanceCalendarFilters = {
+  start: string; end: string; property_id?: number; assignee_id?: string;
+  visit_type?: CalendarVisitType; status?: TicketStatus;
+};
+
+export function getMaintenanceCalendar(filters: MaintenanceCalendarFilters) {
+  const query = new URLSearchParams({ start: filters.start, end: filters.end });
+  if (filters.property_id) query.set("property_id", String(filters.property_id));
+  if (filters.assignee_id) query.set("assignee_id", filters.assignee_id);
+  if (filters.visit_type) query.set("visit_type", filters.visit_type);
+  if (filters.status) query.set("status", filters.status);
+  return request<MaintenanceCalendarResponse>(`/api/maintenance/calendar?${query.toString()}`);
+}
+
 export function listTickets(filters: TicketFilters = {}) {
   const query = new URLSearchParams();
   if (filters.include_terminal) query.set("include_terminal", "true");

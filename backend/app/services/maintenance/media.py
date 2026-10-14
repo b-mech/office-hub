@@ -125,6 +125,23 @@ def create_signed_media_token(attachment_id: UUID, secret: str, *, expires_in_se
     return f"{encoded}.{_b64encode(signature)}"
 
 
+def create_ticket_upload_token(
+    ticket_id: UUID,
+    secret: str,
+    *,
+    expires_in_seconds: int = 3600,
+    now: int | None = None,
+) -> str:
+    expires_at = (now if now is not None else int(time.time())) + expires_in_seconds
+    payload = json.dumps(
+        {"ticket_id": str(ticket_id), "exp": expires_at, "purpose": "tenant_photo_upload"},
+        separators=(",", ":"),
+    ).encode()
+    encoded = _b64encode(payload)
+    signature = hmac.new(secret.encode(), encoded.encode(), hashlib.sha256).digest()
+    return f"{encoded}.{_b64encode(signature)}"
+
+
 def verify_signed_media_token(token: str, secret: str, *, now: int | None = None) -> UUID:
     try:
         encoded, supplied = token.split(".", 1)
@@ -137,6 +154,22 @@ def verify_signed_media_token(token: str, secret: str, *, now: int | None = None
         return UUID(payload["attachment_id"])
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise InvalidMediaError("Media link is invalid or expired") from exc
+
+
+def verify_ticket_upload_token(token: str, secret: str, *, now: int | None = None) -> UUID:
+    try:
+        encoded, supplied = token.split(".", 1)
+        expected = _b64encode(hmac.new(secret.encode(), encoded.encode(), hashlib.sha256).digest())
+        if not hmac.compare_digest(supplied, expected):
+            raise ValueError
+        payload = json.loads(_b64decode(encoded))
+        if payload.get("purpose") != "tenant_photo_upload":
+            raise ValueError
+        if int(payload["exp"]) < (now if now is not None else int(time.time())):
+            raise ValueError
+        return UUID(payload["ticket_id"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise InvalidMediaError("Photo upload link is invalid or expired") from exc
 
 
 def _upload(key: str, media: ProcessedMedia) -> None:

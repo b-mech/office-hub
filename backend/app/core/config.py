@@ -119,7 +119,7 @@ class Settings(BaseSettings):
     )
     sms_signature: str = Field(default="— Connect Properties", alias="SMS_SIGNATURE")
     public_brand_name: str = Field(default="Connect Properties", alias="PUBLIC_BRAND_NAME")
-    sms_relay_hold_seconds: int = Field(default=30, ge=0, alias="SMS_RELAY_HOLD_SECONDS")
+    sms_relay_hold_seconds: int = Field(default=5, ge=0, alias="SMS_RELAY_HOLD_SECONDS")
     sms_automated_quiet_start: time = Field(default=time(21, 0), alias="SMS_AUTOMATED_QUIET_START")
     sms_automated_quiet_end: time = Field(default=time(8, 0), alias="SMS_AUTOMATED_QUIET_END")
     slack_bot_token: str = Field(default="", alias="SLACK_BOT_TOKEN")

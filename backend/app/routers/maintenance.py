@@ -7,14 +7,14 @@ import json
 import logging
 from datetime import date, datetime, timezone
 from io import BytesIO
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from redis.exceptions import RedisError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -37,10 +37,12 @@ from app.models.maintenance import (
 from app.models.rentals import RentalLease, RentalLeaseTenant, RentalProperty, RentalTenant, RentalUnit
 from app.services.maintenance.errors import InvalidMediaError
 from app.services.maintenance.media import (
+    create_ticket_upload_token,
     download_attachment,
     store_attachment,
     validate_file_count,
     verify_signed_media_token,
+    verify_ticket_upload_token,
 )
 from app.services.maintenance.notifier import get_maintenance_notifier
 from app.services.maintenance.permissions import has_maintenance_permission
@@ -68,6 +70,7 @@ from app.services.maintenance.workspace import (
     apply_triage,
     assign_work,
     cancel_message,
+    calendar_view,
     complete_order,
     list_ticket_views,
     post_message,
@@ -296,7 +299,73 @@ async def submit_intake(
     except (InvalidMediaError, ValueError) as exc:
         await db.rollback()
         raise HTTPException(422, str(exc)) from exc
-    return {"ticket_number": ticket.number, "phone": normalized_phone}
+    return {
+        "ticket_number": ticket.number,
+        "phone": normalized_phone,
+        "photo_upload_token": create_ticket_upload_token(ticket.id, settings.secret_key),
+    }
+
+
+@router.post("/api/public/intake/photos/{signed_token}", status_code=201)
+async def upload_intake_photos(
+    signed_token: str,
+    photos: Annotated[list[UploadFile], File()],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, int]:
+    _require_enabled()
+    try:
+        ticket_id = verify_ticket_upload_token(signed_token, settings.secret_key)
+    except InvalidMediaError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+    ticket = await db.scalar(
+        select(MaintTicket)
+        .where(MaintTicket.id == ticket_id, MaintTicket.source == "tenant_qr")
+        .with_for_update()
+    )
+    if ticket is None:
+        raise HTTPException(404, "Maintenance ticket not found")
+
+    existing_count = int(
+        await db.scalar(
+            select(func.count(MaintAttachment.id)).where(
+                MaintAttachment.ticket_id == ticket_id,
+                MaintAttachment.uploaded_by_party == MaintParty.TENANT,
+                MaintAttachment.kind == "photo",
+            )
+        )
+        or 0
+    )
+    try:
+        if not photos:
+            raise InvalidMediaError("Choose at least one photo")
+        validate_file_count(existing_count + len(photos), party=MaintParty.TENANT)
+        for photo in photos:
+            attachment = await store_attachment(
+                db,
+                ticket_id=ticket.id,
+                content=await photo.read(),
+                original_filename=photo.filename,
+                uploaded_by_party=MaintParty.TENANT,
+            )
+            event = MaintEvent(
+                ticket_id=ticket.id,
+                event_type="attachment_added",
+                channel=MaintEventChannel.WEB,
+                visibility=MaintVisibility.EXTERNAL,
+                direction=MaintDirection.INBOUND,
+                actor_party=MaintParty.TENANT,
+                actor_phone_e164=ticket.reporter_phone_e164,
+                payload={"attachment_id": str(attachment.id)},
+            )
+            db.add(event)
+            await db.flush()
+            attachment.event_id = event.id
+        await db.commit()
+    except InvalidMediaError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"uploaded": len(photos)}
 
 
 @router.get("/api/public/media/{signed_token}")
@@ -536,6 +605,32 @@ async def maintenance_tickets(
         property_id=property_id,
         needs_reply_only=needs_reply,
     )
+
+
+@router.get("/api/maintenance/calendar")
+async def maintenance_calendar(
+    request: Request,
+    start: datetime,
+    end: datetime,
+    property_id: int | None = None,
+    assignee_id: UUID | None = None,
+    visit_type: Literal["routine", "tenant_consent", "emergency"] | None = None,
+    status: MaintStatus | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    _staff(request, "view")
+    try:
+        return await calendar_view(
+            db,
+            start=start,
+            end=end,
+            property_id=property_id,
+            assignee_id=assignee_id,
+            visit_type=visit_type,
+            status=status,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/api/maintenance/tickets/{ticket_id}")

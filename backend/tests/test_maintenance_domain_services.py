@@ -582,6 +582,90 @@ async def test_cancelling_noticed_visit_queues_exact_tenant_text_and_thread_mess
 
 
 @pytest.mark.asyncio
+async def test_reschedule_cancels_old_notice_then_sends_new_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
+    monkeypatch.setattr(settings, "public_brand_name", "Connect Properties")
+    monkeypatch.setattr("app.services.maintenance.workspace._ticket_address_and_unit", stub_address)
+    item = ticket(MaintStatus.SCHEDULED)
+    item.reporter_phone_e164 = "+12045550100"
+    old_start = NOW + timedelta(days=2)
+    old_end = old_start + timedelta(hours=1)
+    order = schedulable_order(item.id)
+    order.status = MaintWorkOrderStatus.SCHEDULED
+    order.scheduled_start = old_start
+    order.scheduled_end = old_end
+    order.scheduled_visit_status = "scheduled"
+    # Rescheduling always cancels the old time, even when its notice event is unavailable.
+    db = FakeSession(scalar=None, objects={MaintWorkOrder: order})
+    queued: list[dict[str, object]] = []
+
+    async def queue(*args: object, **kwargs: object) -> SimpleNamespace:
+        queued.append(kwargs)
+        message = SimpleNamespace(id=uuid4())
+        db.added.append(SimpleNamespace(event_type="message", body=kwargs["body"], sms_message_id=message.id))
+        return message
+
+    monkeypatch.setattr("app.services.maintenance.workspace.queue_sms", queue)
+    new_start = NOW + timedelta(days=3)
+    await schedule_work(
+        db,  # type: ignore[arg-type]
+        item,  # type: ignore[arg-type]
+        ActorContext(MaintParty.STAFF, user_id=uuid4()),
+        work_order_id=order.id,
+        start=new_start,
+        end=new_start + timedelta(hours=1),
+        reason="repair the kitchen faucet",
+        now=NOW,
+    )
+
+    assert len(queued) == 2
+    assert "scheduled for Sun Oct 4 at 10:00 AM is no longer needed" in str(queued[0]["body"])
+    assert "Notice of entry" in str(queued[1]["body"])
+    assert order.scheduled_start == new_start
+    assert any(value.event_type == "scheduled_visit_rescheduled" for value in db.added)
+    assert sum(value.event_type == "message" for value in db.added) == 2
+
+
+@pytest.mark.asyncio
+async def test_invalid_reschedule_keeps_old_visit_and_sends_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "timezone", "America/Winnipeg")
+    item = ticket(MaintStatus.SCHEDULED)
+    item.reporter_phone_e164 = "+12045550100"
+    old_start = NOW + timedelta(days=2)
+    order = schedulable_order(item.id)
+    order.status = MaintWorkOrderStatus.SCHEDULED
+    order.scheduled_start = old_start
+    order.scheduled_end = old_start + timedelta(hours=1)
+    order.scheduled_visit_status = "scheduled"
+    db = FakeSession(scalar=uuid4(), objects={MaintWorkOrder: order})
+    queued = False
+
+    async def queue(*args: object, **kwargs: object) -> SimpleNamespace:
+        nonlocal queued
+        queued = True
+        return SimpleNamespace(id=uuid4())
+
+    monkeypatch.setattr("app.services.maintenance.workspace.queue_sms", queue)
+    with pytest.raises(EntryNoticeError, match="same local calendar day"):
+        await schedule_work(
+            db,  # type: ignore[arg-type]
+            item,  # type: ignore[arg-type]
+            ActorContext(MaintParty.STAFF, user_id=uuid4()),
+            work_order_id=order.id,
+            start=NOW + timedelta(days=3),
+            end=NOW + timedelta(days=4),
+            reason="repair the kitchen faucet",
+            now=NOW,
+        )
+    assert queued is False
+    assert order.scheduled_start == old_start
+
+
+@pytest.mark.asyncio
 async def test_resolve_lists_future_visit_until_it_is_cancelled_inline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

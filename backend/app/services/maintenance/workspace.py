@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -233,6 +233,214 @@ async def list_ticket_views(
             }
         )
     return result
+
+
+NOTICE_EVENT_TYPES = {
+    "entry_notice_sent",
+    "tenant_consent_confirmation_sent",
+    "emergency_on_way_sent",
+}
+
+
+def _calendar_notice_status(message: MaintSmsMessage | None) -> str | None:
+    if message is None:
+        return None
+    status = str(message.status)
+    if status in {"pending", "held", "queued"}:
+        return "queued"
+    if status == "sent":
+        return "sent"
+    if status == "delivered":
+        return "delivered"
+    if status in {"failed", "cancelled"}:
+        return "failed"
+    return None
+
+
+def _calendar_event_for_start(
+    events: list[MaintEvent], event_types: set[str], start: datetime | None
+) -> MaintEvent | None:
+    candidates = [event for event in events if event.event_type in event_types]
+    if not candidates:
+        return None
+    if start is not None:
+        expected = start.isoformat()
+        matches = [event for event in candidates if str((event.payload or {}).get("start")) == expected]
+        if matches:
+            return matches[-1]
+    return candidates[-1]
+
+
+async def calendar_view(
+    db: AsyncSession,
+    *,
+    start: datetime,
+    end: datetime,
+    property_id: int | None = None,
+    assignee_id: UUID | None = None,
+    visit_type: Literal["routine", "tenant_consent", "emergency"] | None = None,
+    status: MaintStatus | None = None,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Return scheduled visits and the filtered unscheduled queue in one request."""
+    if start.tzinfo is None or end.tzinfo is None:
+        raise ValueError("Calendar range must include a timezone")
+    if end <= start:
+        raise ValueError("Calendar range end must be after start")
+    if end - start > timedelta(days=370):
+        raise ValueError("Calendar range cannot exceed 370 days")
+
+    ticket_statement = select(MaintTicket).where(MaintTicket.status.in_(OPEN_LIST_STATUSES))
+    if property_id is not None:
+        ticket_statement = ticket_statement.where(MaintTicket.property_id == property_id)
+    if status is not None:
+        ticket_statement = ticket_statement.where(MaintTicket.status == status)
+    tickets = list((await db.scalars(ticket_statement.order_by(MaintTicket.created_at))).all())
+    ticket_by_id = {ticket.id: ticket for ticket in tickets}
+    ticket_ids = list(ticket_by_id)
+    orders = (
+        list(
+            (
+                await db.scalars(
+                    select(MaintWorkOrder)
+                    .where(MaintWorkOrder.ticket_id.in_(ticket_ids))
+                    .order_by(MaintWorkOrder.created_at)
+                )
+            ).all()
+        )
+        if ticket_ids
+        else []
+    )
+    order_ids = [order.id for order in orders]
+    events = (
+        list(
+            (
+                await db.scalars(
+                    select(MaintEvent)
+                    .where(MaintEvent.work_order_id.in_(order_ids))
+                    .order_by(MaintEvent.created_at)
+                )
+            ).all()
+        )
+        if order_ids
+        else []
+    )
+    events_by_order: dict[UUID, list[MaintEvent]] = {}
+    for event in events:
+        if event.work_order_id is not None:
+            events_by_order.setdefault(event.work_order_id, []).append(event)
+
+    properties = list((await db.scalars(select(RentalProperty).order_by(RentalProperty.street_address))).all())
+    property_by_id = {prop.id: prop for prop in properties}
+    unit_ids = [ticket.unit_id for ticket in tickets if ticket.unit_id is not None]
+    units = (
+        list((await db.scalars(select(RentalUnit).where(RentalUnit.id.in_(unit_ids)))).all())
+        if unit_ids
+        else []
+    )
+    unit_by_id = {unit.id: unit for unit in units}
+    users = list((await db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.full_name))).all())
+    vendors = list((await db.scalars(select(MaintVendor).where(MaintVendor.is_active.is_(True)).order_by(MaintVendor.name))).all())
+    user_by_id = {user.id: user for user in users}
+    vendor_by_id = {vendor.id: vendor for vendor in vendors}
+    checked_at = now or datetime.now(timezone.utc)
+
+    visits: list[dict[str, object]] = []
+    unscheduled: list[dict[str, object]] = []
+    orders_by_ticket: dict[UUID, list[MaintWorkOrder]] = {}
+    for order in orders:
+        orders_by_ticket.setdefault(order.ticket_id, []).append(order)
+
+    def assignee(order: MaintWorkOrder) -> tuple[UUID | None, str]:
+        identity = order.assignee_user_id if order.assignee_type == "staff" else order.vendor_id
+        if order.assignee_type == "staff":
+            person = user_by_id.get(identity)
+            return identity, person.full_name if person else "Unknown staff"
+        vendor = vendor_by_id.get(identity)
+        return identity, vendor.name if vendor else "Unknown vendor"
+
+    for ticket in tickets:
+        prop = property_by_id.get(ticket.property_id)
+        unit = unit_by_id.get(ticket.unit_id)
+        address = prop.street_address if prop else "Unknown property"
+        property_name = (prop.group_name or prop.street_address) if prop else address
+        unit_name = unit.unit_label if unit and unit.unit_label else "Main building"
+        ticket_orders = orders_by_ticket.get(ticket.id, [])
+        active_orders = [order for order in ticket_orders if value(order.status) not in {"cancelled"}]
+        if not active_orders:
+            inferred_type = "emergency" if ticket.is_emergency else "routine"
+            if assignee_id is None and (visit_type is None or visit_type == inferred_type):
+                unscheduled.append(
+                    {
+                        "id": f"ticket:{ticket.id}", "ticket_id": ticket.id, "work_order_id": None,
+                        "ticket_number": ticket.number, "address": address, "property": property_name,
+                        "property_id": ticket.property_id, "unit": unit_name, "title": ticket.title,
+                        "assignee_id": None, "assignee_name": "Unassigned", "assignee_type": None,
+                        "priority": value(ticket.priority), "ticket_status": value(ticket.status),
+                        "created_at": ticket.created_at, "visit_type": inferred_type,
+                        "is_emergency": ticket.is_emergency, "draggable": False,
+                    }
+                )
+            continue
+
+        for order in active_orders:
+            assigned_id, assigned_name = assignee(order)
+            if assignee_id is not None and assigned_id != assignee_id:
+                continue
+            order_events = events_by_order.get(order.id, [])
+            schedule_event = _calendar_event_for_start(order_events, {"work_order_scheduled"}, order.scheduled_start)
+            access_basis = str((schedule_event.payload or {}).get("access_basis", "routine")) if schedule_event else ("emergency" if ticket.is_emergency else "routine")
+            if visit_type is not None and access_basis != visit_type:
+                continue
+            is_completed = order.scheduled_visit_status == "completed" or value(order.status) == "completed"
+            if order.scheduled_start is not None and order.scheduled_visit_status != "cancelled":
+                visit_end = order.scheduled_end or order.scheduled_start + timedelta(hours=1)
+                if order.scheduled_start < end and visit_end > start:
+                    notice_event = _calendar_event_for_start(order_events, NOTICE_EVENT_TYPES, order.scheduled_start)
+                    message = await db.get(MaintSmsMessage, notice_event.sms_message_id) if notice_event and notice_event.sms_message_id else None
+                    visits.append(
+                        {
+                            "id": order.id, "ticket_id": ticket.id, "work_order_id": order.id,
+                            "ticket_number": ticket.number, "work_order_number": order.number,
+                            "address": address, "property": property_name, "property_id": ticket.property_id,
+                            "unit": unit_name, "title": order.scope, "assignee_id": assigned_id,
+                            "assignee_name": assigned_name, "assignee_type": order.assignee_type,
+                            "start": order.scheduled_start, "end": visit_end, "visit_type": access_basis,
+                            "visit_status": "completed" if is_completed else "scheduled",
+                            "ticket_status": value(ticket.status), "priority": value(ticket.priority),
+                            "notice_status": _calendar_notice_status(message),
+                            "notice_error": message.error_code if message and _calendar_notice_status(message) == "failed" else None,
+                            "draggable": bool(not is_completed and order.scheduled_visit_status == "scheduled" and order.scheduled_start > checked_at),
+                            "href": f"/rentals/maintenance/{ticket.id}#work-order-{order.id}",
+                        }
+                    )
+                continue
+            if not is_completed:
+                unscheduled.append(
+                    {
+                        "id": str(order.id), "ticket_id": ticket.id, "work_order_id": order.id,
+                        "ticket_number": ticket.number, "work_order_number": order.number,
+                        "address": address, "property": property_name, "property_id": ticket.property_id,
+                        "unit": unit_name, "title": order.scope, "assignee_id": assigned_id,
+                        "assignee_name": assigned_name, "assignee_type": order.assignee_type,
+                        "priority": value(ticket.priority), "ticket_status": value(ticket.status),
+                        "created_at": ticket.created_at, "visit_type": access_basis,
+                        "is_emergency": ticket.is_emergency, "draggable": True,
+                    }
+                )
+
+    priority_order = {"emergency": 0, "urgent": 1, "routine": 2, "low": 3, None: 4}
+    unscheduled.sort(key=lambda item: (0 if item["is_emergency"] else 1, priority_order.get(item["priority"], 4), item["created_at"]))
+    return {
+        "timezone": settings.timezone,
+        "visits": visits,
+        "unscheduled": unscheduled,
+        "properties": [{"id": prop.id, "name": prop.group_name or prop.street_address} for prop in properties],
+        "assignees": [
+            *[{"id": user.id, "name": user.full_name, "type": "staff"} for user in users],
+            *[{"id": vendor.id, "name": vendor.name, "type": "vendor"} for vendor in vendors],
+        ],
+    }
 
 
 async def _timeline(db: AsyncSession, ticket_id: UUID) -> list[dict[str, object]]:
@@ -622,6 +830,34 @@ async def schedule_work(
         if entry_notice_required
         else scheduled_at
     )
+    previous_start = getattr(order, "scheduled_start", None)
+    previous_end = getattr(order, "scheduled_end", None)
+    is_reschedule = bool(
+        previous_start
+        and getattr(order, "scheduled_visit_status", None) == "scheduled"
+        and (previous_start != start or previous_end != end)
+    )
+    # Validate the replacement before a cancellation or any other side effect is queued.
+    validate_work_order_schedule(
+        ticket,
+        start,
+        end,
+        access_basis=access_basis,
+        consent_evidence=consent_evidence,
+        reason=reason,
+        now=scheduled_at,
+        notice_sent_at=notice_sent_at,
+    )
+    if is_reschedule and ticket.reporter_phone_e164:
+        await _queue_visit_cancellation(
+            db,
+            ticket,
+            order,
+            actor,
+            scheduled_start=previous_start,
+            now=scheduled_at,
+            require_prior_notice=False,
+        )
     await schedule_work_order(
         db,
         ticket,
@@ -635,6 +871,27 @@ async def schedule_work(
         now=scheduled_at,
         notice_sent_at=notice_sent_at,
     )
+    if is_reschedule:
+        db.add(
+            MaintEvent(
+                ticket_id=ticket.id,
+                work_order_id=order.id,
+                event_type="scheduled_visit_rescheduled",
+                channel=MaintEventChannel.WEB,
+                visibility=MaintVisibility.INTERNAL,
+                direction=MaintDirection.NONE,
+                actor_party=actor.party,
+                actor_user_id=actor.user_id,
+                body=f"Visit moved from {_visit_start_label(previous_start)} to {_visit_start_label(start)}.",
+                payload={
+                    "old_start": previous_start.isoformat(),
+                    "old_end": previous_end.isoformat() if previous_end else None,
+                    "new_start": start.isoformat(),
+                    "new_end": end.isoformat(),
+                },
+                created_at=scheduled_at,
+            )
+        )
     local_timezone = ZoneInfo(settings.timezone)
     local_start = start.astimezone(local_timezone)
     local_end = end.astimezone(local_timezone)
@@ -740,6 +997,57 @@ def _visit_start_label(start: datetime) -> str:
     return local.strftime("%b %-d, %-I:%M %p")
 
 
+async def _queue_visit_cancellation(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    order: MaintWorkOrder,
+    actor: ActorContext,
+    *,
+    scheduled_start: datetime,
+    now: datetime,
+    require_prior_notice: bool = True,
+) -> bool:
+    if require_prior_notice:
+        notification_sent = await db.scalar(
+            select(MaintEvent.id)
+            .where(
+                MaintEvent.ticket_id == ticket.id,
+                MaintEvent.work_order_id == order.id,
+                MaintEvent.event_type.in_(NOTICE_EVENT_TYPES),
+            )
+            .limit(1)
+        )
+        if notification_sent is None:
+            return False
+    if not ticket.reporter_phone_e164:
+        return False
+    try:
+        address, unit_label = await _ticket_address_and_unit(db, ticket)
+        local_start = scheduled_start.astimezone(ZoneInfo(settings.timezone))
+        await queue_sms(
+            db,
+            to=ticket.reporter_phone_e164,
+            body=render_template(
+                "tenant_visit_cancelled",
+                address=address,
+                unit=unit_label,
+                weekday=local_start.strftime("%a"),
+                date=local_start.strftime("%b %-d"),
+                start_time=local_start.strftime("%-I:%M %p"),
+            ),
+            ticket_id=ticket.id,
+            work_order_id=order.id,
+            automated=True,
+            emergency=ticket.is_emergency,
+            actor_party=MaintParty.STAFF,
+            actor_user_id=actor.user_id,
+            now=now,
+        )
+    except SmsOptedOutError:
+        return False
+    return True
+
+
 async def set_scheduled_visit_status(
     db: AsyncSession,
     ticket: MaintTicket,
@@ -782,46 +1090,14 @@ async def set_scheduled_visit_status(
     )
 
     if status == "cancelled" and ticket.reporter_phone_e164:
-        notification_sent = await db.scalar(
-            select(MaintEvent.id)
-            .where(
-                MaintEvent.ticket_id == ticket.id,
-                MaintEvent.work_order_id == order.id,
-                MaintEvent.event_type.in_(
-                    (
-                        "entry_notice_sent",
-                        "tenant_consent_confirmation_sent",
-                        "emergency_on_way_sent",
-                    )
-                ),
-            )
-            .limit(1)
+        await _queue_visit_cancellation(
+            db,
+            ticket,
+            order,
+            actor,
+            scheduled_start=order.scheduled_start,
+            now=changed_at,
         )
-        if notification_sent is not None:
-            try:
-                address, unit_label = await _ticket_address_and_unit(db, ticket)
-                local_start = order.scheduled_start.astimezone(ZoneInfo(settings.timezone))
-                await queue_sms(
-                    db,
-                    to=ticket.reporter_phone_e164,
-                    body=render_template(
-                        "tenant_visit_cancelled",
-                        address=address,
-                        unit=unit_label,
-                        weekday=local_start.strftime("%a"),
-                        date=local_start.strftime("%b %-d"),
-                        start_time=local_start.strftime("%-I:%M %p"),
-                    ),
-                    ticket_id=ticket.id,
-                    work_order_id=order.id,
-                    automated=True,
-                    emergency=ticket.is_emergency,
-                    actor_party=MaintParty.STAFF,
-                    actor_user_id=actor.user_id,
-                    now=changed_at,
-                )
-            except SmsOptedOutError:
-                pass
     await db.flush()
 
 
