@@ -64,7 +64,6 @@ OPEN_LIST_STATUSES = {
     MaintStatus.IN_PROGRESS,
     MaintStatus.AWAITING_PARTS,
     MaintStatus.AWAITING_TENANT,
-    MaintStatus.RESOLVED,
 }
 
 
@@ -1123,6 +1122,8 @@ async def resolve_ticket(
     note: str,
     cancel_scheduled_visit_ids: list[UUID] | None = None,
 ) -> None:
+    if MaintStatus(ticket.status) == MaintStatus.RESOLVED:
+        return
     orders = await _ticket_work_orders(db, ticket.id)
     blockers = _future_scheduled_visits(orders)
     requested = set(cancel_scheduled_visit_ids or [])

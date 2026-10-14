@@ -10,7 +10,7 @@ from app.models.maintenance import MaintPriority, MaintStatus
 from app.services.maintenance.errors import InvalidTransitionError
 from app.services.maintenance.state_machine import ActorContext, transition
 from app.models.maintenance import MaintParty
-from app.services.maintenance.workspace import message_allowed, sla_status, sms_display_status
+from app.services.maintenance.workspace import OPEN_LIST_STATUSES, message_allowed, sla_status, sms_display_status
 
 
 NOW = datetime(2026, 10, 5, 14, 0, tzinfo=timezone.utc)
@@ -48,6 +48,10 @@ def test_resolved_ticket_allows_messages_but_terminal_tickets_do_not() -> None:
     assert message_allowed(MaintStatus.CLOSED) is False
     assert message_allowed(MaintStatus.CANCELLED) is False
     assert message_allowed(MaintStatus.DUPLICATE) is False
+
+
+def test_resolved_ticket_is_not_in_default_open_queue() -> None:
+    assert MaintStatus.RESOLVED not in OPEN_LIST_STATUSES
 
 
 def test_sms_ui_never_claims_delivery() -> None:

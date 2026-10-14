@@ -720,3 +720,30 @@ async def test_resolve_new_ticket_without_work_order() -> None:
     assert item.resolved_at is not None
     event = next(value for value in db.added if value.event_type == "status_changed")
     assert event.payload == {"from": "new", "to": "resolved", "reason": "Handled during the initial call"}
+
+
+@pytest.mark.asyncio
+async def test_resolving_resolved_ticket_is_idempotent_and_sends_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    item = ticket(MaintStatus.RESOLVED)
+    item.reporter_phone_e164 = "+12045550100"
+    db = WorkOrderSession([])
+    queued = False
+
+    async def queue(*args: object, **kwargs: object) -> SimpleNamespace:
+        nonlocal queued
+        queued = True
+        return SimpleNamespace(id=uuid4())
+
+    monkeypatch.setattr("app.services.maintenance.workspace.queue_sms", queue)
+    await resolve_ticket(
+        db,  # type: ignore[arg-type]
+        item,  # type: ignore[arg-type]
+        ActorContext(MaintParty.STAFF, user_id=uuid4()),
+        note="Repeated request",
+    )
+
+    assert item.status == MaintStatus.RESOLVED
+    assert queued is False
+    assert db.added == []
