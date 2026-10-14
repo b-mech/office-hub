@@ -22,9 +22,21 @@ from app.services.maintenance.sla import DEFAULT_SLA_TARGETS, SlaTargets, sla_du
 
 
 ALLOWED_TRANSITIONS: dict[MaintStatus, frozenset[MaintStatus]] = {
-    MaintStatus.NEW: frozenset({MaintStatus.TRIAGED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}),
-    MaintStatus.TRIAGED: frozenset({MaintStatus.ASSIGNED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}),
-    MaintStatus.ASSIGNED: frozenset({MaintStatus.SCHEDULED, MaintStatus.IN_PROGRESS, MaintStatus.TRIAGED, MaintStatus.CANCELLED}),
+    MaintStatus.NEW: frozenset(
+        {MaintStatus.TRIAGED, MaintStatus.RESOLVED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}
+    ),
+    MaintStatus.TRIAGED: frozenset(
+        {MaintStatus.ASSIGNED, MaintStatus.RESOLVED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}
+    ),
+    MaintStatus.ASSIGNED: frozenset(
+        {
+            MaintStatus.SCHEDULED,
+            MaintStatus.IN_PROGRESS,
+            MaintStatus.TRIAGED,
+            MaintStatus.RESOLVED,
+            MaintStatus.CANCELLED,
+        }
+    ),
     MaintStatus.SCHEDULED: frozenset(
         {MaintStatus.IN_PROGRESS, MaintStatus.ASSIGNED, MaintStatus.RESOLVED, MaintStatus.CANCELLED}
     ),

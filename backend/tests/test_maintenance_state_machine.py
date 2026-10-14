@@ -43,7 +43,7 @@ def test_every_allowed_transition(current: MaintStatus, target: MaintStatus) -> 
 @pytest.mark.parametrize(
     ("current", "target"),
     [
-        (MaintStatus.NEW, MaintStatus.RESOLVED),
+        (MaintStatus.NEW, MaintStatus.CLOSED),
         (MaintStatus.TRIAGED, MaintStatus.CLOSED),
         (MaintStatus.IN_PROGRESS, MaintStatus.ASSIGNED),
         (MaintStatus.CANCELLED, MaintStatus.IN_PROGRESS),
@@ -59,6 +59,14 @@ def test_closed_reopen_requires_admin() -> None:
     with pytest.raises(InvalidTransitionError, match="admin"):
         validate_transition(MaintStatus.CLOSED, MaintStatus.IN_PROGRESS)
     validate_transition(MaintStatus.CLOSED, MaintStatus.IN_PROGRESS, is_admin=True)
+
+
+@pytest.mark.parametrize(
+    "current",
+    [MaintStatus.NEW, MaintStatus.TRIAGED, MaintStatus.ASSIGNED],
+)
+def test_pre_work_ticket_can_be_resolved_directly(current: MaintStatus) -> None:
+    validate_transition(current, MaintStatus.RESOLVED)
 
 
 @pytest.mark.asyncio

@@ -701,3 +701,22 @@ async def test_resolve_lists_future_visit_until_it_is_cancelled_inline(
     )
     assert order.scheduled_visit_status == "cancelled"
     assert item.status == MaintStatus.RESOLVED
+
+
+@pytest.mark.asyncio
+async def test_resolve_new_ticket_without_work_order() -> None:
+    item = ticket(MaintStatus.NEW)
+    item.reporter_phone_e164 = None
+    db = WorkOrderSession([])
+
+    await resolve_ticket(
+        db,  # type: ignore[arg-type]
+        item,  # type: ignore[arg-type]
+        ActorContext(MaintParty.STAFF, user_id=uuid4()),
+        note="Handled during the initial call",
+    )
+
+    assert item.status == MaintStatus.RESOLVED
+    assert item.resolved_at is not None
+    event = next(value for value in db.added if value.event_type == "status_changed")
+    assert event.payload == {"from": "new", "to": "resolved", "reason": "Handled during the initial call"}
