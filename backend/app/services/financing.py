@@ -70,6 +70,26 @@ CLIENT_STAGE_ORDER = ("FOUNDATION", "LOCKUP", "DRYWALL", "CABINETRY", "COMPLETED
 ACTIVE_CLIENT_REQUEST_STATUSES = ("prepared", "sent_to_lawyer", "funded")
 
 
+def _statement_balance_matches(delta: Decimal) -> bool:
+    """Compare the same integer-cent delta that is persisted and displayed."""
+    delta_cents = int(money(delta) * 100)
+    return delta_cents == 0
+
+
+def _statement_reconciliation_status(
+    delta: Decimal,
+    proposed_draws: list[dict[str, Any]],
+    validation_errors: object = (),
+) -> str:
+    errors = validation_errors if isinstance(validation_errors, list) else []
+    has_parse_failure = any(str(error).startswith("Could not parse") for error in errors)
+    if not _statement_balance_matches(delta) and has_parse_failure:
+        return "parse_error"
+    if proposed_draws:
+        return "new_draws_detected"
+    return "matched" if _statement_balance_matches(delta) else "balance_mismatch"
+
+
 def normalize_address(address: str) -> str:
     cleaned = re.sub(r"[^A-Z0-9]+", " ", address.upper()).strip()
     return re.sub(r"\s+", " ", cleaned)
@@ -1930,13 +1950,7 @@ async def create_manual_statement_snapshot(
                     "reference": draw.reference,
                 }
             )
-    status = (
-        "new_draws_detected"
-        if proposed
-        else "matched"
-        if abs(delta) <= Decimal("0.02")
-        else "balance_mismatch"
-    )
+    status = _statement_reconciliation_status(delta, proposed)
     payload = {
         "source": "manual",
         "draws": proposed,
@@ -2172,9 +2186,12 @@ async def update_statement_discrepancy(
             text(
                 """
                 UPDATE documents.lender_statement_discrepancies
-                SET status = :status,
-                    review_note = :review_note,
-                    reviewed_at = CASE WHEN :status = 'acknowledged' THEN now() ELSE NULL END,
+                SET status = CAST(:status AS varchar),
+                    review_note = CAST(:review_note AS text),
+                    reviewed_at = CASE
+                        WHEN CAST(:status AS varchar) = 'acknowledged' THEN now()
+                        ELSE NULL
+                    END,
                     updated_at = now()
                 WHERE id = :discrepancy_id
                 RETURNING *
@@ -2211,7 +2228,7 @@ async def acknowledge_statement_snapshot(
                             'review',
                             jsonb_build_object(
                                 'previous_status', reconciliation_status,
-                                'note', :note,
+                                'note', CAST(:note AS text),
                                 'reviewed_at', now()
                             )
                         )
@@ -2505,12 +2522,11 @@ async def _upsert_statement_snapshot(
         ).mappings().one()
         computed_balance = balance_on(_pro_facility_from_row(facility_row), await _pro_transactions(db, facility_id), statement.period_end_date)
         delta = money(computed_balance - statement.period_end_balance)
-        if proposed:
-            status = "new_draws_detected"
-        elif abs(delta) <= Decimal("0.02") and not statement.validation_errors:
-            status = "matched"
-        else:
-            status = "balance_mismatch"
+        status = _statement_reconciliation_status(
+            delta,
+            proposed,
+            statement.validation_errors,
+        )
 
     payload = {
         "page": page_index,
@@ -2715,7 +2731,11 @@ async def _reconcile_snapshot(db: AsyncSession, snapshot_id: UUID) -> None:
         ).scalar_one_or_none()
         if not exists:
             proposed.append({"date": draw.txn_date.isoformat(), "amount": str(draw.amount), "reference": draw.reference})
-    status = "matched" if abs(delta) <= Decimal("0.02") else "balance_mismatch"
+    status = _statement_reconciliation_status(
+        delta,
+        proposed,
+        parse_payload.get("validation_errors", []),
+    )
     await db.execute(
         text(
             """
@@ -2731,7 +2751,7 @@ async def _reconcile_snapshot(db: AsyncSession, snapshot_id: UUID) -> None:
             "id": snapshot_id,
             "computed_balance": computed_balance,
             "delta": delta,
-            "status": status if not proposed else "new_draws_detected",
+            "status": status,
             "new_draws_detected": json.dumps(proposed, default=str),
         },
     )

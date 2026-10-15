@@ -77,6 +77,35 @@ class ProStatementParserTest(unittest.TestCase):
         self.assertEqual(date(2026, 3, 30), statements[0].period_end_date)
         self.assertEqual(Decimal("100000.00"), statements[0].draws[0].amount)
 
+    def test_ocr_equals_separators_do_not_discard_only_schedule_row(self) -> None:
+        text = """
+        Connection Homes Inc - 5 Gray Place
+        AMOUNT BORROWED: $169,900.00 advanced on 9/2/2026
+        ANNUAL INTEREST RATE: = 11.00% (Monthly compounding) (360)
+        9/21/2026 19 1 00 = 11.0000 986.36 = -100,986.36 270,886.36 -100,000.00 986.36 Chq#47701
+        Totals for schedule 00 986.36 -100,986.36 -100,000.00
+        """
+
+        statement = parse_statement_text(text, period="2026-09")[0]
+
+        self.assertEqual(Decimal("100000.00"), statement.draws[0].amount)
+        self.assertEqual([], statement.validation_errors)
+
+    def test_ocr_comma_in_rate_token_does_not_hide_draw(self) -> None:
+        text = """
+        PRIVI Holdings - 114 Froese
+        AMOUNT BORROWED: $312,000.00 advanced on 7/3/2026
+        ANNUAL INTEREST RATE: = 11.00% (Monthly compounding) (360)
+        7/27/2026 24 1 .00 41,0000 645.81 -400,645.81 712,645.81 -400,000.00 645.81 chq#47660
+        8/20/2026 24 2 .00 41.0000 5,057.49 -5,057.49 717,703.30 .00 5,703.30
+        Totals for schedule .00 5,703.30 -405,703.30 -400,000.06
+        """
+
+        statement = parse_statement_text(text, period="2026-08")[0]
+
+        self.assertEqual(Decimal("400000.00"), statement.draws[0].amount)
+        self.assertEqual([], statement.validation_errors)
+
     def test_statement_totals_drive_reported_principal_despite_ocr_noise(self) -> None:
         text = """
         Connection Homes - 64 Woodland Way, West St Paul, MB

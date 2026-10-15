@@ -17,7 +17,7 @@ SCHEDULE_ROW_PATTERN = re.compile(
     r"(?P<days>\S+)\s+"
     r"(?P<pmt>\S+)\s+"
     rf"(?P<payment>{SCHEDULE_MONEY})\s+"
-    r"(?P<rate>\d+(?:\.\d+)?)\s*%?\s+"
+    r"(?P<rate>\d+(?:[.,]\d+)?)\s*%?\s+"
     rf"(?P<interest>{SCHEDULE_MONEY})\s+"
     rf"(?P<principal>{SCHEDULE_MONEY})\s+"
     rf"(?P<balance>{SCHEDULE_MONEY})\s+"
@@ -283,6 +283,7 @@ def _parse_schedule_row(
     normalized = re.sub(r"(?<=/)H(?=\d)", "", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"(?<=[.\-\s])[OGC](?=\d|\s)", "0", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"(?<=\d)[OGC](?=\d)", "0", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\s+=\s+", " ", normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip()
     match = SCHEDULE_ROW_PATTERN.match(normalized)
     if not match:

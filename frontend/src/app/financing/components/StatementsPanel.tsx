@@ -25,6 +25,11 @@ function chip(status: string): string {
   return "bg-[var(--ch-warning-bg)] text-[var(--ch-warning-text)]";
 }
 
+function validationErrors(snapshot: LenderStatementDetail["snapshots"][number]): string[] {
+  const errors = snapshot.parse_payload?.validation_errors;
+  return Array.isArray(errors) ? errors.filter((error): error is string => typeof error === "string") : [];
+}
+
 export function StatementsPanel({
   selected,
   onSelect,
@@ -39,6 +44,8 @@ export function StatementsPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [acknowledgingSnapshotId, setAcknowledgingSnapshotId] = useState<string | null>(null);
+  const [reviewingDiscrepancyId, setReviewingDiscrepancyId] = useState<string | null>(null);
   const [showManual, setShowManual] = useState(false);
 
   async function load() {
@@ -92,15 +99,31 @@ export function StatementsPanel({
   }
 
   async function acknowledgeMismatch(snapshotId: string) {
-    await acknowledgeStatementSnapshot(snapshotId);
-    if (selected) onSelect(await getLenderStatement(selected.id));
-    await onChanged();
+    setAcknowledgingSnapshotId(snapshotId);
+    setError(null);
+    try {
+      await acknowledgeStatementSnapshot(snapshotId);
+      if (selected) onSelect(await getLenderStatement(selected.id));
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not acknowledge the source balance");
+    } finally {
+      setAcknowledgingSnapshotId(null);
+    }
   }
 
   async function setDiscrepancyStatus(discrepancyId: string, status: "open" | "acknowledged") {
-    await updateStatementDiscrepancy(discrepancyId, status);
-    if (selected) onSelect(await getLenderStatement(selected.id));
-    await onChanged();
+    setReviewingDiscrepancyId(discrepancyId);
+    setError(null);
+    try {
+      await updateStatementDiscrepancy(discrepancyId, status);
+      if (selected) onSelect(await getLenderStatement(selected.id));
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update the missing-record review");
+    } finally {
+      setReviewingDiscrepancyId(null);
+    }
   }
 
   async function retry() {
@@ -227,7 +250,17 @@ export function StatementsPanel({
                   <tbody>
                     {selected.snapshots.map((snapshot) => (
                       <tr key={snapshot.id} className="border-t border-[var(--ch-border)]">
-                        <td className="px-2 py-2">{snapshot.matched_property_name}</td>
+                        <td className="px-2 py-2">
+                          <div>{snapshot.matched_property_name}</div>
+                          {validationErrors(snapshot).length ? (
+                            <details className="mt-1 max-w-md text-xs text-[var(--ch-warning-text)]">
+                              <summary className="cursor-pointer font-semibold">OCR warnings ({validationErrors(snapshot).length})</summary>
+                              <ul className="mt-1 list-disc space-y-1 pl-4">
+                                {validationErrors(snapshot).map((warning, index) => <li key={`${snapshot.id}-warning-${index}`}>{warning}</li>)}
+                              </ul>
+                            </details>
+                          ) : null}
+                        </td>
                         <td className="px-2 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${chip(snapshot.reconciliation_status)}`}>{snapshot.reconciliation_status}</span></td>
                         <td className="px-2 py-2 text-right tabular-nums">{money.format(num(snapshot.reported_period_end_balance))}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{snapshot.computed_balance == null ? "-" : money.format(num(snapshot.computed_balance))}</td>
@@ -247,8 +280,14 @@ export function StatementsPanel({
                             </select>
                           ) : null}
                           {snapshot.reconciliation_status === "balance_mismatch" ? (
-                            <button type="button" onClick={() => acknowledgeMismatch(snapshot.id)} className="ml-2 rounded-md border border-[var(--ch-border)] px-2 py-1 text-xs font-semibold">
-                              Acknowledge source
+                            <button
+                              type="button"
+                              onClick={() => void acknowledgeMismatch(snapshot.id)}
+                              disabled={acknowledgingSnapshotId !== null}
+                              title={acknowledgingSnapshotId !== null && acknowledgingSnapshotId !== snapshot.id ? "Another acknowledgement is in progress" : undefined}
+                              className="ml-2 rounded-md border border-[var(--ch-border)] px-2 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {acknowledgingSnapshotId === snapshot.id ? "Acknowledging…" : "Acknowledge source"}
                             </button>
                           ) : null}
                         </td>
@@ -287,10 +326,12 @@ export function StatementsPanel({
                             <td className="px-2 py-2">
                               <button
                                 type="button"
-                                onClick={() => setDiscrepancyStatus(issue.id, issue.status === 'open' ? 'acknowledged' : 'open')}
-                                className="rounded-md border border-[var(--ch-border)] px-2 py-1 text-xs font-semibold"
+                                onClick={() => void setDiscrepancyStatus(issue.id, issue.status === 'open' ? 'acknowledged' : 'open')}
+                                disabled={reviewingDiscrepancyId !== null}
+                                title={reviewingDiscrepancyId !== null && reviewingDiscrepancyId !== issue.id ? "Another missing-record review is in progress" : undefined}
+                                className="rounded-md border border-[var(--ch-border)] px-2 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                {issue.status === 'open' ? 'Acknowledge' : 'Reopen'}
+                                {reviewingDiscrepancyId === issue.id ? 'Saving…' : issue.status === 'open' ? 'Acknowledge' : 'Reopen'}
                               </button>
                             </td>
                           </tr>

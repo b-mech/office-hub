@@ -9,6 +9,8 @@ from app.schemas.financing import FinancingPropertyOut
 from app.services.financing import _assert_no_duplicate_pro_properties
 from app.services.financing import _dedupe_dashboard_properties
 from app.services.financing import _summary
+from app.services.financing import _statement_balance_matches
+from app.services.financing import _statement_reconciliation_status
 from app.services.financing import _statement_names_match
 from app.services.financing import _property_from_row
 
@@ -38,6 +40,38 @@ def row(
 
 
 class FinancingDashboardServiceTest(unittest.TestCase):
+    def test_statement_balance_matching_uses_displayed_integer_cent_delta(self) -> None:
+        self.assertTrue(_statement_balance_matches(Decimal("0.00")))
+        self.assertTrue(_statement_balance_matches(Decimal("0.004")))
+        self.assertFalse(_statement_balance_matches(Decimal("0.01")))
+        self.assertFalse(_statement_balance_matches(Decimal("-0.01")))
+
+    def test_statement_parse_failure_is_distinct_from_balance_mismatch(self) -> None:
+        self.assertEqual(
+            "parse_error",
+            _statement_reconciliation_status(
+                Decimal("-402713.30"),
+                [],
+                ["Could not parse PRO schedule row: noisy OCR"],
+            ),
+        )
+        self.assertEqual(
+            "balance_mismatch",
+            _statement_reconciliation_status(
+                Decimal("120.86"),
+                [],
+                ["2026-08-06: expected balance 231236.14, reported 234233.14"],
+            ),
+        )
+        self.assertEqual(
+            "matched",
+            _statement_reconciliation_status(
+                Decimal("0.00"),
+                [],
+                ["Could not parse PRO schedule row: noisy OCR"],
+            ),
+        )
+
     def test_statement_name_matching_handles_portfolio_headers(self) -> None:
         self.assertTrue(_statement_names_match("114 FROESE", "114 FROESE CRESCENT"))
         self.assertTrue(
