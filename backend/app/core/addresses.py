@@ -123,6 +123,8 @@ def normalize_address(raw: str) -> NormalizedAddress:
 def _clean_base(value: str) -> str:
     cleaned = value.casefold().upper()
     cleaned = re.sub(r"[–—−]", "-", cleaned)
+    cleaned = re.sub(r"\bLLE DES CHENES\b", "ILE DES CHENES", cleaned)
+    cleaned = re.sub(r"\bW\s+ST\s+PAUL\b", "WEST ST PAUL", cleaned)
     for pattern in BORROWER_PREFIXES:
         cleaned = re.sub(rf"^{pattern}", "", cleaned)
     cleaned = re.sub(r"[()]", " ", cleaned)
@@ -140,7 +142,7 @@ def _strip_annotations(value: str) -> tuple[list[str], str]:
         if match:
             annotations.append(_squash(match.group(0)))
             cleaned = re.sub(pattern, " ", cleaned)
-    cleaned = re.sub(r"\s*-\s*$", " ", cleaned)
+    cleaned = re.sub(r"(?:\s*-\s*)+$", " ", cleaned)
     return annotations, _squash(cleaned)
 
 

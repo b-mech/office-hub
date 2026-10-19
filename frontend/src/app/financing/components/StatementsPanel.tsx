@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  acknowledgeStatementSnapshot,
   approveStatementDraws,
   createManualStatementSnapshot,
   getLenderStatement,
@@ -21,13 +20,18 @@ function num(value: unknown): number {
 
 function chip(status: string): string {
   if (["matched", "parsed", "reconciled", "reviewed", "acknowledged"].includes(status)) return "bg-[var(--ch-success-bg)] text-[var(--ch-success-text)]";
-  if (status === "failed" || status === "balance_mismatch") return "bg-[var(--ch-error-bg)] text-[var(--ch-error-text)]";
+  if (["failed", "parse_error", "core_transaction_error", "balance_mismatch"].includes(status)) return "bg-[var(--ch-error-bg)] text-[var(--ch-error-text)]";
   return "bg-[var(--ch-warning-bg)] text-[var(--ch-warning-text)]";
 }
 
 function validationErrors(snapshot: LenderStatementDetail["snapshots"][number]): string[] {
   const errors = snapshot.parse_payload?.validation_errors;
   return Array.isArray(errors) ? errors.filter((error): error is string => typeof error === "string") : [];
+}
+
+function payloadRows(snapshot: LenderStatementDetail["snapshots"][number], key: string): Array<Record<string, unknown>> {
+  const value = snapshot.parse_payload?.[key];
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object") : [];
 }
 
 export function StatementsPanel({
@@ -44,7 +48,6 @@ export function StatementsPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
-  const [acknowledgingSnapshotId, setAcknowledgingSnapshotId] = useState<string | null>(null);
   const [reviewingDiscrepancyId, setReviewingDiscrepancyId] = useState<string | null>(null);
   const [showManual, setShowManual] = useState(false);
 
@@ -96,20 +99,6 @@ export function StatementsPanel({
     await linkStatementFacility(snapshotId, facilityId);
     if (selected) onSelect(await getLenderStatement(selected.id));
     await onChanged();
-  }
-
-  async function acknowledgeMismatch(snapshotId: string) {
-    setAcknowledgingSnapshotId(snapshotId);
-    setError(null);
-    try {
-      await acknowledgeStatementSnapshot(snapshotId);
-      if (selected) onSelect(await getLenderStatement(selected.id));
-      await onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not acknowledge the source balance");
-    } finally {
-      setAcknowledgingSnapshotId(null);
-    }
   }
 
   async function setDiscrepancyStatus(discrepancyId: string, status: "open" | "acknowledged") {
@@ -252,6 +241,40 @@ export function StatementsPanel({
                       <tr key={snapshot.id} className="border-t border-[var(--ch-border)]">
                         <td className="px-2 py-2">
                           <div>{snapshot.matched_property_name}</div>
+                          {payloadRows(snapshot, "repairs").length ? (
+                            <details className="mt-1 max-w-xl text-xs text-[var(--ch-warning-text)]">
+                              <summary className="cursor-pointer font-semibold">Repaired OCR ({payloadRows(snapshot, "repairs").length})</summary>
+                              <div className="mt-2 space-y-2">
+                                {payloadRows(snapshot, "repairs").map((item, index) => (
+                                  <div key={`${snapshot.id}-repair-${index}`} className="rounded border border-[var(--ch-border)] p-2">
+                                    <p><strong>{String(item.field || "value")}</strong>{item.row_date ? ` · ${String(item.row_date)}` : ""} → {String(item.inferred_value ?? "-")}</p>
+                                    <p className="mt-1 text-[var(--ch-text-muted)]">Basis: {String(item.basis || "-")}</p>
+                                    <p className="mt-1 break-words font-mono text-[var(--ch-text-muted)]">Raw OCR: {String(item.raw_ocr || "-")}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          ) : null}
+                          {payloadRows(snapshot, "repayments").length ? (
+                            <details className="mt-1 max-w-xl text-xs text-[var(--ch-warning-text)]">
+                              <summary className="cursor-pointer font-semibold">Repayments detected ({payloadRows(snapshot, "repayments").length})</summary>
+                              <ul className="mt-1 list-disc space-y-1 pl-4">
+                                {payloadRows(snapshot, "repayments").map((item, index) => (
+                                  <li key={`${snapshot.id}-repayment-${index}`}>{String(item.txn_date || item.date)} · {money.format(num(item.amount))} · {String(item.reference || "no reference")}</li>
+                                ))}
+                              </ul>
+                            </details>
+                          ) : null}
+                          {payloadRows(snapshot, "transaction_discrepancies").length ? (
+                            <details open className="mt-1 max-w-xl text-xs text-[var(--ch-error-text)]">
+                              <summary className="cursor-pointer font-semibold">Existing transaction conflicts ({payloadRows(snapshot, "transaction_discrepancies").length})</summary>
+                              <ul className="mt-1 list-disc space-y-1 pl-4">
+                                {payloadRows(snapshot, "transaction_discrepancies").map((item, index) => (
+                                  <li key={`${snapshot.id}-conflict-${index}`}>{String(item.statement_reference || "reference")} — statement {money.format(num(item.statement_amount))}, recorded {money.format(num(item.recorded_amount))}. {String(item.reason || "")}</li>
+                                ))}
+                              </ul>
+                            </details>
+                          ) : null}
                           {validationErrors(snapshot).length ? (
                             <details className="mt-1 max-w-md text-xs text-[var(--ch-warning-text)]">
                               <summary className="cursor-pointer font-semibold">OCR warnings ({validationErrors(snapshot).length})</summary>
@@ -266,7 +289,7 @@ export function StatementsPanel({
                         <td className="px-2 py-2 text-right tabular-nums">{snapshot.computed_balance == null ? "-" : money.format(num(snapshot.computed_balance))}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{snapshot.delta == null ? "-" : money.format(num(snapshot.delta))}</td>
                         <td className="px-2 py-2">
-                          {snapshot.new_draws_detected?.length ? (
+                          {snapshot.reconciliation_status !== "parse_error" && snapshot.new_draws_detected?.length ? (
                             <button type="button" onClick={() => approve(snapshot.id)} className="rounded-md bg-[var(--ch-accent)] px-2 py-1 text-xs font-semibold text-[var(--ch-accent-text)]">
                               Approve {snapshot.new_draws_detected.length}
                             </button>
@@ -278,17 +301,6 @@ export function StatementsPanel({
                                 <option key={facility.id} value={facility.id}>{facility.property_name}</option>
                               ))}
                             </select>
-                          ) : null}
-                          {snapshot.reconciliation_status === "balance_mismatch" ? (
-                            <button
-                              type="button"
-                              onClick={() => void acknowledgeMismatch(snapshot.id)}
-                              disabled={acknowledgingSnapshotId !== null}
-                              title={acknowledgingSnapshotId !== null && acknowledgingSnapshotId !== snapshot.id ? "Another acknowledgement is in progress" : undefined}
-                              className="ml-2 rounded-md border border-[var(--ch-border)] px-2 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {acknowledgingSnapshotId === snapshot.id ? "Acknowledging…" : "Acknowledge source"}
-                            </button>
                           ) : null}
                         </td>
                       </tr>

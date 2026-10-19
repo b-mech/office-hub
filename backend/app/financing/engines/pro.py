@@ -176,6 +176,10 @@ def _interest_for_span(
         return Decimal("0.00")
     period_start, period_end = _period_bounds(period_anchor, end)
     period_days = Decimal((period_end - period_start).days)
+    # Once an off-cycle cheque lands in the next calendar month, PRO uses
+    # that month's day count for the remaining stub to the anniversary.
+    if start > period_start and (start.year, start.month) != (period_start.year, period_start.month):
+        period_days = Decimal(monthrange(start.year, start.month)[1])
     span_days = Decimal((end - start).days)
     return money(balance * annual_rate / Decimal("12") * span_days / period_days)
 

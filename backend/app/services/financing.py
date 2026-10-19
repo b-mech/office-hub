@@ -80,14 +80,19 @@ def _statement_reconciliation_status(
     delta: Decimal,
     proposed_draws: list[dict[str, Any]],
     validation_errors: object = (),
+    proposed_repayments: object = (),
+    transaction_discrepancies: object = (),
 ) -> str:
     errors = validation_errors if isinstance(validation_errors, list) else []
-    has_parse_failure = any(str(error).startswith("Could not parse") for error in errors)
-    if not _statement_balance_matches(delta) and has_parse_failure:
+    if errors:
         return "parse_error"
+    if isinstance(transaction_discrepancies, list) and transaction_discrepancies:
+        return "core_transaction_error"
     if proposed_draws:
         return "new_draws_detected"
-    return "matched" if _statement_balance_matches(delta) else "balance_mismatch"
+    if isinstance(proposed_repayments, list) and proposed_repayments:
+        return "new_repayments_detected"
+    return "matched" if _statement_balance_matches(delta) else "core_transaction_error"
 
 
 def normalize_address(address: str) -> str:
@@ -411,7 +416,9 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
                       AND lf.canonical_address_key IS NOT NULL
                       AND p.canonical_address_key = lf.canonical_address_key
                   )
-                LEFT JOIN documents.construction_stage_sync css ON css.property_id = p.id
+                LEFT JOIN documents.construction_stage_sync css
+                  ON css.property_id = p.id
+                  OR (lf.build_group_id IS NOT NULL AND css.build_group_id = lf.build_group_id)
                 LEFT JOIN LATERAL (
                     SELECT
                         fss.reported_period_end_balance,
@@ -2046,8 +2053,27 @@ async def approve_snapshot_draws(db: AsyncSession, snapshot_id: UUID) -> Facilit
     ).mappings().one_or_none()
     if not snapshot or not snapshot["facility_id"]:
         return None
+    if snapshot["reconciliation_status"] == "parse_error":
+        raise ValueError("Resolve the statement parse error before approving draws")
     detected_draws = snapshot["new_draws_detected"] or []
     for draw in detected_draws:
+        existing_draws = (
+            await db.execute(
+                text("SELECT txn_date, amount, reference FROM core.facility_transactions WHERE facility_id=:facility_id AND txn_type='draw'"),
+                {"facility_id": snapshot["facility_id"]},
+            )
+        ).mappings().all()
+        cheque = _normalized_cheque_reference(draw.get("reference"))
+        reference_match = next(
+            (row for row in existing_draws if cheque and _normalized_cheque_reference(row["reference"]) == cheque),
+            None,
+        )
+        if reference_match:
+            if reference_match["amount"] != Decimal(str(draw["amount"])):
+                raise ValueError(
+                    f"Cheque {cheque} already exists at {reference_match['amount']}; statement proposes {draw['amount']}"
+                )
+            continue
         await db.execute(
             text(
                 """
@@ -2478,7 +2504,10 @@ async def _upsert_statement_snapshot(
 ) -> dict[str, Any]:
     canonical = normalize_canonical_address(statement.property_name)
     facility_id = await _match_facility(db, statement.property_name, canonical.canonical_key)
-    proposed = await _proposed_draws(db, facility_id, statement)
+    proposed, transaction_matches, transaction_discrepancies = await _proposed_draws(db, facility_id, statement)
+    proposed_repayments = await _proposed_repayments(
+        db, facility_id, [item.__dict__ for item in statement.repayments]
+    )
     computed_balance = None
     delta = None
     status = "unmatched"
@@ -2526,6 +2555,8 @@ async def _upsert_statement_snapshot(
             delta,
             proposed,
             statement.validation_errors,
+            proposed_repayments,
+            transaction_discrepancies,
         )
 
     payload = {
@@ -2533,9 +2564,15 @@ async def _upsert_statement_snapshot(
         "property_name": statement.property_name,
         "original_advance_amount": str(statement.original_advance_amount),
         "total_drawn": str(statement.total_drawn),
+        "total_repaid": str(statement.total_repaid),
         "reported_principal_drawn": str(statement.reported_principal_drawn),
         "reported_accrued_interest": str(statement.reported_accrued_interest),
         "draws": [draw.__dict__ for draw in statement.draws],
+        "repayments": [item.__dict__ for item in statement.repayments],
+        "proposed_repayments": proposed_repayments,
+        "repairs": [item.__dict__ for item in statement.repairs],
+        "transaction_matches": transaction_matches,
+        "transaction_discrepancies": transaction_discrepancies,
         "validation_errors": statement.validation_errors,
         "ocr_text": (extracted.get("pages") or [{}])[page_index - 1].get("text") if extracted.get("pages") else None,
     }
@@ -2604,10 +2641,11 @@ async def _match_facility(db: AsyncSession, raw_name: str, canonical_key: str) -
         await db.execute(
             text(
                 """
-                SELECT id, property_name
-                FROM core.lender_facilities
-                WHERE COALESCE(lender, lender_type) = 'PRO'
-                  AND canonical_address_key = :canonical_key
+                SELECT lf.id, COALESCE(lf.property_name, p.address) AS property_name
+                FROM core.lender_facilities lf
+                LEFT JOIN core.properties p ON p.id = lf.property_id
+                WHERE COALESCE(lf.lender, lf.lender_type) = 'PRO'
+                  AND COALESCE(lf.canonical_address_key, p.canonical_address_key) = :canonical_key
                 """
             ),
             {"canonical_key": canonical_key},
@@ -2620,10 +2658,11 @@ async def _match_facility(db: AsyncSession, raw_name: str, canonical_key: str) -
         await db.execute(
             text(
                 """
-                SELECT id, property_name
-                FROM core.lender_facilities
-                WHERE COALESCE(lender, lender_type) = 'PRO'
-                  AND property_name IS NOT NULL
+                SELECT lf.id, COALESCE(lf.property_name, p.address) AS property_name
+                FROM core.lender_facilities lf
+                LEFT JOIN core.properties p ON p.id = lf.property_id
+                WHERE COALESCE(lf.lender, lf.lender_type) = 'PRO'
+                  AND COALESCE(lf.property_name, p.address) IS NOT NULL
                 """
             )
         )
@@ -2654,29 +2693,76 @@ def _statement_names_match(left: str, right: str) -> bool:
     )
 
 
-async def _proposed_draws(db: AsyncSession, facility_id: UUID | None, statement: ParsedProFacilityStatement) -> list[dict[str, Any]]:
+def _normalized_cheque_reference(value: str | None) -> str | None:
+    if not value:
+        return None
+    match = re.search(r"(?:CH(?:E?Q|A?Q?)|CIHQ)\D*([0-9]{4,})", value.upper())
+    return match.group(1) if match else None
+
+
+async def _proposed_draws(
+    db: AsyncSession, facility_id: UUID | None, statement: ParsedProFacilityStatement,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     if not facility_id:
-        return [{"date": draw.txn_date.isoformat(), "amount": str(draw.amount), "reference": draw.reference} for draw in statement.draws]
-    proposed = []
+        return ([{"date": draw.txn_date.isoformat(), "amount": str(draw.amount), "reference": draw.reference} for draw in statement.draws], [], [])
+    existing = (
+        await db.execute(
+            text("""
+                SELECT id, txn_date, amount, reference
+                FROM core.facility_transactions
+                WHERE facility_id = :facility_id AND txn_type = 'draw'
+            """),
+            {"facility_id": facility_id},
+        )
+    ).mappings().all()
+    proposed: list[dict[str, Any]] = []
+    matches: list[dict[str, Any]] = []
+    discrepancies: list[dict[str, Any]] = []
     for draw in statement.draws:
-        exists = (
-            await db.execute(
-                text(
-                    """
-                    SELECT 1
-                    FROM core.facility_transactions
-                    WHERE facility_id = :facility_id
-                      AND txn_date = :txn_date
-                      AND amount = :amount
-                    LIMIT 1
-                    """
-                ),
-                {"facility_id": facility_id, "txn_date": draw.txn_date, "amount": draw.amount},
-            )
-        ).scalar_one_or_none()
-        if not exists:
-            proposed.append({"date": draw.txn_date.isoformat(), "amount": str(draw.amount), "reference": draw.reference})
-    return proposed
+        cheque = _normalized_cheque_reference(draw.reference)
+        exact = next((row for row in existing if row["txn_date"] == draw.txn_date and row["amount"] == draw.amount), None)
+        reference_match = next(
+            (row for row in existing if cheque and _normalized_cheque_reference(row["reference"]) == cheque),
+            None,
+        )
+        matched = exact or reference_match
+        if matched:
+            detail = {
+                "statement_date": draw.txn_date.isoformat(), "statement_amount": str(draw.amount),
+                "statement_reference": draw.reference, "transaction_id": str(matched["id"]),
+                "recorded_date": matched["txn_date"].isoformat(), "recorded_amount": str(matched["amount"]),
+                "recorded_reference": matched["reference"],
+                "basis": "date_and_amount" if exact else "cheque_reference",
+            }
+            if matched["amount"] != draw.amount:
+                detail["reason"] = "The cheque reference matches an existing draw, but the amount differs. No duplicate was proposed."
+                discrepancies.append(detail)
+            else:
+                matches.append(detail)
+            continue
+        proposed.append({"date": draw.txn_date.isoformat(), "amount": str(draw.amount), "reference": draw.reference})
+    return proposed, matches, discrepancies
+
+
+async def _proposed_repayments(
+    db: AsyncSession, facility_id: UUID | None, repayments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not facility_id:
+        return repayments
+    existing = (
+        await db.execute(
+            text("SELECT txn_date, amount, reference FROM core.facility_transactions WHERE facility_id=:facility_id AND txn_type='repayment'"),
+            {"facility_id": facility_id},
+        )
+    ).mappings().all()
+    return [
+        repayment for repayment in repayments
+        if not any(
+            row["amount"] == Decimal(str(repayment["amount"]))
+            and row["txn_date"] == date.fromisoformat(str(repayment.get("txn_date") or repayment.get("date")))
+            for row in existing
+        )
+    ]
 
 
 async def _reconcile_snapshot(db: AsyncSession, snapshot_id: UUID) -> None:
@@ -2735,6 +2821,8 @@ async def _reconcile_snapshot(db: AsyncSession, snapshot_id: UUID) -> None:
         delta,
         proposed,
         parse_payload.get("validation_errors", []),
+        await _proposed_repayments(db, snapshot["facility_id"], parse_payload.get("repayments", [])),
+        parse_payload.get("transaction_discrepancies", []),
     )
     await db.execute(
         text(
@@ -2977,7 +3065,7 @@ def _property_from_row(
         draw_override = row["draw_eligible_override"]
         use_override = (
             draw_override is not None
-            and pro_statement_status not in {"new_draws_detected", "balance_mismatch"}
+            and pro_statement_status not in {"new_draws_detected", "new_repayments_detected", "balance_mismatch", "core_transaction_error", "parse_error"}
         )
         draw_eligible = (
             draw_override
@@ -2988,7 +3076,7 @@ def _property_from_row(
         )
         statement_flag = (
             "STATEMENT_REVIEW"
-            if pro_statement_status in {"new_draws_detected", "balance_mismatch"}
+            if pro_statement_status in {"new_draws_detected", "new_repayments_detected", "balance_mismatch", "core_transaction_error", "parse_error"}
             else None
         )
         cumulative_entitled = (

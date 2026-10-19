@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 import unittest
 
@@ -12,7 +14,10 @@ from app.services.financing import _summary
 from app.services.financing import _statement_balance_matches
 from app.services.financing import _statement_reconciliation_status
 from app.services.financing import _statement_names_match
+from app.services.financing import _normalized_cheque_reference
+from app.services.financing import _proposed_draws
 from app.services.financing import _property_from_row
+from app.financing.parsers.pro_statement import ParsedProDraw
 
 
 def row(
@@ -46,7 +51,7 @@ class FinancingDashboardServiceTest(unittest.TestCase):
         self.assertFalse(_statement_balance_matches(Decimal("0.01")))
         self.assertFalse(_statement_balance_matches(Decimal("-0.01")))
 
-    def test_statement_parse_failure_is_distinct_from_balance_mismatch(self) -> None:
+    def test_statement_defects_are_classified_internally(self) -> None:
         self.assertEqual(
             "parse_error",
             _statement_reconciliation_status(
@@ -56,21 +61,35 @@ class FinancingDashboardServiceTest(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            "balance_mismatch",
+            "parse_error",
             _statement_reconciliation_status(
                 Decimal("120.86"),
                 [],
                 ["2026-08-06: expected balance 231236.14, reported 234233.14"],
             ),
         )
+        self.assertEqual("core_transaction_error", _statement_reconciliation_status(Decimal("120.86"), []))
         self.assertEqual(
-            "matched",
+            "parse_error",
             _statement_reconciliation_status(
                 Decimal("0.00"),
                 [],
                 ["Could not parse PRO schedule row: noisy OCR"],
             ),
         )
+
+        self.assertEqual(
+            "new_repayments_detected",
+            _statement_reconciliation_status(Decimal("11394.86"), [], [], [{"amount": "11394.86"}]),
+        )
+        self.assertEqual(
+            "core_transaction_error",
+            _statement_reconciliation_status(Decimal("0.00"), [], [], [], [{"reason": "cheque amount differs"}]),
+        )
+
+    def test_cheque_reference_normalization_ignores_ocr_label_variants(self) -> None:
+        self.assertEqual("47616", _normalized_cheque_reference("Chaq#47616"))
+        self.assertEqual("47616", _normalized_cheque_reference("Cha#47616"))
 
     def test_statement_name_matching_handles_portfolio_headers(self) -> None:
         self.assertTrue(_statement_names_match("114 FROESE", "114 FROESE CRESCENT"))
@@ -201,6 +220,37 @@ class FinancingDashboardServiceTest(unittest.TestCase):
         self.assertEqual(result.draw_eligible_override, Decimal("125000.00"))
         self.assertEqual(result.flag, "STATEMENT_OVERRIDE")
         self.assertIn("Manual PRO Draw Now override", result.formula)
+
+
+class ProDrawDuplicateTest(unittest.IsolatedAsyncioTestCase):
+    async def test_reference_match_prevents_duplicate_even_when_ocr_date_or_amount_differs(self) -> None:
+        existing_id = uuid4()
+        existing = [{
+            "id": existing_id, "txn_date": date(2026, 5, 27),
+            "amount": Decimal("100000.00"), "reference": "chq#47616",
+        }]
+
+        class Result:
+            def mappings(self):
+                return self
+
+            def all(self):
+                return existing
+
+        class Db:
+            async def execute(self, *_args, **_kwargs):
+                return Result()
+
+        statement = SimpleNamespace(draws=[
+            ParsedProDraw(date(2026, 6, 27), Decimal("100000.00"), "Cha#47616"),
+            ParsedProDraw(date(2026, 6, 27), Decimal("700000.00"), "Chaq#47616"),
+            ParsedProDraw(date(2026, 9, 3), Decimal("79100.00"), "Chq#47680"),
+        ])
+        proposed, matched, discrepancies = await _proposed_draws(Db(), uuid4(), statement)
+        self.assertEqual(["47680"], [_normalized_cheque_reference(item["reference"]) for item in proposed])
+        self.assertEqual("cheque_reference", matched[0]["basis"])
+        self.assertEqual(str(existing_id), discrepancies[0]["transaction_id"])
+        self.assertEqual("700000.00", discrepancies[0]["statement_amount"])
 
 
 if __name__ == "__main__":

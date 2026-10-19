@@ -2,12 +2,29 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 import unittest
 
 from app.financing.parsers.pro_statement import parse_statement_text
 
 
 class ProStatementParserTest(unittest.TestCase):
+    def test_september_regression_pages_parse_clean_with_visible_repairs(self) -> None:
+        text = (Path(__file__).parent / "fixtures" / "pro_2026_09_regression_pages.txt").read_text()
+
+        statements = parse_statement_text(text, period="2026-09")
+
+        self.assertEqual(7, len(statements))
+        self.assertTrue(all(not statement.validation_errors for statement in statements))
+        self.assertEqual(Decimal("22789.72"), sum((item.amount for statement in statements for item in statement.repayments), Decimal("0.00")))
+        repairs = [repair for statement in statements for repair in statement.repairs]
+        self.assertTrue(any(repair.field == "draw_amount" and repair.raw_ocr == "-700,000.00" and repair.inferred_value == "100000.00" for repair in repairs))
+        self.assertTrue(any(repair.field == "repayment_amount" and repair.raw_ocr == "141,394.86" and repair.inferred_value == "11394.86" for repair in repairs))
+        self.assertEqual([], [repair for repair in repairs if repair.field == "interest"])
+        self.assertEqual(date(2026, 9, 22), statements[0].repayments[0].txn_date)
+        self.assertEqual(date(2026, 9, 3), statements[3].draws[-1].txn_date)
+        self.assertEqual(Decimal("431999.59"), statements[5].period_end_balance)
+
     def test_capitalization_only_row_is_not_a_draw(self) -> None:
         text = """
         Connection Homes Inc - 150 Rosybloom Lane, Ile des Chenes, MB
@@ -47,7 +64,20 @@ class ProStatementParserTest(unittest.TestCase):
 
         statements = parse_statement_text(text)
 
-        self.assertEqual(1, len(statements[0].validation_errors))
+        self.assertTrue(statements[0].validation_errors)
+        self.assertEqual(Decimal("100900.00"), statements[0].period_end_balance)
+
+    def test_corrupt_totals_without_printed_support_remain_parse_error(self) -> None:
+        text = """
+        Connection Homes - 150 Rosybloom Lane
+        AMOUNT BORROWED $150,000.00 03/12/2026
+        ANNUAL INTEREST RATE 11.00%
+        03/30/2026 18 1 .00 11.0000 798.39 -400,798.39 250,798.39 -700,000.00 798.39 Chq#4676
+        Totals for schedule .00 798.39 -700,798.39 -700,000.00
+        """
+        statement = parse_statement_text(text)[0]
+        self.assertEqual(Decimal("250798.39"), statement.period_end_balance)
+        self.assertTrue(statement.validation_errors)
 
     def test_ocr_row_without_currency_or_percent_symbols_is_parsed(self) -> None:
         text = """
@@ -126,6 +156,48 @@ class ProStatementParserTest(unittest.TestCase):
         self.assertEqual(Decimal("14726.97"), statement.reported_accrued_interest)
         self.assertEqual(Decimal("100000.00"), statement.draws[0].amount)
 
+    def test_verified_august_page_repairs_are_visible(self) -> None:
+        woodland = """
+        Connection Homes - 64 Woodland Way, West St Paul, MB
+        AMOUNT BORROWED: $165,000.00 advanced on 3/12/2026
+        ANNUAL INTEREST RATE: 11.00% (Monthly compounding)
+        3/30/2026 18 1 .00 11.0000 878.23 -100,878.23 265,878.23 -100,000.00 878.23 Chq#4675
+        5/27/2026 15 4 .00 11.0000 1,194.68 -101,194.68 370,541.56 -100,000.00 5,541.56 Chq#47610
+        7/27/2026 15 7 .00 11.0000 1,666.44 -121,666.44 497,373.80 -120,000.00 12,373.80 Chq#47661
+        8/12/2026 16 8 .00 11.0000 2,353.17 -2,353.17 499,726.97 .00 14,726,597
+        Totals for schedule .00 414,726.97 -334,726.97 -320,000.00
+        """
+        deer = """
+        Connection Homes - 10 Deer Meadow Run
+        AMOUNT BORROWED: $104,900.00 advanced on 7/6/2026
+        ANNUAL INTEREST RATE: 11.00% (Monthly compounding)
+        7/27/2026 21 1 .00 11.0000 651.40 -125,651.40 230,554.40 -125,060.00 651.40 Chq#47662
+        8/6/2026 10 2 .00 11.0000 681.74 -681.74 234,233.14 .00 1,333.14
+        Totals for schedule .00 1,333.14 -126,333.14 -125,000.00
+        """
+        woodland_row = parse_statement_text(woodland, period="2026-08")[0]
+        deer_row = parse_statement_text(deer, period="2026-08")[0]
+        self.assertEqual([], woodland_row.validation_errors)
+        self.assertEqual([], deer_row.validation_errors)
+        self.assertEqual(Decimal("499726.97"), woodland_row.period_end_balance)
+        self.assertEqual(Decimal("231233.14"), deer_row.period_end_balance)
+        self.assertTrue(any(r.raw_ocr == "414,726.97" and r.inferred_value == "14726.97" for r in woodland_row.repairs))
+        self.assertTrue(any(r.raw_ocr == "234233.14" and r.inferred_value == "231233.14" for r in deer_row.repairs))
+
+    def test_june_year_subtotal_is_not_a_transaction(self) -> None:
+        text = """
+        Connection Homes Inc. - Waterside Dev - Parkview Pointe West St Paul
+        AMOUNT BORROWED: $405,300.00 advanced on 5/22/2025
+        ANNUAL INTEREST RATE: 11.50% (Monthly compounding)
+        12/22/2025 30 7 .00 11.5000 4,112.88 -4,112.88 433,283.16 .00 27,983.16
+        Totatis for 2025 .00 27,983.16 -27,983.16 .00
+        6/22/2026 31 13 .00 11.5000 4,355.11 -4,355.11 458,801.51 .00 53,501.51
+        Totals for schedule .00 53,501.51 -53,501.51 .00
+        """
+        statement = parse_statement_text(text, period="2026-06")[0]
+        self.assertEqual([], statement.validation_errors)
+        self.assertEqual(Decimal("458801.51"), statement.period_end_balance)
+
     def test_invalid_ocr_draw_date_is_repaired_from_common_zero_substitution(self) -> None:
         text = """
         Connection Homes Inc - 153 Ramona Gallos Way, Winnipeg, MB
@@ -143,6 +215,23 @@ class ProStatementParserTest(unittest.TestCase):
         self.assertEqual(date(2026, 3, 30), statement.draws[0].txn_date)
         self.assertEqual(Decimal("162500.00"), statement.total_drawn)
         self.assertEqual(Decimal("302500.00"), statement.reported_principal_drawn)
+
+    def test_adjacent_elapsed_days_repair_valid_but_wrong_draw_date(self) -> None:
+        text = """
+        Connection Homes - 150 Rosybloom Lane
+        AMOUNT BORROWED $150,000.00 03/12/2026
+        ANNUAL INTEREST RATE 11.00%
+        5/12/2026 30 3 .00 11.0000 2,307.82 -2,307.82 254,070.30 .00 4,070.30
+        6/27/2026 15 4 .00 11.0000 1,426.92 -101,426.92 355,197.22 -100,000.00 5,197.22 Cha#47616
+        6/12/2026 16 5 .00 11.0000 1,680.50 -1,680.50 356,877.72 .00 6,877.72
+        """
+        statement = parse_statement_text(text)[0]
+        self.assertEqual(date(2026, 5, 27), statement.draws[0].txn_date)
+        self.assertTrue(any(
+            repair.field == "transaction_date" and repair.raw_ocr == "6/27/2026"
+            and repair.inferred_value == "2026-05-27"
+            for repair in statement.repairs
+        ))
 
 
 if __name__ == "__main__":
