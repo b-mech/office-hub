@@ -10,7 +10,7 @@ from decimal import Decimal
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.core import Lot
+from app.models.core import Lot, LotStatus
 from app.models.financing import ConstructionStageSync, FacilityStatementSnapshot, LenderFacility, LenderStatement, Property
 from app.models.funds import FundsAttachment, FundsBoxWatch, FundsEntry, FundsNotice, FundsTask
 from app.models.land import DepositSchedule
@@ -85,7 +85,7 @@ async def run_gap_checks(db: AsyncSession, today: date | None = None) -> dict[st
         LenderFacility.status.notin_(["closed", "discharged", "statement_only", "closing_pending"])))).all())
     for facility in facilities:
         lot = await db.get(Lot, facility.lot_id)
-        if lot and lot.closing_date:
+        if lot and (lot.closing_date or lot.status in {LotStatus.POSSESSION, LotStatus.WARRANTY}):
             counts["sold_open_facility"] += 1
             await _task(db, f"sold-open-facility:{facility.id}",
                         f"Sold lot has open facility — {lot.civic_address or facility.property_name}",
