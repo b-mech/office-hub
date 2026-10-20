@@ -2045,9 +2045,29 @@ async def create_manual_statement_snapshot(
 
 
 async def approve_snapshot_draws(db: AsyncSession, snapshot_id: UUID) -> FacilityStatementSnapshotOut | None:
+    """Compatibility path: approve only when the snapshot has one proposed draw."""
+    snapshot = (
+        await db.execute(text("SELECT new_draws_detected FROM documents.facility_statement_snapshots WHERE id=:id"), {"id": snapshot_id})
+    ).mappings().one_or_none()
+    if snapshot is None:
+        return None
+    draws = snapshot["new_draws_detected"] or []
+    if len(draws) != 1:
+        raise ValueError("Choose one draw to approve; snapshot-wide approval is unavailable")
+    draw = draws[0]
+    return await approve_snapshot_draw(
+        db, snapshot_id, txn_date=date.fromisoformat(draw["date"]),
+        amount=Decimal(str(draw["amount"])), reference=draw.get("reference"),
+    )
+
+
+async def approve_snapshot_draw(
+    db: AsyncSession, snapshot_id: UUID, *, txn_date: date,
+    amount: Decimal, reference: str | None,
+) -> FacilityStatementSnapshotOut | None:
     snapshot = (
         await db.execute(
-            text("SELECT * FROM documents.facility_statement_snapshots WHERE id = :id"),
+            text("SELECT * FROM documents.facility_statement_snapshots WHERE id = :id FOR UPDATE"),
             {"id": snapshot_id},
         )
     ).mappings().one_or_none()
@@ -2056,54 +2076,55 @@ async def approve_snapshot_draws(db: AsyncSession, snapshot_id: UUID) -> Facilit
     if snapshot["reconciliation_status"] == "parse_error":
         raise ValueError("Resolve the statement parse error before approving draws")
     detected_draws = snapshot["new_draws_detected"] or []
-    for draw in detected_draws:
-        existing_draws = (
-            await db.execute(
-                text("SELECT txn_date, amount, reference FROM core.facility_transactions WHERE facility_id=:facility_id AND txn_type='draw'"),
-                {"facility_id": snapshot["facility_id"]},
-            )
-        ).mappings().all()
-        cheque = _normalized_cheque_reference(draw.get("reference"))
-        reference_match = next(
-            (row for row in existing_draws if cheque and _normalized_cheque_reference(row["reference"]) == cheque),
-            None,
-        )
-        if reference_match:
-            if reference_match["amount"] != Decimal(str(draw["amount"])):
-                raise ValueError(
-                    f"Cheque {cheque} already exists at {reference_match['amount']}; statement proposes {draw['amount']}"
-                )
-            continue
-        await db.execute(
-            text(
-                """
-                INSERT INTO core.facility_transactions (facility_id, txn_date, txn_type, amount, reference, source, statement_id)
-                VALUES (:facility_id, :txn_date, 'draw', :amount, :reference, 'statement', :statement_id)
-                ON CONFLICT ON CONSTRAINT uq_facility_transactions_identity DO NOTHING
-                """
-            ),
-            {
-                "facility_id": snapshot["facility_id"],
-                "txn_date": date.fromisoformat(draw["date"]),
-                "amount": Decimal(str(draw["amount"])),
-                "reference": draw.get("reference"),
-                "statement_id": snapshot["statement_id"],
-            },
-        )
-    if detected_draws:
-        await db.execute(
-            text(
-                """
-                UPDATE core.lender_facilities
-                SET draw_eligible_override = NULL,
-                    updated_at = CASE WHEN draw_eligible_override IS NOT NULL THEN now() ELSE updated_at END
-                WHERE id = :facility_id
-                """
-            ),
-            {"facility_id": snapshot["facility_id"]},
-        )
+    selected = [draw for draw in detected_draws if (
+        date.fromisoformat(draw["date"]) == txn_date
+        and Decimal(str(draw["amount"])) == amount
+        and draw.get("reference") == reference
+    )]
+    if len(selected) != 1:
+        raise ValueError("The selected draw is no longer a unique pending proposal")
+    cheque = _normalized_cheque_reference(reference)
+    if (txn_date, amount, cheque) in await _earlier_statement_draws(db, snapshot["statement_id"], snapshot["facility_id"]):
+        raise ValueError("This draw belongs to an earlier PRO statement")
+    existing_draws = (
+        await db.execute(text("SELECT txn_date, amount, reference FROM core.facility_transactions WHERE facility_id=:facility_id AND txn_type='draw'"),
+                         {"facility_id": snapshot["facility_id"]})
+    ).mappings().all()
+    reference_match = next(
+        (row for row in existing_draws if cheque and _normalized_cheque_reference(row["reference"]) == cheque), None,
+    )
+    if reference_match:
+        raise ValueError(f"Cheque {cheque} already exists in core; refresh the review")
+    if any(row["txn_date"] == txn_date and row["amount"] == amount for row in existing_draws):
+        raise ValueError("This draw already exists in core; refresh the review")
+    await db.execute(text("""
+        INSERT INTO core.facility_transactions (facility_id, txn_date, txn_type, amount, reference, source, statement_id)
+        VALUES (:facility_id, :txn_date, 'draw', :amount, :reference, 'pro_reconciliation', :statement_id)
+    """), {
+        "facility_id": snapshot["facility_id"], "txn_date": txn_date, "amount": amount,
+        "reference": reference, "statement_id": snapshot["statement_id"],
+    })
+    await db.execute(text("""
+        UPDATE core.lender_facilities SET draw_eligible_override=NULL,
+            updated_at=CASE WHEN draw_eligible_override IS NOT NULL THEN now() ELSE updated_at END
+        WHERE id=:facility_id
+    """), {"facility_id": snapshot["facility_id"]})
     await _reconcile_snapshot(db, snapshot_id)
     await _refresh_statement_status(db, snapshot["statement_id"])
+    later_snapshots = (
+        await db.execute(text("""
+            SELECT later.id, later.statement_id
+            FROM documents.facility_statement_snapshots later
+            JOIN documents.lender_statements later_statement ON later_statement.id=later.statement_id
+            JOIN documents.lender_statements approved_statement ON approved_statement.id=:statement_id
+            WHERE later.facility_id=:facility_id AND later_statement.lender='PRO'
+              AND later_statement.period > approved_statement.period
+            ORDER BY later_statement.period
+        """), {"statement_id": snapshot["statement_id"], "facility_id": snapshot["facility_id"]})
+    ).mappings().all()
+    for later in later_snapshots:
+        await _reconcile_snapshot(db, later["id"])
+        await _refresh_statement_status(db, later["statement_id"])
     await db.commit()
     return await _snapshot_out(db, snapshot_id)
 
@@ -2504,7 +2525,7 @@ async def _upsert_statement_snapshot(
 ) -> dict[str, Any]:
     canonical = normalize_canonical_address(statement.property_name)
     facility_id = await _match_facility(db, statement.property_name, canonical.canonical_key)
-    proposed, transaction_matches, transaction_discrepancies = await _proposed_draws(db, facility_id, statement)
+    proposed, transaction_matches, transaction_discrepancies = await _proposed_draws(db, statement_id, facility_id, statement)
     proposed_repayments = await _proposed_repayments(
         db, facility_id, [item.__dict__ for item in statement.repayments]
     )
@@ -2700,8 +2721,29 @@ def _normalized_cheque_reference(value: str | None) -> str | None:
     return match.group(1) if match else None
 
 
+async def _earlier_statement_draws(
+    db: AsyncSession, statement_id: UUID, facility_id: UUID,
+) -> set[tuple[date, Decimal, str | None]]:
+    rows = (
+        await db.execute(text("""
+            SELECT snapshot.parse_payload->'draws' AS draws
+            FROM documents.facility_statement_snapshots snapshot
+            JOIN documents.lender_statements earlier ON earlier.id = snapshot.statement_id
+            JOIN documents.lender_statements current ON current.id = :statement_id
+            WHERE snapshot.facility_id = :facility_id
+              AND earlier.lender = 'PRO' AND current.lender = 'PRO'
+              AND earlier.period < current.period
+        """), {"statement_id": statement_id, "facility_id": facility_id})
+    ).mappings().all()
+    return {
+        (date.fromisoformat(str(draw.get("txn_date") or draw.get("date"))),
+         Decimal(str(draw["amount"])), _normalized_cheque_reference(draw.get("reference")))
+        for row in rows for draw in (row["draws"] or [])
+    }
+
+
 async def _proposed_draws(
-    db: AsyncSession, facility_id: UUID | None, statement: ParsedProFacilityStatement,
+    db: AsyncSession, statement_id: UUID, facility_id: UUID | None, statement: ParsedProFacilityStatement,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     if not facility_id:
         return ([{"date": draw.txn_date.isoformat(), "amount": str(draw.amount), "reference": draw.reference} for draw in statement.draws], [], [])
@@ -2715,10 +2757,13 @@ async def _proposed_draws(
             {"facility_id": facility_id},
         )
     ).mappings().all()
+    earlier_draws = await _earlier_statement_draws(db, statement_id, facility_id)
     proposed: list[dict[str, Any]] = []
     matches: list[dict[str, Any]] = []
     discrepancies: list[dict[str, Any]] = []
     for draw in statement.draws:
+        if (draw.txn_date, draw.amount, _normalized_cheque_reference(draw.reference)) in earlier_draws:
+            continue
         cheque = _normalized_cheque_reference(draw.reference)
         exact = next((row for row in existing if row["txn_date"] == draw.txn_date and row["amount"] == draw.amount), None)
         reference_match = next(
@@ -2799,7 +2844,10 @@ async def _reconcile_snapshot(db: AsyncSession, snapshot_id: UUID) -> None:
         for draw in parse_payload.get("draws", [])
     ]
     proposed = []
+    earlier_draws = await _earlier_statement_draws(db, snapshot["statement_id"], snapshot["facility_id"])
     for draw in parsed_draws:
+        if (draw.txn_date, draw.amount, _normalized_cheque_reference(draw.reference)) in earlier_draws:
+            continue
         exists = (
             await db.execute(
                 text(
@@ -2817,11 +2865,14 @@ async def _reconcile_snapshot(db: AsyncSession, snapshot_id: UUID) -> None:
         ).scalar_one_or_none()
         if not exists:
             proposed.append({"date": draw.txn_date.isoformat(), "amount": str(draw.amount), "reference": draw.reference})
+    proposed_repayments = await _proposed_repayments(
+        db, snapshot["facility_id"], parse_payload.get("repayments", []),
+    )
     status = _statement_reconciliation_status(
         delta,
         proposed,
         parse_payload.get("validation_errors", []),
-        await _proposed_repayments(db, snapshot["facility_id"], parse_payload.get("repayments", [])),
+        proposed_repayments,
         parse_payload.get("transaction_discrepancies", []),
     )
     await db.execute(
@@ -2831,7 +2882,11 @@ async def _reconcile_snapshot(db: AsyncSession, snapshot_id: UUID) -> None:
             SET computed_balance = :computed_balance,
                 delta = :delta,
                 reconciliation_status = :status,
-                new_draws_detected = CAST(:new_draws_detected AS jsonb)
+                new_draws_detected = CAST(:new_draws_detected AS jsonb),
+                parse_payload = jsonb_set(
+                    COALESCE(parse_payload, '{}'::jsonb), '{proposed_repayments}',
+                    CAST(:proposed_repayments AS jsonb), true
+                )
             WHERE id = :id
             """
         ),
@@ -2841,6 +2896,7 @@ async def _reconcile_snapshot(db: AsyncSession, snapshot_id: UUID) -> None:
             "delta": delta,
             "status": status,
             "new_draws_detected": json.dumps(proposed, default=str),
+            "proposed_repayments": json.dumps(proposed_repayments, default=str),
         },
     )
 

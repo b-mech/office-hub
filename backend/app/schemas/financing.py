@@ -317,6 +317,12 @@ class StatementSnapshotReview(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
 
 
+class StatementDrawApproval(BaseModel):
+    txn_date: date
+    amount: Decimal
+    reference: str | None = None
+
+
 class LenderStatementDetailOut(LenderStatementOut):
     parse_payload: dict[str, Any] | None = None
     snapshots: list[FacilityStatementSnapshotOut]

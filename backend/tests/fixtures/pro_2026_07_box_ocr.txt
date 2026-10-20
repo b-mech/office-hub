@@ -1,0 +1,197 @@
+Connection Homes - 64 Woodland Way, West St Paul, MB
+
+AMOUNT BORROWED:                $165,000.00 advanced on 3/12/2026
+ANNUAL INTEREST RATE: 11.00% (Monthly compounding) (360)
+BLENDED PAYMENT:                    $1,617.19 payable 12 times annually
+AMORTIZATION PERIOD:           25.0000 years or 300.00 payments
+Date        Days Pmt# Payment  int%       Interest         Principal         Balance        Prepay         Acc. Int
+3/30/2026        18        1            .00        14.0000 878.23        -100,878.23 265,878.23 -100,000.00       878.23              PAP Chq#4675
+4/12/2026        13        2             00         11.0000 4,022.06          -1,022.06        266,900.29           .0G            1,500.29
+5/42/2026        30        3             .00         11.0000 2,446.59          -2,446.59        269,346.88           00            4,346.88
+5/27/2026          15          4                .00           11.0000 1,194.68          -101,194.68 370,541.56 -100,000.00 5,541.56                cha#47610
+6/12/2026          16          5                .00           11.0000 1,753.10            -1,753.10          372,294.66              -00               7,294.66
+TH1 2/2026          30          6                00           41.0000 3,412.70            -3,412.70          375,707.36              00              10,707.36
+Ti27/2026          15          7                .60           11.0000 1,666.44          -121,666.44 497,373.80 -120,000.00 12,373.80               chq#47661
+Totals for schedule                      00                         12,373.80       -332,373.80                          -320,000.00
+
+FILE NAME:H:\Year End Reconciliations\Amortization Schedules\Connect - 64 Woodland.m2p                              Page # 1Connection Homes Inc. - Waterside Dev - Parkview Pointe West St Paul
+
+AMOUNT BORROWED:         $405,300.00 advanced on 5/22/2025
+
+ANNUAL INTEREST RATE: = 11.50% (Monthly compounding) (360)
+
+BLENDED PAYMENT:           $4,119.75 payable 12 times annually
+
+AMORTIZATION PERIOD:       25.0000 years or 300.00 payments
+
+Date      Days Pmt# Payment int%     interest      Principal      Balance      Prepay      Acc. Int
+
+6/22/2025 31 14        00 11.5000 3,884.12      -3,884.12 409,184.12      00       3,884.12
+712212025 30 2        00 11.5000 3,921.35      ~3,921.35 413,105.47      00       7,805.47
+8/22/2025 31 3        00 11.5000 3,958.93      -3,958.93 417,064.40      00       11,764.40
+9/22/2025 31 4        00 14,5000 3,996.87      -3,996.87 421,061.27      00       15,761.27
+10/22/2025 30 §&        00 14,5000 4,035.17      -4,035.17 425,096.44      00       19,796.44
+11/22/2028 316        00 14.5000 4,073.84      4,073.84 429,170.28       00       23,870.28
+12/22/2025 30 7        00 11.5000 4,112.88      4,412.88 433,283.16      00       27,983.16
+
+Totals for 2025                 00               27,983.16  -27,983.16                    00
+4122/2026 31 8        00 11.5000 4,152.30      4,152.30 437,435.46      00       32,135.46
+212212026 31 9        00 © 14.5000 4,192.09      4,192.09 441,627.55      00       36,327.55
+3/22/2026 28 10       00 14.5000 4,232.26      4,232.26 445,859.81       00       40,559.81
+4/22/2026 31 11       00 © 14,5000 4,272.82      -4,272.82 450,132.63      00       44,832.63
+5/22/2026 =9302=— 12       00 14.5000 4,313.77      4,313.77 454,446.40      00       49,146.40
+6/22/2026 31 13       00 11.8000 4,355.11      4,355.11 458,801.51       00       53,501.54
+712212026 30 14       00 11.5000 4,396.85      4,396.85 463,198.36      .00       57,898.36
+
+Totals for schedule                    .00                        57,898.36       -57,898.36                                .00
+
+FILE NAME:H:\Year End Reconciliations\Amortization Schedules\Connect - Waterside Parkview Pointe.m2p          Page #1Connection Homes Inc Promissory Note (Templeton Dev Deposit)
+
+AMOUNT BORROWED:         $473,750.00 advanced on 5/29/2025
+
+ANNUAL INTEREST RATE: = 11.50% (Monthly compounding) (360)
+
+BLENDED PAYMENT:           $4,815.52 payable 12 times annually
+
+AMORTIZATION PERIOD:      25.0000 years or 300.00 payments
+
+Date      Days Pmt# Payment Int %     Interest      Principal      Balance      Prepay      Acc. Int
+
+6/29/2025 = 31     4       .00     11.5000 4,540.10     4,540.10 478,290.10      .00       4,540.10
+712912025 30 2       00     11.5000 4,583.61      -4,583.61    482,873.71      00       9,123.71
+8/29/2025 = 34     3       .00     41.5000 4,627.54     -4,627.54 487,501.25      .00      413,751.25
+9/29/2025 31     4       .00     11.5000 4,671.89     4,671.89 492,173.14      G0      18,423.14
+10/29/2025 30 £5       00     11.5000 4,716.66     4,716.66 496,889.80      .00      23,139.80
+41/29/2025 34     6       .00     41.5000 4,761.86     -4,761.86 501,651.66      .00      27,901.66
+12/29/2025 30 7       .00     11.8000 4,807.50     4,807.50 506,459.16      00      32,709.16
+
+Totals for 2025                           .00                       32,709.16  -32,709.46                               .00
+1/29/2026 = 31     8       .00     11.5000 4,853.57     4,853.57 511,312.73      .00      37,562.73
+2/28/2026 30    9       .00     11.5000 4,900.08     4,900.08 516,212.81      00      42,462.81
+3/29/2026 29 10       .00     11.5000 4,947.04     -4,947.04 521,159.85      00      47,409.85
+4/29/2026 31S i       00     11.5000 4,994.45     4,994.45 526,154.30      00      52,404.30
+5/29/2026 30 12       .00     41.5000 5,042.31      5,042.34    531,196.61      .00      57,446.61
+6/29/2026 31 13       .00     11.5000 5,090.63     5,090.63 536,287.24      00      62,537.24
+7/29/2026 «493002014      .00     11.5000 5,139.42     -5,139.42 541,426.66      00      67,676.66
+
+Totais for schedule                    .00                        67,676.66       -67,676.66                                .00
+
+FILE NAME:H:\Year End Reconciliations\Amortization Schedules\Connect - Tempieton.m2p                                 Page #1Connection Homes - 127 Champagne St
+
+AMOUNT BORROWED:         $85,000.00 advanced on 7/30/2025
+ANNUAL INTEREST RATE: 11.00% (Monthly compounding) (360)
+BLENDED PAYMENT:           $833.10 payable 12 times annually
+AMORTIZATION PERIOD:       25.0000 years or 300.00 payments
+Date      Days Pmt# Payment = = int%     Interest      Principal      Balance      Prepay      Acc. Int
+9/30/2025 31 = 1       00 11.0000 779.17       779.17      85,779.17      00        779.17
+9/30/2025 31 2       00 14.0000 786.31       -786,31      86,565.48      00       1,565.48
+10/30/2025 30 63       00 11.0000 793.52       -793.52     87,359.00      00       2,359.00
+11/30/2025 314       00 «= 14.0000 »=—- 800.79       -800.79      88,159.79      00       3,159.79
+42/30/2025 30 §       00 11.0000 808.13       -808.13      88,967.92      00       3,967.92
+Totals for 2025                             00                          3,967.92          -3,967.92                                   00
+4/19/2026 20 6       00 © 14.0000» «526.48 «= -100,526.18 189,494.07 -100,000.00 4,494.07       cha#47524
+413012026 11 7       00 11,0000 646.37       616.37 190,110.44      00       5,110.44
+2/28/2026 29—~Cé«#B       00 11.0000 1,742.68     1,742.68 191,853.12      00       6,853.12
+3/30/2026 30 9     00 11.0000 1,758.65  -146,758.65 338,611.77 -145,000.00 8,611.77     PAP chq#4674
+4/30/2026 31 10       00 14.0000 3,103.94     -3,103.94 341,745.71      .00      41,745.71
+5/30/2026 30 11       00 11,0000 3,132.39     -3,132.39 344,848.10      00      14,848.10
+6/30/2026 31 12       00 = 11.0000 3,167.11     -3,161.41 348,009.21      00      18,009.21
+7/30/2026 30 13       00 11.0000 3,190.08     -3,190.08 351,199.29      00      21,199.29
+Totals for schedule                      00                         21,199.29  -266,199.29                           -245,000.00
+
+FILE NAME:H:\Year End Reconciliations\Amortization Schedules\Connect - 127 Champagne.m2p                        Page #1Connection Homes ~- 122 Ramona Gallos Way, Winnipeg, MB
+
+AMOUNT BORROWED:         $165,000.00 advanced on 3/12/2026
+ANNUAL INTEREST RATE: = 11.00% (Monthly compounding) (360)
+BLENDED PAYMENT:            $1,617.19 payable 12 times annually
+AMORTIZATION PERIOD:      25.0000 years or 300.00 payments
+Date      Days Pmt# Payment Int%     interest      Principal      Balance      Prepay      Acc. Int
+3/30/2026 18 = 4        00 = 11.0000 = 878.23 «= -100,878.23 265,878.23 -100,000.00 878.23         Cha#47568
+4112/2026 13 2        00 ©=- 11.0000 = 1,022.06      1,022.06 266,900.29      00       1,900.29
+5/12/2026 30 3        00 11.0000 2,446.59      -2,446.59 269,346.88      00       4,346.88
+612712026 15 4        00 §©=- 11.0000 1,194.68 = -101,194.68 370,541.56 -100,000.00 5,541.56        Chq#47612
+6/12/2026 16 8 «§        00 11,0000 1,753.10      -1,753.10 372,294.66      oo       7,294.66
+7/12/2026 30 6        00 = 11.0000 += 3,412.70      -3,412,.70 375,707.36      00       10,707.36
+712712026 «#415 = #867        00 11.0000 1,666.44 -71,666.44 447,373.80 -70,000.00 12,373.80       Chq#47658
+Totals for schedule                    00                        12,373.80      -282,373.80                         -270,000,00
+
+FILE NAME:H:\Year End Reconciliations\Amortization Schedules\Connect - 122 Ramona Gallos.m2p                   Page # 1Connection Homes - 126 Ramona Gallos Way, Winnipeg, MB
+
+AMOUNT BORROWED:         $165,000.00 advanced on 3/12/2026
+ANNUAL INTEREST RATE: 11.00% (Monthly compounding) (360)
+BLENDED PAYMENT:           $1,617.19 payable 12 times annually
+AMORTIZATION PERIOD:       25.0000 years or 300.00 payments
+Date      Days Pmt# Payment = Int %     interest      Principal      Balance      Prepay      Acc. Int
+3/30/2026 18 1       00 11.0000 878.23     100,878.23 265,878.23 -100,000.00 878.23        Chq#47569
+411212026 13 2       00 11.0000 1,022.06     -1,022.06 266,900.29      .00       1,900.29
+5/12/2026 30 3       00 «=. 11.0000 2,446.59     2,446.59 269,346.88      00       4,346.88
+5/2712026 15 4       00 11.0000 1,194.68  -101,194.68 370,541.56 -100,000.00 5,541.56       Chq#47613
+6112/2026 16 5       00 14.0000 1,753.10     1,753.10 372,294.66      00       7,294.66
+7/42/2026 30 =«6       00 11.0000 3,412.70     -3,412.70 375,707.36      .00      40,707.36
+7/27i2026 «615 ~=—OT       00 11.0000 1,666.44 -56,666.44 432,373.80 -55,000.00 12,373.80       Chq#47659
+Totals for schedule                       00                          12,373.80  -267,373.80                            -255,000.00
+
+FILE NAME:H:\Year End Reconciliations\Amortization Schedules\Connect - 126 Ramona Galles.m2p                   Page #1Connection Homes Inc - 149 Ramona Gallos Way, Winnipeg, MB
+
+AMOUNT BORROWED:         $140,000.00 advanced on 2/25/2026
+ANNUAL INTEREST RATE: = 11.00% (Monthly compounding) (360)
+BLENDED PAYMENT:           $1,372.16 payable 12 times annually
+AMORTIZATION PERIOD:      25.0000 years or 300.00 payments
+Date    Days Pmt# Payment — Int %    Interest    Principal!    Balance    Prepay    Acc. Int
+3/25/2026 28 1       00 14.0000 1,283.33     -1,283.33 141,283.33      00       1,283.33
+3/30/2026 5 2       00 «=: 14.0000 =. 208.89     -62,708.89 203,992.22 -62,500.00 1,492.22       cha#47570
+4/25/2026 26 3       00 §=- 14.0000 = 1,568.33     -1,568.33 205,560.55      .00       3,060.55
+5/25/2026 30 4       06 11.0000 1,884.31     1,884.31 207,444.86      00       4,944.86
+12712026 2 5       00 11.0000 122.68 -100,122.68 307,567.54 -100,000.00 5,067.54       chq#47614
+6/25/2026 29 6       00 = 11.0000 2,637.47     -2,637.47 310,205.01      00       7,705.01
+7/25/2026 30 7       00 14.0000 2,843.55     -2,843.55 313,048.56      .00      10,548.56
+Totals for schedule            .00              10,548.56 -173,048.56              ~162,500.00
+
+FILE NAME:H:\Year End Reconciliations\Amortization Schedules\Connect - 149 Ramona Gailos.m2p                     Page # 1Connection Homes Inc - 153 Ramona Gallos Way, Winnipeg, MB
+
+AMOUNT BORROWED:         $140,000.00 advanced on 2/25/2026
+ANNUAL INTEREST RATE: 11.00% (Monthly compounding) (360)
+BLENDED PAYMENT:           $1,372.16 payable 12 times annually
+AMORTIZATION PERIOD:       25.0000 years or 300.00 paymenis
+Date      Days Pmt# Payment Int%     interest      Principal      Balance     Prepay      Acc. Int
+3/25/2026     28     1        00     14.0000 1,283.33      ~1,283.33     141,283.33      .00       1,283.33
+3/30/2026     5     2       00     41,0000    208.89     ~§2,708.89    203,992.22 -62,500.00    1,492.22       chq#47571
+4/25/2026    26    3       .O0     11.0600 1,568.33     ~1,568.33    205,560.55      .00       3,060.55
+5/25/2026          30          4                 20           11.0000 4,884.31             ~4,884.31           207 444.86              .00                4,944.86
+5/27/2026     2     5        00     41.0000    122.68     -100,122.68 307,567.54 -100,000.00 5,067.54        cha#47615
+6/25/2026          23          6                 .00           11.0000 2,637.47             -2,637.47          310,205.01               .00                7,705.01
+7/25/2026          30          7                .00           11.0000 2,843.55            ~2,843,.55          313,048.56              00              10,548.56
+Totals for schedule                    .G0                        10,543.56      -173,048.56                         -162,500.00
+
+FILE NAME:H:\Year End Reconciliations\Amortization Schedules\Connect - 153 Ramona Gallos.m2p                    Page # 1Connection Homes -150 Rosybloom Lane, lle des Chenes
+
+AMOUNT BORROWED:         $150,000.00 advanced on 3/12/2026
+ANNUAL INTEREST RATE: = 11.00% (Monthly compounding)   (360)
+BLENDED PAYMENT:           $1,470.17 payable 12 times annually
+AMORTIZATION PERIOD:       25.0000 years or 300.00 payments
+Date      Days Pmt# Payment Int %     Interest      Principal      Balance      Prepay
+3/30/2026 18 1       oo 43 «14.0000 «=« 798.39 «= -100,798.39 250,798.39 -100,000.00
+422026 13 2       00 © 11.0000 -964.09       964.09 251,762.48      00
+5/12/2026 30 3       00 41.0000 2,307.82     -2,307.82 254,070.30      00
+5/27/2026 15 4       00 © 14.0000 1,126.92 --104,126.92 355,197.22 -100,000.00
+62/2026 16 5       00 11.0000 1,680.50     1,680.50 356,877.72      00
+71212026 30 6       00 14.0000 3,271.38     3,271.38 360,149.10      00
+Totals for schedule                      00                         10,149.40  -240,149.10                          -200,000.00
+
+FILE NAME:H:\Year End Reconciliations\Amortization Schedules\Connect - 150 Rosybloom.m2p
+
+Acc. Int
+798.39
+1,762.48
+4,070.30
+§,197.22
+6,877.72
+10,149.10
+
+PAP Cha#4676
+
+Chq#47616
+
+Page #1
+
+ssseittnenne-.    eee ceraereiininennmnrarirecerneati

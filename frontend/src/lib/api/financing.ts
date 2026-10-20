@@ -246,8 +246,10 @@ export function createManualStatementSnapshot(
   );
 }
 
-export function approveStatementDraws(snapshotId: string): Promise<FacilityStatementSnapshot> {
-  return apiFetch<FacilityStatementSnapshot>(`/api/v1/financing/statements/snapshots/${snapshotId}/approve-draws`, { method: "POST" });
+export function approveStatementDraw(snapshotId: string, draw: { txn_date: string; amount: string; reference: string | null }): Promise<FacilityStatementSnapshot> {
+  return apiFetch<FacilityStatementSnapshot>(`/api/v1/financing/statements/snapshots/${snapshotId}/approve-draw`, {
+    method: "POST", body: JSON.stringify(draw),
+  });
 }
 
 export function linkStatementFacility(snapshotId: string, facilityId: string): Promise<FacilityStatementSnapshot> {

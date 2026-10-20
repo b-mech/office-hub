@@ -1,4 +1,4 @@
-"""Refresh the three stored PRO reports from their existing OCR extraction.
+"""Refresh stored PRO reports from their existing OCR extraction.
 
 The default run rolls back. Pass --apply after reviewing its row changes and
 verifying a database backup. This does not approve proposed transactions.
@@ -8,8 +8,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from pathlib import Path
 
+from dotenv import load_dotenv
 from sqlalchemy import text
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 from app.core.database import AsyncSessionLocal
 from app.financing.parsers.pro_statement import parse_statement_text
@@ -20,32 +24,32 @@ from app.services.financing import (
 )
 
 
-PERIODS = ("2026-06", "2026-08", "2026-09")
+PERIODS = ("2026-06", "2026-07", "2026-08", "2026-09")
 
 
-async def refresh(*, apply: bool) -> None:
+async def refresh(*, apply: bool, periods: tuple[str, ...] = PERIODS) -> None:
     async with AsyncSessionLocal() as db:
         statements = (
             await db.execute(
                 text("""
                     SELECT id, period, parse_payload
                     FROM documents.lender_statements
-                    WHERE lender='PRO' AND period IN ('2026-06','2026-08','2026-09')
+                    WHERE lender='PRO' AND period = ANY(:periods)
                     ORDER BY period
                     FOR UPDATE
-                """)
+                """), {"periods": list(periods)}
             )
         ).mappings().all()
-        if tuple(row["period"] for row in statements) != PERIODS:
+        if tuple(row["period"] for row in statements) != periods:
             raise RuntimeError("Expected exactly one stored PRO statement in each audited period")
 
         before = {
             (row["statement_id"], row["matched_property_name"]):
-                (row["reconciliation_status"], row["reported_period_end_balance"], row["computed_balance"])
+                (row["reconciliation_status"], row["reported_period_end_balance"], row["computed_balance"], row["new_draws_detected"])
             for row in (
                 await db.execute(text("""
                     SELECT statement_id, matched_property_name, reconciliation_status,
-                           reported_period_end_balance, computed_balance
+                           reported_period_end_balance, computed_balance, new_draws_detected
                     FROM documents.facility_statement_snapshots
                     WHERE statement_id = ANY(:ids)
                 """), {"ids": [row["id"] for row in statements]})
@@ -78,7 +82,7 @@ async def refresh(*, apply: bool) -> None:
         after_rows = (
             await db.execute(text("""
                 SELECT statement_id, matched_property_name, reconciliation_status,
-                       reported_period_end_balance, computed_balance
+                       reported_period_end_balance, computed_balance, new_draws_detected
                 FROM documents.facility_statement_snapshots
                 WHERE statement_id = ANY(:ids)
                 ORDER BY matched_property_name
@@ -86,7 +90,7 @@ async def refresh(*, apply: bool) -> None:
         ).mappings().all()
         for row in after_rows:
             old = before.get((row["statement_id"], row["matched_property_name"]))
-            new = (row["reconciliation_status"], row["reported_period_end_balance"], row["computed_balance"])
+            new = (row["reconciliation_status"], row["reported_period_end_balance"], row["computed_balance"], row["new_draws_detected"])
             if old != new:
                 print(f"{row['matched_property_name']}: {old} -> {new}")
         if apply:
@@ -100,4 +104,6 @@ async def refresh(*, apply: bool) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
-    asyncio.run(refresh(apply=parser.parse_args().apply))
+    parser.add_argument("--period", choices=PERIODS, action="append")
+    args = parser.parse_args()
+    asyncio.run(refresh(apply=args.apply, periods=tuple(args.period) if args.period else PERIODS))

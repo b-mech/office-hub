@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  approveStatementDraws,
+  approveStatementDraw,
   createManualStatementSnapshot,
   getLenderStatement,
   getLenderStatements,
@@ -88,10 +88,19 @@ export function StatementsPanel({
     onSelect(await getLenderStatement(statement.id));
   }
 
-  async function approve(snapshotId: string) {
-    await approveStatementDraws(snapshotId);
-    if (selected) onSelect(await getLenderStatement(selected.id));
-    await onChanged();
+  async function approve(snapshotId: string, draw: Record<string, unknown>) {
+    setError(null);
+    try {
+      await approveStatementDraw(snapshotId, {
+        txn_date: String(draw.date),
+        amount: String(draw.amount),
+        reference: draw.reference == null ? null : String(draw.reference),
+      });
+      if (selected) onSelect(await getLenderStatement(selected.id));
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not approve the selected draw");
+    }
   }
 
   async function link(snapshotId: string, facilityId: string) {
@@ -289,11 +298,16 @@ export function StatementsPanel({
                         <td className="px-2 py-2 text-right tabular-nums">{snapshot.computed_balance == null ? "-" : money.format(num(snapshot.computed_balance))}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{snapshot.delta == null ? "-" : money.format(num(snapshot.delta))}</td>
                         <td className="px-2 py-2">
-                          {snapshot.reconciliation_status !== "parse_error" && snapshot.new_draws_detected?.length ? (
-                            <button type="button" onClick={() => approve(snapshot.id)} className="rounded-md bg-[var(--ch-accent)] px-2 py-1 text-xs font-semibold text-[var(--ch-accent-text)]">
-                              Approve {snapshot.new_draws_detected.length}
+                          {snapshot.reconciliation_status !== "parse_error" ? snapshot.new_draws_detected?.map((draw, index) => (
+                            <button
+                              key={`${snapshot.id}-draw-${index}`}
+                              type="button"
+                              onClick={() => approve(snapshot.id, draw)}
+                              className="mb-1 block whitespace-nowrap rounded-md bg-[var(--ch-accent)] px-2 py-1 text-xs font-semibold text-[var(--ch-accent-text)]"
+                            >
+                              Approve {money.format(num(draw.amount))} · {String(draw.date)} · {String(draw.reference || "no reference")}
                             </button>
-                          ) : null}
+                          )) : null}
                           {!snapshot.facility_id ? (
                             <select onChange={(event) => link(snapshot.id, event.target.value)} className="ml-2 rounded-md border border-[var(--ch-border)] bg-[var(--ch-surface)] px-2 py-1 text-xs" defaultValue="">
                               <option value="">Link facility</option>

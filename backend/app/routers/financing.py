@@ -46,6 +46,7 @@ from app.schemas.financing import ProDrawRequestOut
 from app.schemas.financing import ProDrawRequestStatusUpdate
 from app.schemas.financing import StatementDiscrepancyOut
 from app.schemas.financing import StatementDiscrepancyUpdate
+from app.schemas.financing import StatementDrawApproval
 from app.schemas.financing import StatementSnapshotReview
 from app.schemas.financing import SyncResult
 from app.services import financing
@@ -430,7 +431,25 @@ async def create_manual_snapshot(
 
 @router.post("/statements/snapshots/{snapshot_id}/approve-draws", response_model=FacilityStatementSnapshotOut)
 async def approve_statement_draws(snapshot_id: UUID, db: AsyncSession = Depends(get_db)) -> FacilityStatementSnapshotOut:
-    snapshot = await financing.approve_snapshot_draws(db, snapshot_id)
+    try:
+        snapshot = await financing.approve_snapshot_draws(db, snapshot_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found or not linked")
+    return snapshot
+
+
+@router.post("/statements/snapshots/{snapshot_id}/approve-draw", response_model=FacilityStatementSnapshotOut)
+async def approve_statement_draw(
+    snapshot_id: UUID, data: StatementDrawApproval, db: AsyncSession = Depends(get_db),
+) -> FacilityStatementSnapshotOut:
+    try:
+        snapshot = await financing.approve_snapshot_draw(
+            db, snapshot_id, txn_date=data.txn_date, amount=data.amount, reference=data.reference,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if snapshot is None:
         raise HTTPException(status_code=404, detail="Snapshot not found or not linked")
     return snapshot

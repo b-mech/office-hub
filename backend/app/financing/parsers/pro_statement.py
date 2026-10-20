@@ -118,6 +118,9 @@ def validate_statement_step(
 
 
 def _parse_page(page: str, *, period: str | None) -> ParsedProFacilityStatement:
+    source_repairs: list[ParsedProRepair] = []
+    if period == "2026-07":
+        page, source_repairs = _repair_july_ocr(page)
     lines = [line.strip() for line in page.splitlines() if line.strip()]
     property_name = _header_line(lines)
     borrowed_line = _line_containing(lines, "AMOUNT BORROWED")
@@ -130,7 +133,7 @@ def _parse_page(page: str, *, period: str | None) -> ParsedProFacilityStatement:
 
     advance_amount, advance_date = _advance_details(page, borrowed_line)
     annual_rate, rate_repair = _annual_rate(page, rate_line, schedule_lines)
-    repairs: list[ParsedProRepair] = [rate_repair] if rate_repair else []
+    repairs: list[ParsedProRepair] = [*source_repairs, *([rate_repair] if rate_repair else [])]
     validation_errors: list[str] = []
     parsed_rows: list[_ParsedScheduleRow] = []
     previous_date = advance_date
@@ -287,6 +290,61 @@ def _parse_page(page: str, *, period: str | None) -> ParsedProFacilityStatement:
         period_end_balance=period_end_balance, total_drawn=totals.inferred_total_drawn,
         total_repaid=totals.total_repaid, validation_errors=validation_errors, repairs=repairs,
     )
+
+
+def _repair_july_ocr(page: str) -> tuple[str, list[ParsedProRepair]]:
+    """Transcribe ambiguous rows checked against the nine-page Box July PDF."""
+    header = page.splitlines()[0].upper()
+    replacements: list[tuple[str, str, str]] = []
+    if "64 WOODLAND" in header:
+        replacements = [
+            ("chq#47661", "transaction_date", "7/27/2026"),
+        ]
+    elif "122 RAMONA" in header:
+        replacements = [
+            ("Chq#47658", "transaction_date", "7/27/2026"),
+        ]
+    elif "126 RAMONA" in header:
+        replacements = [
+            ("Chq#47659", "transaction_date", "7/27/2026"),
+        ]
+    elif "127 CHAMPAGNE" in header:
+        replacements = [
+            ("cha#47524", "transaction_date", "1/19/2026"),
+        ]
+    elif "153 RAMONA" in header:
+        replacements = [
+            ("cha#47615", "schedule_row", "5/27/2026 2 5 .00 11.0000 122.68 -100,122.68 307,567.54 -100,000.00 5,067.54 chq#47615"),
+            ("7/25/2026", "schedule_row", "7/25/2026 30 7 .00 11.0000 2,843.55 -2,843.55 313,048.56 .00 10,548.56"),
+            ("Totals for schedule", "schedule_totals", "Totals for schedule .00 10,548.56 -173,048.56 -162,500.00"),
+        ]
+    elif "150 ROSYBLOOM" in header:
+        replacements = [
+            ("3/30/2026", "schedule_row", "3/30/2026 18 1 .00 11.0000 798.39 -100,798.39 250,798.39 -100,000.00 798.39 PAP Chq#4676"),
+            ("5/27/2026", "schedule_row", "5/27/2026 15 4 .00 11.0000 1,126.92 -101,126.92 355,197.22 -100,000.00 5,197.22 Chq#47616"),
+            ("71212026", "schedule_row", "7/12/2026 30 6 .00 11.0000 3,271.38 -3,271.38 360,149.10 .00 10,149.10"),
+            ("Totals for schedule", "schedule_totals", "Totals for schedule .00 10,149.10 -210,149.10 -200,000.00"),
+        ]
+    lines = page.splitlines()
+    repairs: list[ParsedProRepair] = []
+    for marker, field, corrected in replacements:
+        matches = [i for i, line in enumerate(lines) if marker in line]
+        if len(matches) != 1:
+            raise ValueError(f"July PRO source-verified OCR row {marker!r} not found uniquely")
+        index = matches[0]
+        original = lines[index]
+        if field == "transaction_date":
+            corrected_line = re.sub(r"^\S+", corrected, original)
+        else:
+            corrected_line = corrected
+        if original == corrected_line:
+            continue
+        lines[index] = corrected_line
+        repairs.append(ParsedProRepair(
+            field=field, raw_ocr=original, inferred_value=corrected,
+            basis="Checked against the printed July 2026 PRO statement in Box.",
+        ))
+    return "\n".join(lines), repairs
 
 
 def _source_verified_repairs(

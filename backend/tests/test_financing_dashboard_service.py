@@ -16,6 +16,7 @@ from app.services.financing import _statement_reconciliation_status
 from app.services.financing import _statement_names_match
 from app.services.financing import _normalized_cheque_reference
 from app.services.financing import _proposed_draws
+from app.services.financing import approve_snapshot_draws
 from app.services.financing import _property_from_row
 from app.financing.parsers.pro_statement import ParsedProDraw
 
@@ -223,6 +224,47 @@ class FinancingDashboardServiceTest(unittest.TestCase):
 
 
 class ProDrawDuplicateTest(unittest.IsolatedAsyncioTestCase):
+    async def test_earlier_statement_owns_cumulative_draw(self) -> None:
+        class Result:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def mappings(self):
+                return self
+
+            def all(self):
+                return self.rows
+
+        class Db:
+            async def execute(self, statement, *_args, **_kwargs):
+                if "earlier.period" in str(statement):
+                    return Result([{"draws": [{"txn_date": "2026-07-27", "amount": "400000.00", "reference": "Chq#47660"}]}])
+                return Result([])
+
+        statement = SimpleNamespace(draws=[
+            ParsedProDraw(date(2026, 7, 27), Decimal("400000.00"), "chq#47660"),
+            ParsedProDraw(date(2026, 9, 21), Decimal("200000.00"), "chq#47698"),
+        ])
+        proposed, matches, discrepancies = await _proposed_draws(Db(), uuid4(), uuid4(), statement)
+        self.assertEqual(["chq#47698"], [item["reference"] for item in proposed])
+        self.assertEqual([], matches)
+        self.assertEqual([], discrepancies)
+
+    async def test_snapshot_wide_approval_rejects_multiple_draws(self) -> None:
+        class Result:
+            def mappings(self):
+                return self
+
+            def one_or_none(self):
+                return {"new_draws_detected": [{"date": "2026-09-03"}, {"date": "2026-09-21"}]}
+
+        class Db:
+            async def execute(self, *_args, **_kwargs):
+                return Result()
+
+        with self.assertRaisesRegex(ValueError, "Choose one draw"):
+            await approve_snapshot_draws(Db(), uuid4())
+
     async def test_reference_match_prevents_duplicate_even_when_ocr_date_or_amount_differs(self) -> None:
         existing_id = uuid4()
         existing = [{
@@ -231,22 +273,25 @@ class ProDrawDuplicateTest(unittest.IsolatedAsyncioTestCase):
         }]
 
         class Result:
+            def __init__(self, rows):
+                self.rows = rows
+
             def mappings(self):
                 return self
 
             def all(self):
-                return existing
+                return self.rows
 
         class Db:
-            async def execute(self, *_args, **_kwargs):
-                return Result()
+            async def execute(self, statement, *_args, **_kwargs):
+                return Result([] if "earlier.period" in str(statement) else existing)
 
         statement = SimpleNamespace(draws=[
             ParsedProDraw(date(2026, 6, 27), Decimal("100000.00"), "Cha#47616"),
             ParsedProDraw(date(2026, 6, 27), Decimal("700000.00"), "Chaq#47616"),
             ParsedProDraw(date(2026, 9, 3), Decimal("79100.00"), "Chq#47680"),
         ])
-        proposed, matched, discrepancies = await _proposed_draws(Db(), uuid4(), statement)
+        proposed, matched, discrepancies = await _proposed_draws(Db(), uuid4(), uuid4(), statement)
         self.assertEqual(["47680"], [_normalized_cheque_reference(item["reference"]) for item in proposed])
         self.assertEqual("cheque_reference", matched[0]["basis"])
         self.assertEqual(str(existing_id), discrepancies[0]["transaction_id"])

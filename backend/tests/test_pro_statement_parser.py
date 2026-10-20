@@ -9,6 +9,26 @@ from app.financing.parsers.pro_statement import parse_statement_text
 
 
 class ProStatementParserTest(unittest.TestCase):
+    def test_july_box_ocr_parses_nine_pages_with_printed_draw_dates(self) -> None:
+        source = (Path(__file__).parent / "fixtures" / "pro_2026_07_box_ocr.txt").read_text()
+
+        statements = parse_statement_text(source, period="2026-07")
+
+        self.assertEqual(9, len(statements))
+        self.assertTrue(all(not statement.validation_errors for statement in statements))
+        self.assertEqual([], [repayment for statement in statements for repayment in statement.repayments])
+        july_draws = {
+            draw.reference.lower(): (draw.txn_date, draw.amount)
+            for statement in statements for draw in statement.draws
+            if draw.txn_date.month == 7 and draw.txn_date.year == 2026
+        }
+        self.assertEqual((date(2026, 7, 27), Decimal("70000.00")), july_draws["chq#47658"])
+        self.assertEqual((date(2026, 7, 27), Decimal("55000.00")), july_draws["chq#47659"])
+        self.assertEqual((date(2026, 7, 27), Decimal("120000.00")), july_draws["chq#47661"])
+        self.assertEqual(Decimal("313048.56"), statements[7].period_end_balance)
+        self.assertEqual(Decimal("360149.10"), statements[8].period_end_balance)
+        self.assertTrue(any(repair.field == "schedule_totals" for repair in statements[7].repairs))
+
     def test_september_regression_pages_parse_clean_with_visible_repairs(self) -> None:
         text = (Path(__file__).parent / "fixtures" / "pro_2026_09_regression_pages.txt").read_text()
 
