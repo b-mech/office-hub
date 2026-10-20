@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Office Hub lawyer funds gap checks daily
+
+[Timer]
+OnCalendar=*-*-* 08:15:00
+Persistent=true
+Unit=officehub-funds-gaps.service
+
+[Install]
+WantedBy=timers.target

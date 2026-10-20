@@ -28,6 +28,11 @@ from app.models.financing import ClientDrawSchedule
 from app.models.financing import StageLabelAlias
 from app.models.financing import LenderStatement
 from app.models.financing import Property
+from app.models.funds import FundsAttachment
+from app.models.funds import FundsBoxWatch
+from app.models.funds import FundsEntry
+from app.models.funds import FundsNotice
+from app.models.funds import FundsTask
 from app.models.lenders import Lender
 from app.models.documents import BoxSweepEvent
 from app.models.documents import DocType

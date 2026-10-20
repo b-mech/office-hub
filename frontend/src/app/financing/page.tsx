@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { createProDrawRequestBatch, getFinancingDashboard, refreshFinancingFromSheet } from "@/lib/api/financing";
 import type { FinancingDashboard, FinancingProperty, LenderStatementDetail, LenderType } from "@/types/financing";
 import { FilterBar, type FinancingFilters } from "./components/FilterBar";
@@ -172,6 +173,7 @@ export default function FinancingPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-start justify-end gap-2">
+            <Link href="/financing/funds" className="rounded-lg border border-[var(--ch-border)] px-3 py-2 text-sm">Lawyer funds</Link>
             <FinancingStatementImport onImported={load} onStatement={setSelectedStatement} />
             <RefreshButton loading={syncing} onClick={refresh} />
           </div>

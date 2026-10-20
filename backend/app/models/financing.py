@@ -5,6 +5,7 @@ from datetime import date
 from datetime import datetime
 
 from sqlalchemy import CheckConstraint
+from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy import Date
 from sqlalchemy import DateTime
@@ -92,6 +93,10 @@ class LenderFacility(Base):
     payment_schedule = Column(String(50))
     term_length_days = Column(Integer)
     notes = Column(Text)
+    closing_pending_at = Column(Date)
+    payout_date = Column(Date)
+    payout_amount = Column(Numeric(15, 2))
+    payout_notice_id = Column(UUID(as_uuid=True), ForeignKey("documents.funds_notices.id", ondelete="SET NULL"))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -111,6 +116,10 @@ class FacilityTransaction(Base):
     reference = Column(Text)
     source = Column(String(20), nullable=False)
     statement_id = Column(UUID(as_uuid=True), ForeignKey("documents.lender_statements.id", ondelete="SET NULL"))
+    funds_entry_id = Column(UUID(as_uuid=True), ForeignKey("documents.funds_entries.id", ondelete="SET NULL"))
+    funds_notice_id = Column(UUID(as_uuid=True), ForeignKey("documents.funds_notices.id", ondelete="SET NULL"))
+    intake_origin = Column(Text)
+    box_file_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -145,6 +154,8 @@ class ConstructionStageSync(Base):
     client_name = Column(String(255))
     build_start = Column(Date)
     possession_date = Column(Date)
+    possession_date_locked = Column(Boolean, nullable=False, server_default="false")
+    possession_confirmed_date = Column(Date)
     last_synced_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -279,6 +290,7 @@ class FacilityStatementSnapshot(Base):
     computed_balance = Column(Numeric(14, 2))
     delta = Column(Numeric(14, 2))
     reconciliation_status = Column(String(40), nullable=False)
+    parse_payload = Column(JSONB)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

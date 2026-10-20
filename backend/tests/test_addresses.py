@@ -91,6 +91,10 @@ class AddressNormalizerTest(unittest.TestCase):
             normalize_address("217 Woodland Way, West St Paul, MB").canonical_key,
             normalize_address("Connection Homes - 217 Woodland Way, W St Paul --").canonical_key,
         )
+        self.assertEqual(
+            normalize_address("217 Woodland Way, West St Paul").canonical_key,
+            normalize_address("217 Woodland Way, W. St Paul").canonical_key,
+        )
 
     def test_ile_des_chenes_ocr_initial_is_normalized(self) -> None:
         self.assertEqual(

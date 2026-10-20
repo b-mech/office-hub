@@ -15,6 +15,7 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy import or_
 from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,6 +86,56 @@ class PromotionService:
         self._project_ids: list[UUID] = []
         self._dry_run = False
         self._preview: dict[str, Any] = {}
+
+    async def record_lawyer_deposit_payment(self, entry: Any, box_file_url: str | None) -> dict[str, Any]:
+        """Promote a confirmed lawyer payment into the land deposit ledger.
+
+        The schedule is the obligation; the payment row records what arrived.
+        The caller owns the transaction and commits all entries together.
+        """
+        if entry.lot_id is None or entry.deposit_ordinal is None or entry.amount is None or entry.txn_date is None:
+            raise ValueError("Deposit needs a lot, ordinal, amount and date")
+        self._reviewed_by = entry.confirmed_by
+        schedule = await self.db.scalar(
+            select(DepositSchedule).where(
+                DepositSchedule.lot_id == entry.lot_id,
+                DepositSchedule.deposit_number == entry.deposit_ordinal,
+            ).order_by(DepositSchedule.created_at.desc()).with_for_update()
+        )
+        if schedule and schedule.paid_at:
+            raise ValueError("Deposit obligation is already marked paid")
+        variance = entry.amount - schedule.amount if schedule else None
+        payment_id = (
+            await self.db.execute(text("""
+                INSERT INTO land.deposit_payments
+                    (lot_id, deposit_schedule_id, funds_entry_id, funds_notice_id, deposit_number,
+                     amount, paid_on, cheque_number, box_file_url, variance)
+                VALUES (:lot, :schedule, :entry, :notice, :number, :amount, :paid_on,
+                        :cheque, :box_url, :variance)
+                RETURNING id
+            """), {
+                "lot": entry.lot_id, "schedule": schedule.id if schedule else None,
+                "entry": entry.id, "notice": entry.notice_id, "number": entry.deposit_ordinal,
+                "amount": entry.amount, "paid_on": entry.txn_date,
+                "cheque": entry.cheque_number, "box_url": box_file_url,
+                "variance": variance,
+            })
+        ).scalar_one()
+        if schedule:
+            schedule.paid_at = datetime.combine(entry.txn_date, datetime.min.time(), tzinfo=timezone.utc)
+            schedule.paid_amount = entry.amount
+            await self._write_audit_log(
+                schema_name="land", table_name="deposit_schedule", record_id=schedule.id,
+                action="UPDATE", old_data={"paid_at": None, "paid_amount": None},
+                new_data={"paid_at": schedule.paid_at.isoformat(), "paid_amount": str(entry.amount)},
+            )
+        await self.db.flush()
+        remaining = await self.db.scalar(select(func.coalesce(func.sum(DepositSchedule.amount), 0)).where(
+            DepositSchedule.lot_id == entry.lot_id, DepositSchedule.paid_at.is_(None)))
+        return {"status": "deposit_recorded", "payment_id": str(payment_id),
+                "obligation_id": str(schedule.id) if schedule else None,
+                "variance": str(variance) if variance is not None else None,
+                "remaining_liability": str(remaining)}
 
     async def annotate_promoted_land_agreement(
         self,

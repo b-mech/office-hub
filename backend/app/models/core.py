@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -8,11 +9,13 @@ from uuid import UUID
 from sqlalchemy import BigInteger
 from sqlalchemy import Boolean
 from sqlalchemy import CheckConstraint
+from sqlalchemy import Date
 from sqlalchemy import DateTime
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey
 from sqlalchemy import Index
 from sqlalchemy import JSON
+from sqlalchemy import Numeric
 from sqlalchemy import Text
 from sqlalchemy import func
 from sqlalchemy import text
@@ -389,6 +392,11 @@ class Lot(Base):
         default=LotStatus.LAND_CONTRACTED,
         server_default=text("'land_contracted'"),
     )
+    possession_confirmed_date: Mapped[date | None] = mapped_column(Date)
+    possession_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closing_date: Mapped[date | None] = mapped_column(Date)
+    final_sale_price: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
+    net_proceeds: Mapped[Decimal | None] = mapped_column(Numeric(15, 2))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

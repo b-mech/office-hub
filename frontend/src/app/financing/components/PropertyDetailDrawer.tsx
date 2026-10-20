@@ -127,6 +127,7 @@ export function PropertyDetailDrawer({
           <div className="grid gap-3 sm:grid-cols-3">
             <Info label="Entitled" value={property.cumulative_entitled == null ? "-" : money.format(num(property.cumulative_entitled))} />
             <Info label="Already drawn" value={money.format(num(property.already_drawn))} />
+            {num(property.client_funded_draw_total) > 0 && <Info label="Client-funded draws" value={money.format(num(property.client_funded_draw_total))} />}
             <Info label="Eligible now" value={property.draw_eligible == null ? "-" : money.format(num(property.draw_eligible))} strong />
           </div>
           <p className="mt-3 rounded-md bg-[var(--ch-surface-muted)] px-3 py-2 text-xs text-[var(--ch-text-secondary)]">{property.formula}</p>

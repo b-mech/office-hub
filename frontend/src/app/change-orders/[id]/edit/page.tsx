@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
-import { ChangeOrderForm } from "@/app/change-orders/new/page";
+import { ChangeOrderForm } from "@/app/change-orders/components/ChangeOrderForm";
 import { getChangeOrder, type ChangeOrderDraft } from "@/lib/api/change-orders";
 
 

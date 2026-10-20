@@ -124,7 +124,7 @@ def _clean_base(value: str) -> str:
     cleaned = value.casefold().upper()
     cleaned = re.sub(r"[–—−]", "-", cleaned)
     cleaned = re.sub(r"\bLLE DES CHENES\b", "ILE DES CHENES", cleaned)
-    cleaned = re.sub(r"\bW\s+ST\s+PAUL\b", "WEST ST PAUL", cleaned)
+    cleaned = re.sub(r"\bW\.?\s+ST\.?\s+PAUL\b", "WEST ST PAUL", cleaned)
     for pattern in BORROWER_PREFIXES:
         cleaned = re.sub(rf"^{pattern}", "", cleaned)
     cleaned = re.sub(r"[()]", " ", cleaned)

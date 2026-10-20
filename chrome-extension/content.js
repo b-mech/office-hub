@@ -816,6 +816,29 @@ function renderPanel(attachments, messageRoot) {
   });
   panel.appendChild(captureButton);
 
+  const fundsButton = document.createElement("button");
+  fundsButton.className = "office-hub-button office-hub-button--approval";
+  fundsButton.type = "button";
+  fundsButton.textContent = "Capture Lawyer Funds Notice";
+  fundsButton.addEventListener("click", async () => {
+    const selected = attachments.filter((attachment) =>
+      panel.querySelector(`input[data-key="${CSS.escape(attachment.key)}"]`)?.checked
+    );
+    if (!selected.length) { setStatus(panel, "Select at least one PDF."); return; }
+    fundsButton.disabled = true;
+    setStatus(panel, "Loading properties…");
+    try {
+      const response = await sendRuntimeMessage({ type: "LIST_FUNDS_PROPERTIES" });
+      if (!response.ok) throw new Error(response.error || "Could not load properties.");
+      renderFundsPropertyPicker(panel, response.properties || [], selected, messageRoot, fundsButton);
+      setStatus(panel, "Confirm the property or leave it unmatched for review.");
+    } catch (error) {
+      setStatus(panel, error instanceof Error ? error.message : "Could not load properties.");
+      fundsButton.disabled = false;
+    }
+  });
+  panel.appendChild(fundsButton);
+
   // Status line
   const statusEl = document.createElement("div");
   statusEl.className = "office-hub-status";
@@ -889,6 +912,76 @@ function renderApprovalLotPicker(panel, lots, attachments, messageRoot, captureB
       window.setTimeout(() => { panelExpanded = false; renderPanel(attachments, messageRoot); }, 1800);
     } catch (error) {
       setStatus(panel, error instanceof Error ? error.message : "Approval letter capture failed.");
+      confirm.disabled = false;
+      cancel.disabled = false;
+      captureButton.disabled = false;
+    }
+  });
+  actions.append(cancel, confirm);
+  picker.append(search, select, actions);
+  captureButton.insertAdjacentElement("afterend", picker);
+}
+
+function renderFundsPropertyPicker(panel, properties, attachments, messageRoot, captureButton) {
+  panel.querySelector(".office-hub-lot-picker")?.remove();
+  const picker = document.createElement("div");
+  picker.className = "office-hub-lot-picker";
+  const search = document.createElement("input");
+  search.className = "office-hub-lot-search";
+  search.placeholder = "Search property address";
+  search.value = getEmailSubject();
+  const select = document.createElement("select");
+  select.className = "office-hub-lot-select";
+  function fill(value = "") {
+    select.replaceChildren();
+    const unmatched = document.createElement("option");
+    unmatched.value = "";
+    unmatched.textContent = "Unmatched — hold for review";
+    select.appendChild(unmatched);
+    const needle = value.trim().toLowerCase();
+    const matches = properties.filter((item) => !needle || item.address.toLowerCase().includes(needle));
+    for (const item of matches) {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.address;
+      select.appendChild(option);
+    }
+    if (matches.length === 1) select.value = matches[0].id;
+  }
+  fill(search.value);
+  if (!select.value) {
+    const subject = search.value.toLowerCase();
+    const found = properties.find((item) => subject.includes(item.address.toLowerCase()));
+    if (found) select.value = found.id;
+  }
+  search.addEventListener("input", () => fill(search.value));
+  const actions = document.createElement("div");
+  actions.className = "office-hub-lot-picker-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "office-hub-picker-cancel";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => { picker.remove(); captureButton.disabled = false; setStatus(panel, ""); });
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "office-hub-picker-confirm";
+  confirm.textContent = "Capture";
+  confirm.addEventListener("click", async () => {
+    confirm.disabled = true;
+    cancel.disabled = true;
+    setStatus(panel, "Capturing lawyer funds notice…");
+    try {
+      const response = await sendRuntimeMessage({
+        type: "CAPTURE_FUNDS_NOTICE", attachments,
+        propertyId: select.value || null, email: getApprovalEmailMetadata(messageRoot),
+      });
+      if (!response.ok) throw new Error(response.error || "Funds notice capture failed.");
+      setStatus(panel, "✓ Funds notice captured for review");
+      showInlineSummary(messageRoot, "Office Hub: funds notice captured", `${OFFICE_HUB_APP}/financing/funds`);
+      picker.remove();
+      window.setTimeout(() => { panelExpanded = false; renderPanel(attachments, messageRoot); }, 1800);
+    } catch (error) {
+      setStatus(panel, error instanceof Error ? error.message : "Funds notice capture failed.");
       confirm.disabled = false;
       cancel.disabled = false;
       captureButton.disabled = false;

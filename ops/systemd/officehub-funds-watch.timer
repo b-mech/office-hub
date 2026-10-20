@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch legal Box folders for signed closing documents
+
+[Timer]
+OnCalendar=*-*-* 08,12,16:25:00
+Persistent=true
+Unit=officehub-funds-watch.service
+
+[Install]
+WantedBy=timers.target

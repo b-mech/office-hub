@@ -43,6 +43,7 @@ export interface FinancingProperty {
   total_facility?: string | number | null;
   opening_balance?: string | number | null;
   already_drawn?: string | number | null;
+  client_funded_draw_total?: string | number | null;
   draw_eligible_override?: string | number | null;
   last_draw_date?: string | null;
   last_draw_amount?: string | number | null;

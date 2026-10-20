@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+import pytest
 
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/test")
@@ -42,6 +43,7 @@ class _RecordingSession:
         return _EmptyResult()
 
 
+@pytest.mark.asyncio
 async def test_timeline_excludes_paid_land_and_sale_deposits() -> None:
     session = _RecordingSession()
 

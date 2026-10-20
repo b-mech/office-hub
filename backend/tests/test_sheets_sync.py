@@ -81,6 +81,15 @@ class SheetsSyncTest(unittest.TestCase):
         self.assertEqual("675 COMMUNITY ROW", parsed[1]["canonical_key"])
         self.assertEqual("NA", parsed[1]["stage_clean"])
 
+    def test_locked_tracker_possession_date_is_read_without_marking_possession_taken(self) -> None:
+        rows = _parse_stage_rows([{
+            "Address": "52 Ash Cove - SPEC",
+            "Client Possession": "**30-Oct-2026**",
+            "Sold or Spec": "SOLD",
+        }])
+        self.assertEqual("2026-10-30", rows[0]["possession_date"].isoformat())
+        self.assertTrue(rows[0]["possession_date_locked"])
+
     def test_conflicting_duplicate_canonical_stage_rows_are_flagged(self) -> None:
         rows = _parse_stage_rows(
             [

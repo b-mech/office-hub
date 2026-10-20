@@ -67,6 +67,7 @@ async def sync_from_sheet(db: AsyncSession) -> dict[str, Any]:
                             "client_name": source["client_name"],
                             "build_start": source["build_start"],
                             "possession_date": source["possession_date"],
+                            "possession_date_locked": source["possession_date_locked"],
                         },
                     )
                 synced += 1
@@ -120,6 +121,7 @@ def _parse_stage_rows(rows: list[dict[str, str]]) -> list[dict[str, Any]]:
                 "client_name": _value(source, "Client Name", "client_name"),
                 "build_start": _parse_date(_value(source, "Build Start", "build_start")),
                 "possession_date": _parse_date(_value(source, "Client Possession", "possession_date")),
+                "possession_date_locked": "**" in (_value(source, "Client Possession", "possession_date") or ""),
             }
         )
     return parsed_rows
@@ -241,7 +243,7 @@ def _parse_date(value: str | None) -> date | None:
     if not value:
         return None
     cleaned = re.sub(r"^\*+|\*+$", "", value.strip()).strip()
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%B %d, %Y", "%b %d, %Y"):
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%B %d, %Y", "%b %d, %Y", "%d-%b-%Y", "%d-%b-%y"):
         try:
             return datetime.strptime(cleaned, fmt).date()
         except ValueError:

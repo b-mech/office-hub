@@ -1,0 +1,8 @@
+[Unit]
+Description=Office Hub signed closing document Box watch
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/officehub/office-hub/backend
+EnvironmentFile=/home/officehub/office-hub/.env
+ExecStart=/home/officehub/office-hub/backend/.venv/bin/python scripts/run_funds_monitor.py watch

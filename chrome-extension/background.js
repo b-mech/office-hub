@@ -45,6 +45,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "LIST_FUNDS_PROPERTIES") {
+    listFundsProperties(message.search || "")
+      .then((properties) => sendResponse({ ok: true, properties }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Could not load properties." }));
+    return true;
+  }
+
+  if (message?.type === "CAPTURE_FUNDS_NOTICE") {
+    captureFundsNotice(message)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : "Funds notice capture failed." }));
+    return true;
+  }
+
   return false;
 });
 
@@ -181,6 +195,37 @@ async function listPresaleLots(search) {
   });
   if (!response.ok) throw new Error(`Could not load lots (${response.status}).`);
   return await response.json();
+}
+
+async function listFundsProperties(search) {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  const response = await fetch(`${OFFICE_HUB_API}/api/financing/funds-notices/extension/properties?${params}`, {
+    headers: { "X-API-Key": OFFICE_HUB_API_KEY },
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!response.ok) throw new Error(`Could not load properties (${response.status}).`);
+  return await response.json();
+}
+
+async function captureFundsNotice({ attachments, propertyId, email }) {
+  const payloadAttachments = [];
+  for (const item of attachments) {
+    const attachment = await downloadAttachment({ url: item.url, filename: item.filename });
+    payloadAttachments.push({ filename: attachment.filename, mime: "application/pdf",
+                              content_base64: arrayBufferToBase64(attachment.buffer) });
+  }
+  const response = await fetch(`${OFFICE_HUB_API}/api/financing/funds-notices/intake`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-API-Key": OFFICE_HUB_API_KEY },
+    body: JSON.stringify({ property_id: propertyId || null, email, attachments: payloadAttachments }),
+    signal: AbortSignal.timeout(OFFICE_HUB_POST_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(typeof body.detail === "string" ? body.detail : `Funds notice capture failed (${response.status}).`);
+  }
+  return { intake: await response.json() };
 }
 
 async function captureApprovalLetter({ attachments, lotId, markAsPresale = false, email }) {

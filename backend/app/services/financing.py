@@ -227,11 +227,11 @@ async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
             """
             INSERT INTO documents.construction_stage_sync (
                 property_id, build_group_id, address_raw, banker_raw, lender_type, sold_or_spec,
-                stage_clean, client_name, build_start, possession_date, last_synced_at
+                stage_clean, client_name, build_start, possession_date, possession_date_locked, last_synced_at
             )
             VALUES (
                 :property_id, :build_group_id, :address_raw, :banker_raw, :lender_type, :sold_or_spec,
-                :stage_clean, :client_name, :build_start, :possession_date, now()
+                :stage_clean, :client_name, :build_start, :possession_date, :possession_date_locked, now()
             )
             ON CONFLICT (address_raw) DO UPDATE SET
                 property_id = EXCLUDED.property_id,
@@ -242,11 +242,13 @@ async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
                 stage_clean = EXCLUDED.stage_clean,
                 client_name = EXCLUDED.client_name,
                 build_start = EXCLUDED.build_start,
-                possession_date = EXCLUDED.possession_date,
+                possession_date = COALESCE(documents.construction_stage_sync.possession_confirmed_date, EXCLUDED.possession_date),
+                possession_date_locked = EXCLUDED.possession_date_locked,
                 last_synced_at = now()
             """
         ),
-        {**row, "property_id": property_id, "build_group_id": build_group_id},
+        {**row, "possession_date_locked": row.get("possession_date_locked", False),
+         "property_id": property_id, "build_group_id": build_group_id},
     )
     next_stage = row.get("stage_clean")
     excluded_stages = {None, "", "NA", "SYNC_CONFLICT"}
@@ -498,6 +500,18 @@ async def get_dashboard(db: AsyncSession) -> FinancingDashboardOut:
             )
         )
     properties = _dedupe_dashboard_properties(properties)
+    client_draw_rows = (
+        await db.execute(text("""
+            SELECT lot.property_id, SUM(draw.amount) AS total
+            FROM core.client_funded_draws draw
+            JOIN core.lots lot ON lot.id = draw.lot_id
+            WHERE lot.property_id IS NOT NULL
+            GROUP BY lot.property_id
+        """))
+    ).mappings().all()
+    client_draw_totals = {row["property_id"]: row["total"] for row in client_draw_rows}
+    for item in properties:
+        item.client_funded_draw_total = client_draw_totals.get(item.property_id, Decimal("0"))
     properties.sort(key=lambda item: item.draw_eligible or Decimal("0"), reverse=True)
     last_synced = max((row["last_synced_at"] for row in rows if row["last_synced_at"]), default=None)
     dashboard = FinancingDashboardOut(
@@ -2332,6 +2346,7 @@ async def _sync_statement_discrepancies(db: AsyncSession, statement_id: UUID) ->
                     COALESCE(p.address, lf.property_name, lf.facility_key) AS display_name,
                     COALESCE(p.canonical_address_key, lf.canonical_address_key) AS canonical_address_key,
                     lf.status AS facility_status,
+                    lf.closing_pending_at,
                     lf.total_facility,
                     lf.facility_key,
                     lf.property_name,
@@ -2382,6 +2397,8 @@ async def _sync_statement_discrepancies(db: AsyncSession, statement_id: UUID) ->
     issues: list[dict[str, Any]] = []
     for row in facility_rows:
         if row["facility_id"] in seen_facility_ids:
+            continue
+        if row["closing_pending_at"] and row["closing_pending_at"] <= statement_date:
             continue
         transactions = transactions_by_facility.get(row["facility_id"], [])
         activity = _pro_outstanding_activity_on(row, transactions, statement_date)

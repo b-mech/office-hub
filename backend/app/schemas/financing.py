@@ -134,6 +134,7 @@ class FinancingPropertyOut(BaseModel):
     total_facility: Decimal | None = None
     opening_balance: Decimal | None = None
     already_drawn: Decimal | None = None
+    client_funded_draw_total: Decimal = Decimal("0")
     draw_eligible_override: Decimal | None = None
     last_draw_date: date | None = None
     last_draw_amount: Decimal | None = None
