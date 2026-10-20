@@ -5,4 +5,5 @@ Description=Office Hub lawyer funds daily gap checks
 Type=oneshot
 WorkingDirectory=/home/officehub/office-hub/backend
 EnvironmentFile=/home/officehub/office-hub/.env
+Environment=PYTHONPATH=/home/officehub/office-hub/backend
 ExecStart=/home/officehub/office-hub/backend/.venv/bin/python scripts/run_funds_monitor.py gaps
