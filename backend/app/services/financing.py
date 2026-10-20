@@ -2295,7 +2295,17 @@ async def acknowledge_statement_snapshot(
 
 
 async def _sync_statement_discrepancies(db: AsyncSession, statement_id: UUID) -> None:
-    """Build the internal-to-source side of the monthly PRO reconciliation."""
+    """Compare only PRO facilities funded and outstanding by this report's date."""
+    statement_date = await db.scalar(
+        text("""
+            SELECT MAX(reported_period_end_date)
+            FROM documents.facility_statement_snapshots
+            WHERE statement_id = :statement_id
+        """),
+        {"statement_id": statement_id},
+    )
+    if statement_date is None:
+        return
     seen_facility_ids = set(
         (
             await db.execute(
@@ -2323,11 +2333,19 @@ async def _sync_statement_discrepancies(db: AsyncSession, statement_id: UUID) ->
                     COALESCE(p.canonical_address_key, lf.canonical_address_key) AS canonical_address_key,
                     lf.status AS facility_status,
                     lf.total_facility,
+                    lf.facility_key,
+                    lf.property_name,
+                    lf.borrower,
+                    lf.annual_rate,
+                    lf.original_advance_date,
+                    lf.original_advance_amount,
                     css.stage_clean,
                     css.sold_or_spec
                 FROM core.lender_facilities lf
                 LEFT JOIN core.properties p ON p.id = lf.property_id
-                LEFT JOIN documents.construction_stage_sync css ON css.property_id = p.id
+                LEFT JOIN documents.construction_stage_sync css
+                  ON css.property_id = p.id
+                  OR (lf.build_group_id IS NOT NULL AND css.build_group_id = lf.build_group_id)
                 WHERE COALESCE(lf.lender, lf.lender_type) = 'PRO'
                   AND COALESCE(lf.status, 'active') <> 'statement_only'
                 ORDER BY display_name
@@ -2335,43 +2353,41 @@ async def _sync_statement_discrepancies(db: AsyncSession, statement_id: UUID) ->
             )
         )
     ).mappings().all()
-
-    property_rows = (
+    transaction_rows = (
         await db.execute(
             text(
                 """
-                SELECT
-                    p.id AS property_id,
-                    p.address AS display_name,
-                    p.canonical_address_key,
-                    css.stage_clean,
-                    css.sold_or_spec
-                FROM documents.construction_stage_sync css
-                JOIN core.properties p ON p.id = css.property_id
-                WHERE css.lender_type = 'PRO'
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM core.lender_facilities lf
-                      WHERE COALESCE(lf.lender, lf.lender_type) = 'PRO'
-                        AND (
-                            lf.property_id = p.id
-                            OR (
-                                lf.property_id IS NULL
-                                AND lf.canonical_address_key IS NOT NULL
-                                AND lf.canonical_address_key = p.canonical_address_key
-                            )
-                        )
-                  )
-                ORDER BY p.address
+                SELECT facility_id, txn_date, txn_type, amount, reference
+                FROM core.facility_transactions
+                WHERE txn_date <= :statement_date
+                  AND facility_id IN :facility_ids
+                ORDER BY txn_date, created_at
                 """
-            )
+            ).bindparams(bindparam("facility_ids", expanding=True)),
+            {
+                "statement_date": statement_date,
+                "facility_ids": [row["facility_id"] for row in facility_rows],
+            },
         )
     ).mappings().all()
+    transactions_by_facility: dict[UUID, list[ProTransaction]] = {}
+    for transaction in transaction_rows:
+        transactions_by_facility.setdefault(transaction["facility_id"], []).append(
+            ProTransaction(
+                txn_date=transaction["txn_date"], txn_type=transaction["txn_type"],
+                amount=transaction["amount"], reference=transaction["reference"],
+            )
+        )
 
     issues: list[dict[str, Any]] = []
     for row in facility_rows:
         if row["facility_id"] in seen_facility_ids:
             continue
+        transactions = transactions_by_facility.get(row["facility_id"], [])
+        activity = _pro_outstanding_activity_on(row, transactions, statement_date)
+        if activity is None:
+            continue
+        first_draw_date, outstanding = activity
         issues.append(
             {
                 "entity_key": f"facility:{row['facility_id']}",
@@ -2381,31 +2397,17 @@ async def _sync_statement_discrepancies(db: AsyncSession, statement_id: UUID) ->
                 "canonical_address_key": row["canonical_address_key"],
                 "details": {
                     "record_type": "facility",
-                    "reason": "Active PRO facility is absent from the monthly report.",
+                    "reason": "Funded PRO facility with a recorded outstanding balance is absent from the monthly report.",
                     "facility_status": row["facility_status"],
                     "total_facility": str(row["total_facility"]) if row["total_facility"] is not None else None,
+                    "first_draw_date": first_draw_date.isoformat(),
+                    "statement_date": statement_date.isoformat(),
+                    "computed_outstanding": str(outstanding),
                     "stage": row["stage_clean"],
                     "sold_or_spec": row["sold_or_spec"],
                 },
             }
         )
-    for row in property_rows:
-        issues.append(
-            {
-                "entity_key": f"property:{row['property_id']}",
-                "facility_id": None,
-                "property_id": row["property_id"],
-                "display_name": row["display_name"],
-                "canonical_address_key": row["canonical_address_key"],
-                "details": {
-                    "record_type": "property",
-                    "reason": "Internal PRO property has no matching facility and is absent from the monthly report.",
-                    "stage": row["stage_clean"],
-                    "sold_or_spec": row["sold_or_spec"],
-                },
-            }
-        )
-
     active_keys = [issue["entity_key"] for issue in issues]
     if active_keys:
         delete_stale = text(
@@ -2451,6 +2453,29 @@ async def _sync_statement_discrepancies(db: AsyncSession, statement_id: UUID) ->
                 "details": json.dumps(issue["details"]),
             },
         )
+
+
+def _pro_outstanding_activity_on(
+    facility: Any, transactions: list[ProTransaction], statement_date: date,
+) -> tuple[date, Decimal] | None:
+    """Return the funded start and balance only while a PRO loan is outstanding."""
+    dated = [txn for txn in transactions if txn.txn_date <= statement_date]
+    first_draw_dates = [txn.txn_date for txn in dated if txn.txn_type == "draw"]
+    if facility["original_advance_date"] and (facility["original_advance_amount"] or 0) > 0:
+        first_draw_dates.append(facility["original_advance_date"])
+    if not first_draw_dates or min(first_draw_dates) > statement_date:
+        return None
+    if all(facility[field] is not None for field in (
+        "annual_rate", "original_advance_date", "original_advance_amount",
+    )):
+        outstanding = balance_on(_pro_facility_from_row(facility), dated, statement_date)
+    else:
+        outstanding = money(
+            (facility["original_advance_amount"] or Decimal("0"))
+            + sum((txn.amount for txn in dated if txn.txn_type == "draw"), Decimal("0"))
+            - sum((txn.amount for txn in dated if txn.txn_type == "repayment"), Decimal("0"))
+        )
+    return (min(first_draw_dates), outstanding) if outstanding > 0 else None
 
 
 async def _refresh_statement_status(db: AsyncSession, statement_id: UUID) -> None:

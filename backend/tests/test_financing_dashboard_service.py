@@ -16,9 +16,35 @@ from app.services.financing import _statement_reconciliation_status
 from app.services.financing import _statement_names_match
 from app.services.financing import _normalized_cheque_reference
 from app.services.financing import _proposed_draws
+from app.services.financing import _pro_outstanding_activity_on
 from app.services.financing import approve_snapshot_draws
 from app.services.financing import _property_from_row
+from app.financing.engines.pro import ProTransaction
 from app.financing.parsers.pro_statement import ParsedProDraw
+
+
+class ProMissingReportEligibilityTest(unittest.TestCase):
+    def test_undrawn_commitment_and_future_advance_are_not_missing(self) -> None:
+        facility = {
+            "facility_key": "PRO-TEST", "property_name": "Test", "borrower": "Test",
+            "annual_rate": Decimal("0"), "original_advance_date": None,
+            "original_advance_amount": None,
+        }
+        self.assertIsNone(_pro_outstanding_activity_on(facility, [], date(2026, 7, 30)))
+        facility["original_advance_date"] = date(2026, 8, 1)
+        facility["original_advance_amount"] = Decimal("100.00")
+        self.assertIsNone(_pro_outstanding_activity_on(facility, [], date(2026, 7, 30)))
+
+    def test_july_draw_is_active_in_july_until_recorded_payoff(self) -> None:
+        facility = {
+            "facility_key": "PRO-TEST", "property_name": "Test", "borrower": "Test",
+            "annual_rate": Decimal("0"), "original_advance_date": date(2026, 7, 6),
+            "original_advance_amount": Decimal("100.00"),
+        }
+        activity = _pro_outstanding_activity_on(facility, [], date(2026, 7, 30))
+        self.assertEqual(activity, (date(2026, 7, 6), Decimal("100.00")))
+        repayment = ProTransaction(date(2026, 8, 1), "repayment", Decimal("100.00"))
+        self.assertIsNone(_pro_outstanding_activity_on(facility, [repayment], date(2026, 8, 30)))
 
 
 def row(
