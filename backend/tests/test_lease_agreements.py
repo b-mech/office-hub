@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
 import pytest
+import pdfplumber
 from docxtpl import DocxTemplate
 
 from app.models.rentals import RentalProperty
@@ -116,4 +117,8 @@ def test_approved_template_renders_all_anchors(tenant_count: int) -> None:
                                      "--headless", "--convert-to", "pdf", "--outdir", directory, str(target)],
                                     check=False, capture_output=True, text=True, timeout=90)
             assert result.returncode == 0, result.stderr
-            check_pdf(target.with_suffix(".pdf").read_bytes(), tenant_count)
+            pdf_path = target.with_suffix(".pdf")
+            check_pdf(pdf_path.read_bytes(), tenant_count)
+            if tenant_count == 2:
+                with pdfplumber.open(pdf_path) as document:
+                    assert len(document.pages) == 8

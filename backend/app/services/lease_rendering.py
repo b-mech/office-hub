@@ -42,15 +42,23 @@ def check_pdf(pdf: bytes, tenant_count: int) -> None:
         raise ValueError(f"Lease PDF DocuSign anchor counts differ: {mismatched}")
 
 
+def require_fonts() -> None:
+    if not shutil.which("fc-match"):
+        raise RuntimeError("Fontconfig is required to verify lease fonts")
+    for family in ("Liberation Serif", "FreeSerif"):
+        matched = subprocess.run(
+            ["fc-match", "-f", "%{family}", family], capture_output=True, text=True, check=True,
+        ).stdout.split(",", 1)[0].strip()
+        if matched != family:
+            raise RuntimeError(f"{family} is required for the approved lease layout")
+
+
 def render(lease_id: str, context: dict[str, Any]) -> tuple[str, str]:
     if not TEMPLATE.is_file():
         raise RuntimeError(f"Approved lease template is missing: {TEMPLATE}")
     if not shutil.which("soffice"):
         raise RuntimeError("LibreOffice Writer is required to render lease PDFs")
-    if not shutil.which("fc-match") or "Times New Roman" not in subprocess.run(
-        ["fc-match", "-f", "%{family}", "Times New Roman"], capture_output=True, text=True, check=True,
-    ).stdout:
-        raise RuntimeError("Times New Roman is required for the approved lease layout")
+    require_fonts()
     with TemporaryDirectory(prefix="lease-") as tmp:
         directory = Path(tmp)
         docx = directory / "draft.docx"
