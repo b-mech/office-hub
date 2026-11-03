@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from uuid import UUID
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 from fastapi import Request
@@ -10,6 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from app.core.auth import decode_token
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.core import User
 from app.models.core import UserRole
@@ -37,20 +39,35 @@ PUBLIC_PREFIXES = (
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: object) -> Response:
         path = request.url.path
+        lease_path = path.startswith("/api/rentals/leases")
+        cookie_session_path = lease_path
         if (
             request.method == "OPTIONS"
             or not path.startswith("/api")
             or path in PUBLIC_PATHS
             or path.startswith(PUBLIC_PREFIXES)
+            or (not settings.auth_enforced and not cookie_session_path)
         ):
             return await call_next(request)  # type: ignore[operator]
 
         authorization = request.headers.get("Authorization", "")
         scheme, _, token = authorization.partition(" ")
+        cookie_auth = False
         if scheme.casefold() != "bearer" or not token:
-            return JSONResponse(status_code=401, content={"detail": "Bearer token is required"})
+            if cookie_session_path:
+                token = request.cookies.get("office_hub_refresh", "")
+                cookie_auth = bool(token)
+            if not token:
+                return JSONResponse(status_code=401, content={"detail": "Office Hub sign-in is required"})
+        if cookie_auth and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            origin = request.headers.get("origin", "")
+            allowed = {urlsplit(settings.public_site_url).netloc, request.headers.get("host", ""),
+                       request.headers.get("x-forwarded-host", "")}
+            allowed.update(urlsplit(value).netloc for value in settings.cors_origin_list)
+            if not origin or urlsplit(origin).netloc not in allowed:
+                return JSONResponse(status_code=403, content={"detail": "Invalid request origin"})
         try:
-            payload = decode_token(token, "access")
+            payload = decode_token(token, "refresh" if cookie_auth else "access")
             user_id = UUID(payload["sub"])
         except (HTTPException, ValueError):
             return JSONResponse(status_code=401, content={"detail": "Invalid or expired authentication token"})

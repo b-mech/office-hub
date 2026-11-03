@@ -13,6 +13,7 @@ redis==5.2.0
 boto3==1.35.0
 anthropic==0.40.0
 pdfplumber==0.11.10
+docxtpl>=0.20,<0.21
 pytesseract==0.3.13
 Pillow==12.3.0
 pillow-heif==1.8.0

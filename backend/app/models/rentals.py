@@ -4,7 +4,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, SmallInteger, String, Text, Uuid, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, SmallInteger, String, Text, Uuid, func, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -27,6 +28,10 @@ class RentalProperty(Base):
     street_address: Mapped[str] = mapped_column(String(255), nullable=False)
     former_address: Mapped[str | None] = mapped_column(String(255))
     city: Mapped[str | None] = mapped_column(String(100), server_default="Winnipeg")
+    municipality: Mapped[str | None] = mapped_column(String(100))
+    is_multiplex: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    is_condo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    lease_utility_override: Mapped[dict[str, str | None] | None] = mapped_column(JSONB)
     property_type: Mapped[str] = mapped_column(String(30), nullable=False, server_default="residential")
     general_notes: Mapped[str | None] = mapped_column(Text)
     latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
@@ -87,6 +92,52 @@ class RentalLeaseTenant(Base):
     lease_id: Mapped[int] = mapped_column(ForeignKey("rental_leases.id"), primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("rental_tenants.id"), primary_key=True)
     is_primary_contact: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+
+
+class LeaseAgreement(Base):
+    __tablename__ = "lease_agreements"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
+    unit_id: Mapped[int] = mapped_column(ForeignKey("rental_units.id"), nullable=False)
+    tenancy_id: Mapped[int | None] = mapped_column(ForeignKey("rental_leases.id"))
+    template_version: Mapped[str] = mapped_column(Text, nullable=False, server_default="v1")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="draft")
+    draft_revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    context: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    tenants: Mapped[list[dict]] = mapped_column(JSONB, nullable=False)
+    draft_docx_key: Mapped[str | None] = mapped_column(Text)
+    draft_pdf_key: Mapped[str | None] = mapped_column(Text)
+    docusign_envelope_id: Mapped[str | None] = mapped_column(Text)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    signed_pdf_box_file_id: Mapped[str | None] = mapped_column(Text)
+    contact_form_data: Mapped[dict | None] = mapped_column(JSONB)
+    recipient_status: Mapped[dict | None] = mapped_column(JSONB)
+    created_by: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("core.users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class LeaseAgreementEvent(Base):
+    __tablename__ = "lease_agreement_events"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
+    lease_agreement_id: Mapped[UUID] = mapped_column(ForeignKey("lease_agreements.id"), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey("core.users.id"))
+    detail: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class LeaseAgreementTask(Base):
+    __tablename__ = "lease_agreement_tasks"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, server_default=text("gen_random_uuid()"))
+    lease_agreement_id: Mapped[UUID] = mapped_column(ForeignKey("lease_agreements.id"), nullable=False, unique=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class RentalInspection(Base):
