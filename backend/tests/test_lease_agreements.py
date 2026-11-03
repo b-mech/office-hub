@@ -73,6 +73,16 @@ def test_utility_rules() -> None:
     assert utility_defaults("Lorette", False)["utility_exceptions"] == "water and sewer"
 
 
+def test_approved_template_fonts() -> None:
+    with ZipFile(TEMPLATE) as docx:
+        styles = docx.read("word/styles.xml")
+        theme = docx.read("word/theme/theme1.xml")
+        document = docx.read("word/document.xml")
+    assert b"Liberation Serif" in styles and b"Liberation Serif" in theme
+    assert document.count(b'w:ascii="FreeSerif"') == 12
+    assert b"Times New Roman" not in styles + theme + document
+
+
 def test_docusign_tabs_and_capture() -> None:
     landlord = _tabs(0, landlord=True)
     first = _tabs(1)
