@@ -69,6 +69,7 @@ from app.models.rentals import RentalInspectionReport
 from app.models.rentals import RentalInspectionReportItem
 from app.models.rentals import RentalInspectionReportComment
 from app.models.rentals import RentalLease
+from app.models.rentals import LeaseAgreement, LeaseAgreementEvent, LeaseAgreementTask
 from app.models.rentals import RentalLeaseImportBatch
 from app.models.rentals import RentalLeaseImportRow
 from app.models.rentals import RentalLeaseTenant
