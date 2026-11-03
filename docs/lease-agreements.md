@@ -4,7 +4,7 @@ The approved template is `backend/app/templates/leases/residential_tenancy_agree
 
 ## Deployment settings
 
-- Install `libreoffice-writer` and `ttf-mscorefonts-installer` on every rendering worker. Accept the Microsoft font license and verify `fc-match -f '%{family}' 'Times New Roman'` reports Times New Roman.
+- Install LibreOffice Writer, Liberation Serif, and FreeSerif on every rendering worker. The template uses Liberation Serif for body text and FreeSerif for checkbox glyphs. Verify `fc-match -f '%{family}' 'Liberation Serif'` and `fc-match -f '%{family}' 'FreeSerif'` report those families.
 - Set `LEASE_LANDLORD_SIGNER_NAME="Robert Wieler"` in every environment.
 - Set `LEASE_LANDLORD_SIGNER_EMAIL="robert@connectionhomes.ca"` only in production. Set `LEASE_LANDLORD_SIGNER_EMAIL="nicholas@connectionhomes.ca"` and `LEASE_NONPRODUCTION_SIGNER_EMAIL="nicholas@connectionhomes.ca"` in development, test, and staging. The service requires both nonproduction settings to match, so an accidental production address cannot be used for a test envelope.
 - Configure the existing DocuSign JWT, Box OAuth, MinIO, and Redis worker. `BOX_RENTAL_PROPERTIES_FOLDER_ID` must identify the existing `PRIVI/Rentals` folder; the service creates `{unit_address}/Leases` beneath it.
