@@ -17,6 +17,7 @@ from sqlalchemy import Index
 from sqlalchemy import JSON
 from sqlalchemy import Numeric
 from sqlalchemy import Text
+from sqlalchemy import UniqueConstraint
 from sqlalchemy import func
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -43,6 +44,17 @@ class UserRole(str, Enum):
     ADMIN = "admin"
     STAFF = "staff"
     READONLY = "readonly"
+
+
+class UserOrgRole(str, Enum):
+    TENANT_ADMIN = "tenant_admin"
+    MEMBER = "member"
+
+
+class ProjectRole(str, Enum):
+    OWNER = "owner"
+    EDITOR = "editor"
+    VIEWER = "viewer"
 
 
 class ContactType(str, Enum):
@@ -166,6 +178,9 @@ class User(Base):
         default=True,
         server_default=text("true"),
     )
+    is_superadmin: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     permissions: Mapped[dict[str, str]] = mapped_column(
         JSON,
         nullable=False,
@@ -181,6 +196,60 @@ class User(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+
+class UserOrgMembership(Base):
+    __tablename__ = "user_org_memberships"
+    __table_args__ = (
+        UniqueConstraint("user_id", "org_id", name="uq_core_user_org_memberships_user_org"),
+        Index("idx_core_user_org_memberships_org_id", "org_id"),
+        {"schema": "core"},
+    )
+
+    id: Mapped[UUID] = _uuid_pk()
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.users.id", ondelete="CASCADE"), nullable=False
+    )
+    org_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.orgs.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[UserOrgRole] = mapped_column(
+        SqlEnum(UserOrgRole, name="ck_core_user_org_memberships_role", native_enum=False,
+                create_constraint=True, values_callable=_enum_values, validate_strings=True),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ProjectMember(Base):
+    __tablename__ = "project_members"
+    __table_args__ = (
+        UniqueConstraint("lot_id", "user_id", name="uq_core_project_members_lot_user"),
+        Index("idx_core_project_members_user_id", "user_id"),
+        Index("idx_core_project_members_lot_id", "lot_id"),
+        {"schema": "core"},
+    )
+
+    id: Mapped[UUID] = _uuid_pk()
+    lot_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.lots.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.users.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[ProjectRole] = mapped_column(
+        SqlEnum(ProjectRole, name="ck_core_project_members_role", native_enum=False,
+                create_constraint=True, values_callable=_enum_values, validate_strings=True),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    invited_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.users.id", ondelete="SET NULL"), nullable=True
     )
 
 

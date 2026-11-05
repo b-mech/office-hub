@@ -10,9 +10,13 @@ from app.models.core import Lot
 from app.models.core import LotStatus
 from app.models.core import LotTriggerType
 from app.models.core import Org
+from app.models.core import ProjectMember
+from app.models.core import ProjectRole
 from app.models.core import Reminder
 from app.models.core import SaleType
 from app.models.core import User
+from app.models.core import UserOrgMembership
+from app.models.core import UserOrgRole
 from app.models.core import UserRole
 from app.models.financing import ConstructionStageSync
 from app.models.financing import ConstructionStageHistory
@@ -145,6 +149,8 @@ __all__ = [
     "LenderStatement",
     "Milestone",
     "Org",
+    "ProjectMember",
+    "ProjectRole",
     "Party",
     "PartyRole",
     "Property",
@@ -187,6 +193,8 @@ __all__ = [
     "MaintVendor",
     "MaintWorkOrder",
     "User",
+    "UserOrgMembership",
+    "UserOrgRole",
     "UserRole",
     "ApprovalLetterStatus",
     "FundingPartnerRule",
