@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.authorization import current_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.core import User, UserRole
 from app.models.rentals import LeaseAgreement, LeaseAgreementTask, RentalLease, RentalLeaseTenant, RentalProperty, RentalTenant, RentalUnit
@@ -20,15 +21,21 @@ from app.services.lease_rendering import draft_pdf
 router = APIRouter(prefix="/api/rentals/leases", tags=["rentals"])
 
 
-def viewer(request: Request) -> User:
-    user = current_user(request)
+async def viewer(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    user: User | None = getattr(request.state, "user", None)
+    if user is None and not settings.auth_enforced:
+        user = await db.scalar(select(User).where(User.is_active.is_(True), User.role == UserRole.ADMIN)
+                               .order_by(User.created_at, User.id).limit(1))
+        if user is None:
+            raise HTTPException(503, "No active Office Hub admin is available for lease actions")
+    if user is None:
+        user = current_user(request)
     if user.role != UserRole.ADMIN and (user.permissions or {}).get("rentals") not in {"viewer", "editor"}:
         raise HTTPException(403, "Rentals access is required")
     return user
 
 
-def editor(request: Request) -> User:
-    user = viewer(request)
+async def editor(user: User = Depends(viewer)) -> User:
     if user.role != UserRole.ADMIN and (user.permissions or {}).get("rentals") != "editor":
         raise HTTPException(403, "Rentals editor permission is required")
     return user
