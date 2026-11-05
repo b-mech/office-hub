@@ -13,6 +13,7 @@ import {
   tenderDocumentUrl,
 } from "@/lib/api/tendering";
 import type { MarkupPageState, TenderDocument, TenderDocumentMarkupSummary, TenderMarkupCalibration } from "@/types/tendering";
+import { withPageState } from "./markupPageState";
 
 type Tool = "select" | "pan" | "pen" | "rect" | "ellipse" | "line" | "arrow" | "text" | "measure";
 const tools: { id: Tool; label: string }[] = [
@@ -29,6 +30,8 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
   const panRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const fabricRef = useRef<Canvas | null>(null);
   const canvasPageRef = useRef(1);
+  const disposalRef = useRef<Promise<unknown>>(Promise.resolve());
+  const renderRef = useRef<Promise<unknown>>(Promise.resolve());
   const pageStatesRef = useRef<Record<string, MarkupPageState>>({});
   const undoRef = useRef<string[]>([]);
   const redoRef = useRef<string[]>([]);
@@ -41,6 +44,7 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
   const [strokeWidth, setStrokeWidth] = useState(3);
   const [zoom, setZoom] = useState(1);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+  const [canvasEpoch, setCanvasEpoch] = useState(0);
   const [calibration, setCalibration] = useState<TenderMarkupCalibration | null>(null);
   const [versions, setVersions] = useState<TenderDocumentMarkupSummary[]>([]);
   const [saving, setSaving] = useState(false);
@@ -63,21 +67,22 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
   const snapshot = useCallback(() => {
     const canvas = fabricRef.current;
     if (!canvas || restoringRef.current) return;
-    pageStatesRef.current[String(pageNumber)] = pageState(canvas);
-    undoRef.current.push(JSON.stringify(pageStatesRef.current[String(pageNumber)]));
+    pageStatesRef.current = withPageState(pageStatesRef.current, canvasPageRef.current, pageState(canvas));
+    undoRef.current.push(JSON.stringify(pageStatesRef.current[String(canvasPageRef.current)]));
     if (undoRef.current.length > 50) undoRef.current.shift();
     redoRef.current = [];
-  }, [pageNumber]);
+  }, []);
 
   useEffect(() => {
     if (!pdf || !pdfCanvasRef.current || !markupCanvasRef.current) return;
     let cancelled = false;
-    const previous = fabricRef.current;
-    if (previous) {
-      pageStatesRef.current[String(canvasPageRef.current)] = pageState(previous);
-      previous.destroy();
-    }
+    let currentCanvas: Canvas | null = null;
+    let canvasReady = false;
+    let cancelRender: (() => void) | null = null;
+    const abort = new AbortController();
     void pdf.getPage(pageNumber).then(async (page) => {
+      if (cancelled || !pdfCanvasRef.current || !markupCanvasRef.current) return;
+      await Promise.all([disposalRef.current, renderRef.current]);
       if (cancelled || !pdfCanvasRef.current || !markupCanvasRef.current) return;
       const base = page.getViewport({ scale: 1 });
       const viewport = page.getViewport({ scale: Math.min(1.5, 1000 / base.width) });
@@ -90,29 +95,46 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
       pdfCanvas.style.width = `${viewport.width}px`;
       pdfCanvas.style.height = `${viewport.height}px`;
       setPageSize({ width: viewport.width, height: viewport.height });
-      await page.render({
+      const renderTask = page.render({
         canvas: pdfCanvas,
         canvasContext: pdfCanvas.getContext("2d")!,
         viewport,
         transform: [outputScale, 0, 0, outputScale, 0, 0],
-      }).promise;
-      if (cancelled) return;
+      });
+      cancelRender = () => renderTask.cancel();
+      renderRef.current = renderTask.promise.catch(() => {});
+      await renderTask.promise;
+      if (cancelled || !markupCanvasRef.current) return;
       const canvas = new Canvas(markupCanvasRef.current, { width: viewport.width, height: viewport.height, selection: true });
-      fabricRef.current = canvas;
-      canvasPageRef.current = pageNumber;
+      currentCanvas = canvas;
       canvas.wrapperEl.style.position = "absolute";
       canvas.wrapperEl.style.inset = "0";
       const saved = pageStatesRef.current[String(pageNumber)];
-      if (saved) { restoringRef.current = true; await canvas.loadFromJSON({ objects: saved.objects }); restoringRef.current = false; canvas.requestRenderAll(); }
+      if (saved) {
+        restoringRef.current = true;
+        try { await canvas.loadFromJSON({ objects: saved.objects }, undefined, { signal: abort.signal }); }
+        finally { restoringRef.current = false; }
+        if (cancelled) return;
+        canvas.requestRenderAll();
+      }
+      fabricRef.current = canvas;
+      canvasPageRef.current = pageNumber;
+      canvasReady = true;
       undoRef.current = [JSON.stringify(pageState(canvas))]; redoRef.current = [];
       canvas.on("object:added", snapshot); canvas.on("object:modified", snapshot); canvas.on("object:removed", snapshot);
-    }).catch(showError);
+      setCanvasEpoch(value => value + 1);
+    }).catch(reason => { if (!cancelled) showError(reason); });
     return () => {
       cancelled = true;
-      const canvas = fabricRef.current;
-      if (canvas && canvasPageRef.current === pageNumber) {
-        pageStatesRef.current[String(pageNumber)] = pageState(canvas);
-        canvas.destroy();
+      abort.abort();
+      cancelRender?.();
+      if (currentCanvas) {
+        if (canvasReady) pageStatesRef.current = withPageState(pageStatesRef.current, pageNumber, pageState(currentCanvas));
+        currentCanvas.off();
+        // Fabric owns the DOM canvas until async dispose finishes; StrictMode can start the next effect immediately.
+        disposalRef.current = currentCanvas.dispose();
+      }
+      if (fabricRef.current === currentCanvas) {
         fabricRef.current = null;
       }
     };
@@ -185,19 +207,26 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
     };
     canvas.on("mouse:down", down); canvas.on("mouse:move", move); canvas.on("mouse:up", up);
     return () => { canvas.off("mouse:down", down); canvas.off("mouse:move", move); canvas.off("mouse:up", up); };
-  }, [tool, color, strokeWidth, calibration, snapshot]);
+  }, [tool, color, strokeWidth, calibration, snapshot, canvasEpoch]);
 
   async function save() {
     const canvas = fabricRef.current; if (!canvas) return;
-    pageStatesRef.current[String(pageNumber)] = pageState(canvas); setSaving(true); setError(null);
+    pageStatesRef.current = withPageState(pageStatesRef.current, canvasPageRef.current, pageState(canvas)); setSaving(true); setError(null);
+    // Each version is a full snapshot of all pages' Fabric JSON, as stored by the markup API.
     try { await saveTenderDocumentMarkup(document.id, { schema_version: 1, pages: pageStatesRef.current }, calibration); await loadVersions(); }
     catch (reason) { showError(reason); } finally { setSaving(false); }
   }
   async function loadVersion(id: string) {
     try {
-      const version = await getTenderDocumentMarkup(id); pageStatesRef.current = version.annotation_data.pages; setCalibration(version.calibration || null);
-      if (pageNumber !== 1) setPageNumber(1);
-      else if (fabricRef.current) { restoringRef.current = true; await fabricRef.current.loadFromJSON({ objects: pageStatesRef.current["1"]?.objects || [] }); restoringRef.current = false; fabricRef.current.requestRenderAll(); }
+      const version = await getTenderDocumentMarkup(id); pageStatesRef.current = { ...version.annotation_data.pages }; setCalibration(version.calibration || null);
+      const canvas = fabricRef.current;
+      if (canvas) {
+        restoringRef.current = true;
+        try { await canvas.loadFromJSON({ objects: pageStatesRef.current[String(canvasPageRef.current)]?.objects || [] }); }
+        finally { restoringRef.current = false; }
+        canvas.requestRenderAll();
+        undoRef.current = [JSON.stringify(pageState(canvas))]; redoRef.current = [];
+      }
     }
     catch (reason) { showError(reason); }
   }
