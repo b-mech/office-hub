@@ -63,6 +63,7 @@ from app.services.document_extractor import extract_client_otp_document
 from app.services.extraction.service import get_extraction_service
 from app.services.minio_financing import get_financing_document
 from app.services.construction_stage_history import record_stage_change
+from app.services.lot_activation import activate_from_construction_stage
 
 
 LENDER_TYPES = ("SCU", "PRO", "STRIDE", "RSU", "CLIENT", "OTHER")
@@ -264,6 +265,12 @@ async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
             ),
             {"property_id": property_id, "build_group_id": build_group_id, "stage": next_stage},
         )
+    await activate_from_construction_stage(
+        db,
+        property_id=property_id,
+        address=row["address_raw"],
+        sold_or_spec=row.get("sold_or_spec"),
+    )
     return created
 
 

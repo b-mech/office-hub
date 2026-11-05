@@ -128,6 +128,7 @@ class SheetsSyncAsyncTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(financing, "get_or_create_property", AsyncMock()) as get_property,
             patch.object(financing, "record_stage_change", AsyncMock()) as record_change,
+            patch.object(financing, "activate_from_construction_stage", AsyncMock()) as activate,
         ):
             created = await financing.upsert_stage_row(db, row)  # type: ignore[arg-type]
 
@@ -143,6 +144,12 @@ class SheetsSyncAsyncTest(unittest.IsolatedAsyncioTestCase):
         upsert_params = db.execute.await_args_list[2].args[1]
         self.assertIsNone(upsert_params["property_id"])
         self.assertEqual(group_id, upsert_params["build_group_id"])
+        activate.assert_awaited_once_with(
+            db,
+            property_id=None,
+            address=row["address_raw"],
+            sold_or_spec="SPEC",
+        )
 
     async def test_group_target_survives_a_source_address_format_change(self) -> None:
         group_id = uuid4()
