@@ -58,6 +58,8 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                 token = request.cookies.get("office_hub_refresh", "")
                 cookie_auth = bool(token)
             if not token:
+                if not settings.auth_enforced:
+                    return await call_next(request)  # type: ignore[operator]
                 return JSONResponse(status_code=401, content={"detail": "Office Hub sign-in is required"})
         if cookie_auth and request.method not in {"GET", "HEAD", "OPTIONS"}:
             origin = request.headers.get("origin", "")
