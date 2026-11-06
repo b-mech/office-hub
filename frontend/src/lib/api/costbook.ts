@@ -1,12 +1,14 @@
 // lib/api/costbook.ts
 // API client for costbook + lots endpoints
 
+import { tenantHeaders } from "@/lib/tenant";
+
 const BASE = process.env.NEXT_PUBLIC_API_URL || "/backend-api";
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: { "Content-Type": "application/json", ...tenantHeaders(), ...(options?.headers || {}) },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -42,6 +44,8 @@ export interface Lot {
   draw_available?: string | number | null;
   construction_stage?: string | null;
   construction_stage_updated_at?: string | null;
+  client_id?: string | null;
+  client_name?: string | null;
 }
 
 export async function getLots(): Promise<Lot[]> {

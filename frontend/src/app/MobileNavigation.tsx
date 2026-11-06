@@ -5,32 +5,21 @@ import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { isActive, visibleSections } from "./navigation";
+import { switchOrg, useWorkspaceContext } from "./useWorkspaceContext";
 
-const links = [
-  ["Documents", "/documents"],
-  ["Lots", "/lots"],
-  ["OTP Timeline", "/lots/timeline"],
-  ["Projects", "/projects"],
-  ["Change Orders", "/projects/change-orders"],
-  ["Costbook", "/costbook"],
-  ["Financing", "/financing"],
-  ["Presales", "/financing/presales"],
-  ["Contractors", "/contractors"],
-  ["Lenders", "/financing/lenders"],
-  ["Rentals", "/rentals"],
-  ["Lease Import", "/rentals/lease-import"],
-  ["Inspections", "/rentals/inspections"],
-  ["Inspection Reports", "/rentals/reports"],
-] as const;
+
 
 export default function MobileNavigation() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { context } = useWorkspaceContext();
+  const sections = visibleSections(context?.capabilities ?? null);
 
   return (
     <>
       <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[var(--ch-sidebar-border)] bg-[var(--ch-sidebar-bg)] px-4 lg:hidden">
-        <Link href="/documents" className="flex items-center gap-2">
+        <Link href="/" className="flex items-center gap-2">
           <Image src="/favicon.png" alt="Office Hub" width={26} height={26} />
           <span className="text-sm font-semibold text-[var(--ch-sidebar-text-primary)]">Office Hub</span>
         </Link>
@@ -57,24 +46,43 @@ export default function MobileNavigation() {
             <p className="px-3 pb-3 pt-1 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ch-sidebar-text-muted)]">
               Modules
             </p>
-            {links.map(([label, href]) => {
-              const active = pathname === href;
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  onClick={() => setOpen(false)}
-                  className={`mb-1 block rounded-lg px-3 py-3 text-sm font-medium transition ${
-                    active
-                      ? "bg-[var(--ch-sidebar-hover)] text-[var(--ch-sidebar-text-primary)]"
-                      : "text-[var(--ch-sidebar-text-secondary)] hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
-                  }`}
-                >
-                  {label}
-                </Link>
-              );
-            })}
-            <div className="mt-4 border-t border-[var(--ch-sidebar-border)] pt-4">
+            {context && context.available_orgs.length > 1 ? (
+              <select
+                aria-label="Organization"
+                value={context.org.slug}
+                onChange={(event) => switchOrg(event.target.value)}
+                className="mb-3 w-full rounded-lg border border-[var(--ch-sidebar-border)] bg-[var(--ch-sidebar-bg)] px-3 py-2 text-sm text-[var(--ch-sidebar-text-secondary)]"
+              >
+                {context.available_orgs.map((org) => (
+                  <option key={org.id} value={org.slug}>{org.name}</option>
+                ))}
+              </select>
+            ) : null}
+            {sections.map((section, index) => (
+              <div key={section.label || index}>
+                {section.label ? (
+                  <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--ch-sidebar-text-muted)]">{section.label}</p>
+                ) : null}
+                {section.links.map(({ label, href }) => {
+                  const active = isActive(pathname, href);
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      onClick={() => setOpen(false)}
+                      className={`mb-1 block rounded-lg px-3 py-3 text-sm font-medium transition ${
+                        active
+                          ? "bg-[var(--ch-sidebar-hover)] text-[var(--ch-sidebar-text-primary)]"
+                          : "text-[var(--ch-sidebar-text-secondary)] hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
+                      }`}
+                    >
+                      {label}
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
+            {context?.capabilities.settings ? <div className="mt-4 border-t border-[var(--ch-sidebar-border)] pt-4">
               <Link
                 href="/settings"
                 onClick={() => setOpen(false)}
@@ -82,7 +90,7 @@ export default function MobileNavigation() {
               >
                 Settings
               </Link>
-            </div>
+            </div> : null}
           </nav>
         </div>
       ) : null}
