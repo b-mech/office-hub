@@ -2,19 +2,22 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
+import { Cog, Menu, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { isActive, visibleSections } from "./navigation";
+import { isActive, visibleSections, visibleSettingsMenu } from "./navigation";
 import { switchOrg, useWorkspaceContext } from "./useWorkspaceContext";
 
-
+const itemClass = "mb-1 block rounded-lg px-3 py-3 text-sm font-medium transition";
+const activeItemClass = "bg-[var(--ch-sidebar-hover)] text-[var(--ch-sidebar-text-primary)]";
+const idleItemClass = "text-[var(--ch-sidebar-text-secondary)] hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]";
 
 export default function MobileNavigation() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const { context } = useWorkspaceContext();
   const sections = visibleSections(context?.capabilities ?? null);
+  const settingsMenu = visibleSettingsMenu(context?.capabilities ?? null);
 
   return (
     <>
@@ -42,7 +45,7 @@ export default function MobileNavigation() {
             className="absolute inset-0 bg-black/40"
             onClick={() => setOpen(false)}
           />
-          <nav className="absolute right-0 top-0 h-full w-[min(82vw,20rem)] overflow-y-auto border-l border-[var(--ch-sidebar-border)] bg-[var(--ch-sidebar-bg)] p-4 shadow-2xl">
+          <nav aria-label="Modules" className="absolute right-0 top-0 h-full w-[min(82vw,20rem)] overflow-y-auto border-l border-[var(--ch-sidebar-border)] bg-[var(--ch-sidebar-bg)] p-4 shadow-2xl">
             <p className="px-3 pb-3 pt-1 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ch-sidebar-text-muted)]">
               Modules
             </p>
@@ -58,39 +61,64 @@ export default function MobileNavigation() {
                 ))}
               </select>
             ) : null}
-            {sections.map((section, index) => (
-              <div key={section.label || index}>
-                {section.label ? (
-                  <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--ch-sidebar-text-muted)]">{section.label}</p>
-                ) : null}
-                {section.links.map(({ label, href }) => {
+            {sections.map((section, index) => {
+              const headerActive = section.href ? isActive(pathname, section.href) : false;
+              return (
+                <div key={section.label || index}>
+                  {section.label && section.href ? (
+                    <Link
+                      href={section.href}
+                      onClick={() => setOpen(false)}
+                      aria-label={`${section.label} overview`}
+                      aria-current={headerActive ? "page" : undefined}
+                      className={`mt-2 block rounded-lg px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] transition ${
+                        headerActive ? activeItemClass : "text-[var(--ch-sidebar-text-muted)] hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
+                      }`}
+                    >
+                      {section.label}
+                    </Link>
+                  ) : section.label ? (
+                    <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--ch-sidebar-text-muted)]">{section.label}</p>
+                  ) : null}
+                  {section.links.map(({ label, href }) => {
+                    const active = isActive(pathname, href);
+                    return (
+                      <Link
+                        key={href}
+                        href={href}
+                        onClick={() => setOpen(false)}
+                        aria-current={active ? "page" : undefined}
+                        className={`${itemClass} ${active ? activeItemClass : idleItemClass}`}
+                      >
+                        {label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            {settingsMenu.length > 0 ? (
+              <div className="mt-4 border-t border-[var(--ch-sidebar-border)] pt-4">
+                <p className="flex items-center gap-2 px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--ch-sidebar-text-muted)]">
+                  <Cog size={12} strokeWidth={2} aria-hidden="true" />
+                  Settings
+                </p>
+                {settingsMenu.map(({ label, href }) => {
                   const active = isActive(pathname, href);
                   return (
                     <Link
                       key={href}
                       href={href}
                       onClick={() => setOpen(false)}
-                      className={`mb-1 block rounded-lg px-3 py-3 text-sm font-medium transition ${
-                        active
-                          ? "bg-[var(--ch-sidebar-hover)] text-[var(--ch-sidebar-text-primary)]"
-                          : "text-[var(--ch-sidebar-text-secondary)] hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
-                      }`}
+                      aria-current={active ? "page" : undefined}
+                      className={`${itemClass} ${active ? activeItemClass : idleItemClass}`}
                     >
                       {label}
                     </Link>
                   );
                 })}
               </div>
-            ))}
-            {context?.capabilities.settings ? <div className="mt-4 border-t border-[var(--ch-sidebar-border)] pt-4">
-              <Link
-                href="/settings"
-                onClick={() => setOpen(false)}
-                className="block rounded-lg px-3 py-3 text-sm font-medium text-[var(--ch-sidebar-text-secondary)] hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"
-              >
-                Settings
-              </Link>
-            </div> : null}
+            ) : null}
           </nav>
         </div>
       ) : null}

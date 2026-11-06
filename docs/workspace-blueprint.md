@@ -198,7 +198,9 @@ Client activity and warranty cards are added only once those tables exist.
 - Invites now also create a `user_org_memberships` row in the default org.
 
 ### UI
-- Shared nav config (`app/navigation.ts`) with capability-based sections: Dashboard, Projects, Clients, Land, Rentals (Overview, Map, Lease Import, Inspections, Reports), Workspace (Imports, Settings). The org selector appears only with more than one available org.
+- Shared nav config (`app/navigation.ts`) with capability-based sections: Dashboard, Clients, then the category headers Projects, Land, Rentals. The org selector appears only with more than one available org.
+- Every category header is a link to that category's overview (`aria-current` when on it); there is no collapse/accordion. Projects → `/projects` (children Change Orders, Costbook, Contractors, CH only), Land → `/land` (new read-only overview from `/api/v1/lots` and `/api/v1/lots/timeline`; children Lots, OTP Timeline, Documents, Presales, Financing, Lenders), Rentals → `/rentals` overview (children Map, Lease Import, Inspections, Inspection Reports). A header with an overview stays visible even when no children are allowed (e.g. Potterstone sees Projects without the CH-only children).
+- No Workspace section: Imports (`/settings/imports`) and Settings (`/settings`) live behind the gear menu at the foot of the sidebar (and a Settings group at the end of the mobile menu), both gated by the `settings` capability. Routes are unchanged.
 - `/` dashboard, `/clients` and `/clients/{id}`, `/projects/{lot_id}` workspace (Overview, Tendering, Costs for CH), `/rentals` overview; the map moved to `/rentals/map`.
 - Rentals overview shows occupancy and rent collected as "Not tracked" (no reliable source), instead of the derived occupancy/rent-roll cards planned in §5.
 

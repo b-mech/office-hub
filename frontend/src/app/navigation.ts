@@ -11,6 +11,8 @@ export interface NavLink {
 
 export interface NavSection {
   label: string | null;
+  /** Overview route the section header links to. A section with an overview stays visible even with no child links. */
+  href?: string;
   requires?: Capability[];
   links: NavLink[];
 }
@@ -20,21 +22,21 @@ export const NAV_SECTIONS: NavSection[] = [
     label: null,
     links: [
       { label: "Dashboard", href: "/" },
-      { label: "Projects", href: "/projects" },
       { label: "Clients", href: "/clients" },
     ],
   },
   {
     label: "Projects",
-    requires: ["legacy_modules"],
+    href: "/projects",
     links: [
-      { label: "Change Orders", href: "/projects/change-orders" },
-      { label: "Costbook", href: "/costbook" },
-      { label: "Contractors", href: "/contractors" },
+      { label: "Change Orders", href: "/projects/change-orders", requires: ["legacy_modules"] },
+      { label: "Costbook", href: "/costbook", requires: ["legacy_modules"] },
+      { label: "Contractors", href: "/contractors", requires: ["legacy_modules"] },
     ],
   },
   {
     label: "Land",
+    href: "/land",
     requires: ["land"],
     links: [
       { label: "Lots", href: "/lots" },
@@ -47,23 +49,21 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     label: "Rentals",
+    href: "/rentals",
     requires: ["rentals"],
     links: [
-      { label: "Overview", href: "/rentals" },
       { label: "Map", href: "/rentals/map" },
       { label: "Lease Import", href: "/rentals/lease-import" },
       { label: "Inspections", href: "/rentals/inspections" },
       { label: "Inspection Reports", href: "/rentals/reports" },
     ],
   },
-  {
-    label: "Workspace",
-    requires: ["settings"],
-    links: [
-      { label: "Imports", href: "/settings/imports" },
-      { label: "Settings", href: "/settings" },
-    ],
-  },
+];
+
+/** Entries behind the gear icon (no Workspace section in the main nav). */
+export const SETTINGS_MENU: NavLink[] = [
+  { label: "Imports", href: "/settings/imports", requires: ["settings"] },
+  { label: "Settings", href: "/settings", requires: ["settings"] },
 ];
 
 export function allowed(requires: Capability[] | undefined, capabilities: Record<string, boolean> | null): boolean {
@@ -75,13 +75,16 @@ export function allowed(requires: Capability[] | undefined, capabilities: Record
 export function visibleSections(capabilities: Record<string, boolean> | null): NavSection[] {
   return NAV_SECTIONS.filter((section) => allowed(section.requires, capabilities))
     .map((section) => ({ ...section, links: section.links.filter((link) => allowed(link.requires, capabilities)) }))
-    .filter((section) => section.links.length > 0);
+    .filter((section) => Boolean(section.href) || section.links.length > 0);
 }
 
+export function visibleSettingsMenu(capabilities: Record<string, boolean> | null): NavLink[] {
+  return SETTINGS_MENU.filter((link) => allowed(link.requires, capabilities));
+}
+
+const EXACT_MATCH = new Set(["/", "/rentals", "/settings", "/financing", "/lots", "/projects", "/land"]);
+
 export function isActive(pathname: string, href: string): boolean {
-  if (href === "/") return pathname === "/";
-  if (href === "/rentals" || href === "/settings" || href === "/financing" || href === "/lots" || href === "/projects") {
-    return pathname === href;
-  }
+  if (EXACT_MATCH.has(href)) return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
