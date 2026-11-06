@@ -240,8 +240,14 @@ async def docusign_webhook(
     )
     change_order = result.scalar_one_or_none()
     if change_order is None:
-        logger.info("No change order found for DocuSign envelope %s", envelope_id)
-        return {"status": "ignored"}
+        from app.models.rentals import LeaseAgreement
+        from app.workers.lease_agreements import process_envelope
+        lease = await db.scalar(select(LeaseAgreement).where(LeaseAgreement.docusign_envelope_id == envelope_id))
+        if lease is None:
+            logger.info("No change order or lease found for DocuSign envelope %s", envelope_id)
+            return {"status": "ignored"}
+        process_envelope.delay(envelope_id)
+        return {"status": "queued"}
 
     change_order.status = "signed"
     await db.commit()

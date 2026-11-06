@@ -64,7 +64,7 @@ async def login() -> RedirectResponse:
         httponly=True,
         secure=settings.auth_cookie_secure,
         samesite="lax",
-        path="/api/auth/callback",
+        path="/",
     )
     return response
 
@@ -115,7 +115,7 @@ async def callback(
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
     response = RedirectResponse(settings.frontend_auth_callback_url)
-    response.delete_cookie(OAUTH_STATE_COOKIE, path="/api/auth/callback")
+    response.delete_cookie(OAUTH_STATE_COOKIE, path="/")
     _set_refresh_cookie(response, create_refresh_token(user.id))
     return response
 
@@ -140,7 +140,7 @@ async def refresh(
 @router.post("/logout", status_code=204)
 async def logout() -> Response:
     response = Response(status_code=204)
-    response.delete_cookie(REFRESH_COOKIE, path="/api/auth")
+    response.delete_cookie(REFRESH_COOKIE, path="/")
     return response
 
 
@@ -158,5 +158,5 @@ def _set_refresh_cookie(response: RedirectResponse, token: str) -> None:
         httponly=True,
         secure=settings.auth_cookie_secure,
         samesite="lax",
-        path="/api/auth",
+        path="/",
     )

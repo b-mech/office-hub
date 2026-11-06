@@ -19,6 +19,8 @@ from app.core.config import settings
 from app.core.authorization import require_roles
 from app.core.database import get_db
 from app.models.core import User
+from app.models.core import UserOrgMembership
+from app.models.core import UserOrgRole
 from app.models.core import UserRole
 from app.services.user_invites import send_user_invite
 
@@ -75,6 +77,13 @@ async def invite_user(
     )
     db.add(user)
     try:
+        await db.flush()
+        # Invites are Connection Homes staff; tenant routes require an explicit membership.
+        db.add(UserOrgMembership(
+            user_id=user.id,
+            org_id=settings.default_org_id,
+            role=UserOrgRole.TENANT_ADMIN if user.role == UserRole.ADMIN else UserOrgRole.MEMBER,
+        ))
         await db.flush()
         await send_user_invite(recipient=normalized_email, full_name=full_name)
         user.invite_sent_at = datetime.now(timezone.utc)
