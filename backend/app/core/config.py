@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     auth_refresh_token_days: int = Field(default=14, alias="AUTH_REFRESH_TOKEN_DAYS")
     auth_cookie_secure: bool = Field(default=False, alias="AUTH_COOKIE_SECURE")
     auth_enforced: bool = Field(default=False, alias="AUTH_ENFORCED")
+    auth_session_hours: float = Field(default=12, gt=0, le=24 * 7, alias="AUTH_SESSION_HOURS")
+    auth_login_window_seconds: int = Field(default=15 * 60, gt=0, alias="AUTH_LOGIN_WINDOW_SECONDS")
+    auth_login_max_failures_per_ip: int = Field(default=20, gt=0, alias="AUTH_LOGIN_MAX_FAILURES_PER_IP")
+    auth_login_max_failures_per_email: int = Field(default=10, gt=0, alias="AUTH_LOGIN_MAX_FAILURES_PER_EMAIL")
     box_client_id: str = Field(default="", alias="BOX_CLIENT_ID")
     box_client_secret: str = Field(default="", alias="BOX_CLIENT_SECRET")
     box_redirect_uri: str = Field(

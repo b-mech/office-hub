@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
@@ -15,6 +16,8 @@ from app.core.config import settings
 
 ALGORITHM = "HS256"
 ISSUER = "office-hub"
+SESSION_COOKIE = "office_hub_session"
+LEGACY_REFRESH_COOKIE = "office_hub_refresh"
 
 
 def create_access_token(user_id: UUID) -> str:
@@ -31,6 +34,22 @@ def create_refresh_token(user_id: UUID) -> str:
         token_type="refresh",
         expires_delta=timedelta(days=settings.auth_refresh_token_days),
     )
+
+
+def session_lifetime() -> timedelta:
+    return timedelta(hours=settings.auth_session_hours)
+
+
+def create_session_token(user_id: UUID, session_version: int) -> tuple[str, datetime]:
+    """Browser session for the HttpOnly cookie; ``sv`` ties it to users.session_version."""
+    expires_at = datetime.now(timezone.utc) + session_lifetime()
+    token = _encode_token(
+        subject=str(user_id),
+        token_type="session",
+        expires_delta=session_lifetime(),
+        extra={"sv": int(session_version or 0), "jti": secrets.token_urlsafe(16)},
+    )
+    return token, expires_at
 
 
 def create_oauth_state() -> str:
@@ -56,10 +75,16 @@ def decode_token(token: str, expected_type: str) -> dict[str, Any]:
     return payload
 
 
-def _encode_token(subject: str, token_type: str, expires_delta: timedelta) -> str:
+def _encode_token(
+    subject: str,
+    token_type: str,
+    expires_delta: timedelta,
+    extra: dict[str, Any] | None = None,
+) -> str:
     now = datetime.now(timezone.utc)
     return jwt.encode(
         {
+            **(extra or {}),
             "sub": subject,
             "type": token_type,
             "iss": ISSUER,
