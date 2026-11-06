@@ -14,6 +14,7 @@ from sqlalchemy import DateTime
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey
 from sqlalchemy import Index
+from sqlalchemy import Integer
 from sqlalchemy import JSON
 from sqlalchemy import Numeric
 from sqlalchemy import Text
@@ -177,6 +178,12 @@ class User(Base):
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     invite_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # bcrypt hash for password sign-in (NULL = no password); never serialised.
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    session_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useAuth } from "./auth-context";
 
 const links = [
   ["Documents", "/documents"],
@@ -28,6 +29,7 @@ const links = [
 export default function MobileNavigation() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { session, signOutAndLeave } = useAuth();
 
   return (
     <>
@@ -85,6 +87,17 @@ export default function MobileNavigation() {
                 Settings
               </Link>
             </div>
+            {session?.authenticated ? (
+              <button type="button" onClick={() => { setOpen(false); void signOutAndLeave(); }}
+                className="mt-2 block w-full rounded-lg px-3 py-3 text-left text-sm font-medium text-[var(--ch-sidebar-text-secondary)] hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]">
+                Sign out
+              </button>
+            ) : session && !session.auth_enforced ? (
+              <Link href="/login" onClick={() => setOpen(false)}
+                className="mt-2 block rounded-lg px-3 py-3 text-sm font-medium text-[var(--ch-sidebar-text-secondary)] hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]">
+                Sign in
+              </Link>
+            ) : null}
           </nav>
         </div>
       ) : null}

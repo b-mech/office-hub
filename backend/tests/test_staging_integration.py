@@ -20,7 +20,8 @@ def test_merge_graph_and_branch_specific_full_rollback():
     cfg = Config()
     cfg.set_main_option("script_location", str(ROOT / "backend/alembic"))
     graph = ScriptDirectory.from_config(cfg)
-    assert graph.get_heads() == ["20261110_0062"]
+    assert graph.get_heads() == ["20261113_0063"]
+    assert graph.get_revision("20261113_0063").down_revision == "20261110_0062"
     assert graph.get_revision("20261110_0062").down_revision == ("20261102_0055", "20261009_0051")
     steps = graph._downgrade_revs("20261009_0051@20261001_0047", ("20261102_0055", "20261009_0051"))
     assert [step.revision.revision for step in steps] == ["20261009_0051", "20261005_0050", "20261002_0049", "20261002_0048"]
