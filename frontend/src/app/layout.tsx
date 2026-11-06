@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import AppSidebar from "./AppSidebar";
-import MobileNavigation from "./MobileNavigation";
+import AuthGate from "./AuthGate";
 import "./globals.css";
 
 const USER_NAME = process.env.USER_NAME || "Nicholas";
@@ -23,13 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full antialiased">
       <body className="theme-monocle min-h-full bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)]">
-        <div className="flex min-h-screen">
-          <AppSidebar fallbackUserName={USER_NAME} />
-          <div className="min-w-0 flex-1">
-            <MobileNavigation />
-            {children}
-          </div>
-        </div>
+        <AuthGate fallbackUserName={USER_NAME}>{children}</AuthGate>
       </body>
     </html>
   );

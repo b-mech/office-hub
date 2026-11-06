@@ -35,6 +35,13 @@ async function proxy(
   if (contentType) {
     headers.set("Content-Type", contentType);
   }
+  // Forward the browser's Office Hub session and CSRF context, never invent one.
+  for (const name of ["cookie", "origin", "referer", "x-officehub-org"]) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+  if (host) headers.set("x-forwarded-host", host);
 
   const body =
     request.method === "GET" || request.method === "HEAD"

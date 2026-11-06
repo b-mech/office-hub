@@ -3,7 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Cog } from "lucide-react";
+import { Cog, LogIn, LogOut } from "lucide-react";
+import { useAuth } from "./auth-context";
 import { isActive, visibleSections } from "./navigation";
 import { switchOrg, useWorkspaceContext } from "./useWorkspaceContext";
 
@@ -14,6 +15,7 @@ const activeClass = "bg-[var(--ch-sidebar-hover)] text-[var(--ch-sidebar-text-pr
 export default function AppSidebar({ fallbackUserName }: { fallbackUserName: string }) {
   const pathname = usePathname();
   const { context, error } = useWorkspaceContext();
+  const { session, signOutAndLeave } = useAuth();
   const sections = visibleSections(context?.capabilities ?? null);
   const userName = context?.actor.full_name || fallbackUserName;
   const canSwitch = Boolean(context && context.available_orgs.length > 1);
@@ -70,6 +72,17 @@ export default function AppSidebar({ fallbackUserName }: { fallbackUserName: str
           <span className="min-w-0 flex-1 truncate text-sm font-medium">{userName}</span>
           <Cog size={15} strokeWidth={2} aria-hidden="true" />
         </Link>
+        {session?.authenticated ? (
+          <button type="button" onClick={() => void signOutAndLeave()}
+            className="mt-1 flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-xs text-[var(--ch-sidebar-text-muted)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]">
+            <LogOut size={14} strokeWidth={2} aria-hidden="true" /> Sign out
+          </button>
+        ) : session && !session.auth_enforced ? (
+          <Link href="/login"
+            className="mt-1 flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-xs text-[var(--ch-sidebar-text-muted)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]">
+            <LogIn size={14} strokeWidth={2} aria-hidden="true" /> Sign in
+          </Link>
+        ) : null}
       </div>
     </aside>
   );
