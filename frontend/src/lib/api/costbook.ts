@@ -46,6 +46,9 @@ export interface Lot {
   construction_stage_updated_at?: string | null;
   client_id?: string | null;
   client_name?: string | null;
+  /** Not returned by /api/v1/lots today (no coordinate columns on core.lots); read by the Land map if added. */
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 }
 
 export async function getLots(): Promise<Lot[]> {

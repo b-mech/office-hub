@@ -40,6 +40,7 @@ export const NAV_SECTIONS: NavSection[] = [
     requires: ["land"],
     links: [
       { label: "Lots", href: "/lots" },
+      { label: "Map", href: "/lots/map" },
       { label: "OTP Timeline", href: "/lots/timeline" },
       { label: "Documents", href: "/documents", requires: ["legacy_modules"] },
       { label: "Presales", href: "/financing/presales", requires: ["legacy_modules"] },
@@ -63,7 +64,7 @@ export const NAV_SECTIONS: NavSection[] = [
 /** Entries behind the gear icon (no Workspace section in the main nav). */
 export const SETTINGS_MENU: NavLink[] = [
   { label: "Imports", href: "/settings/imports", requires: ["settings"] },
-  { label: "Settings", href: "/settings", requires: ["settings"] },
+  { label: "Settings", href: "/settings/users", requires: ["settings"] },
 ];
 
 export function allowed(requires: Capability[] | undefined, capabilities: Record<string, boolean> | null): boolean {

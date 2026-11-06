@@ -51,7 +51,7 @@ export default function LandOverviewPage() {
     <PageShell
       title="Land"
       subtitle="Lots, OTP milestones and the sales pipeline"
-      actions={<div className="flex gap-2 text-xs"><Link className="rounded-md border border-[var(--ch-border)] px-3 py-2" href="/lots">Lots</Link><Link className="rounded-md border border-[var(--ch-border)] px-3 py-2" href="/lots/timeline">OTP timeline</Link></div>}
+      actions={<div className="flex gap-2 text-xs"><Link className="rounded-md border border-[var(--ch-border)] px-3 py-2" href="/lots">Lots</Link><Link className="rounded-md border border-[var(--ch-border)] px-3 py-2" href="/lots/map">Map</Link><Link className="rounded-md border border-[var(--ch-border)] px-3 py-2" href="/lots/timeline">OTP timeline</Link></div>}
     >
       <ErrorNote message={error} />
       {!lots && !error ? <p className="text-sm text-[var(--ch-text-muted)]">Loading…</p> : null}

@@ -344,12 +344,14 @@ export function LotWorkspace({
   emptyText,
   loadLots,
   showTendering = false,
+  headerLink,
 }: {
   title: string;
   loadingText: string;
   emptyText: string;
   loadLots: () => Promise<Lot[]>;
   showTendering?: boolean;
+  headerLink?: { href: string; label: string };
 }) {
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -411,7 +413,14 @@ export function LotWorkspace({
       <div className="w-80 shrink-0 flex flex-col border-r border-[var(--ch-border)]">
         {/* Panel header */}
         <div className="p-4 border-b border-[var(--ch-border)]">
-          <h1 className="text-base font-semibold text-[var(--ch-text-primary)] mb-3">{title}</h1>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h1 className="text-base font-semibold text-[var(--ch-text-primary)]">{title}</h1>
+            {headerLink ? (
+              <Link href={headerLink.href} className="rounded-md border border-[var(--ch-border)] px-2.5 py-1 text-xs text-[var(--ch-text-secondary)] hover:border-[var(--ch-border-strong)]">
+                {headerLink.label}
+              </Link>
+            ) : null}
+          </div>
 
           {/* Search */}
           <input
