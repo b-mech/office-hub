@@ -1,6 +1,6 @@
 # Workspace blueprint: Projects, Clients, Rentals, tenant scope
 
-Status: approved direction, **docs only**. Builds on `docs/multi-tenant-spike.md` (migrations `20261102_0055`, `20261105_0056`). This doc adds no migration, route, or UI. It is grounded in the code at `feature/lease-tenant-integration` @ `d390b0a`.
+Status: **release 1 implemented** on `feature/lease-tenant-integration` (PR #2, not merged, not deployed). Builds on `docs/multi-tenant-spike.md` (migrations `20261102_0055`, `20261105_0056`) and adds migration `20261106_0057`. §1–§8 are the original plan; §9 records what was actually built, the deviations, and the remaining blockers.
 
 ## 1. Terms used in the code today
 
@@ -86,7 +86,7 @@ Keep the derivation `lot → development.org_id`, which is the same as `require_
 
 Potterstone constraint to remember: a project lot needs a development and a **globally unique** `legal_description_normalized`. Creating Potterstone commercial projects may need that uniqueness scoped per org. That is decided in the Potterstone stage, not now.
 
-### Migration plan (future PR, not this one)
+### Migration plan (implemented as `20261106_0057`)
 One Alembic revision after `20261105_0056`:
 1. Create `core.clients` and its indexes.
 2. Add unique `(id, org_id)` on `core.contacts`.
@@ -149,7 +149,7 @@ Client activity and warranty cards are added only once those tables exist.
    - `/rentals` overview (map moves to `/rentals/map`).
    - `/` dashboard.
    - No visual redesign.
-4. Not included: invites, the org switcher UI, rental org migration, warranty/service, and CRM follow-ups.
+4. Not included: rental org migration, warranty/service, and CRM follow-ups. (A minimal org selector and membership-on-invite were added; see §9.)
 
 ### Acceptance criteria
 - The existing suite stays green (228 backend tests at `d390b0a`), plus new tests.
@@ -171,3 +171,41 @@ Client activity and warranty cards are added only once those tables exist.
 5. **Shared documents:** converge per-feature file tables onto `documents.documents` with owner links. This is separate work.
 6. **Reports, archive, dedup, and AI assistant reports:** separate tracks (`feature/ai-assistant-reports`), not assumed here.
 7. `contractors.org_id` and tenant-scoped contractor directories.
+
+## 9. Release 1 as built
+
+### Migration `20261106_0057` (down `20261105_0056`)
+- `core.orgs.member_project_scope` (`org` | `assigned`, default `assigned`) and `core.orgs.land_enabled` (default false). `connection-homes` is backfilled to `org` / `true`.
+- Unique `(id, org_id)` on `core.contacts`.
+- `core.clients` (org-owned; type, display name, lifecycle stage, primary contact composite FK to `(contacts.id, org_id)`, optional external ref unique per org).
+- Nullable `core.lots.client_id` (FK `ON DELETE RESTRICT`).
+- Triggers: `trg_core_lots_client_org` (client org = lot development org), `trg_core_developments_client_org` (moving a development to another org cannot orphan client links), `trg_core_clients_org_immutable`.
+- Reversible downgrade; tested down and up. Rehearsed on a fresh prod copy (`officehub_workspace_trial_20261106`): 0054 → 0055 → 0056 → 0057, single head; 153 lots, 21 rental properties, 27 units, 23 leases preserved; 0 clients, 0 `project_members`; CH = `org`, Potterstone = `assigned`.
+
+### Access model (`app/core/tenancy.py`, `app/core/tender_access.py`)
+- `get_tenant` builds a `TenantContext` per request. With `AUTH_ENFORCED=false` and no signed-in user, a fallback actor is used and pinned to the default (CH) org. Asking that fallback for another org returns 401.
+- `X-OfficeHub-Org` (or `?org=` on GET, for document links) only selects among the user's memberships. Unknown org → 404, non-member → 403; superadmin may select any org. Ownership on writes comes from the parent object, never from the header or body.
+- Objects outside the active org return 404, including for superadmin (switch org to see them).
+- Project role: `org` scope gives members editor (viewer for `readonly`); `assigned` scope requires a `project_members` row. Lists use a SQL predicate (`lot_scope_sql`) so an unassigned Potterstone member gets `[]`.
+- Land lists/timeline require `land_enabled` and org-wide access. Rentals require the legacy default org plus admin or a rentals permission.
+- Tender children resolve object → package → property → `lots.property_id`. A package whose property has no lot fails closed (404).
+- Middleware: tenant-aware prefixes accept the session cookie. A signed-in non-superadmin who is not a member of the default org gets 403 on non-tenant-aware `/api` paths (legacy modules stay CH-only).
+- `test_tenant_route_inventory.py` fails if any route under a tenant-aware prefix lacks `get_tenant`.
+
+### Routes added or changed
+- New: `GET/POST /api/v1/clients`, `GET /api/v1/clients/contact-options`, `GET/PATCH /api/v1/clients/{id}`, `PUT /api/v1/projects/{lot_id}/client`, `GET /api/v1/workspace/context`, `GET /api/v1/workspace/dashboard`, `GET /api/v1/workspace/rentals-overview`.
+- Tenant-enforced: `/api/v1/projects`, `/api/v1/lots` (list, detail, hold, cancel, timeline), and every `/api/v1/tendering` route (packages, documents and content, markups, bids, bid documents, compare, award). Bid creation needs the CH contractor directory; award is CH-only because budgets are.
+- Invites now also create a `user_org_memberships` row in the default org.
+
+### UI
+- Shared nav config (`app/navigation.ts`) with capability-based sections: Dashboard, Projects, Clients, Land, Rentals (Overview, Map, Lease Import, Inspections, Reports), Workspace (Imports, Settings). The org selector appears only with more than one available org.
+- `/` dashboard, `/clients` and `/clients/{id}`, `/projects/{lot_id}` workspace (Overview, Tendering, Costs for CH), `/rentals` overview; the map moved to `/rentals/map`.
+- Rentals overview shows occupancy and rent collected as "Not tracked" (no reliable source), instead of the derived occupancy/rent-roll cards planned in §5.
+
+### Remaining blockers before Potterstone can use it (release is **not** tenant-safe for outside orgs yet)
+1. Prod runs with `AUTH_ENFORCED` unset (false). Every anonymous request is the CH fallback, and the frontend has no sign-in or Bearer token. Isolation needs a frontend login plus `AUTH_ENFORCED=true`.
+2. Contractors and the costbook have no `org_id`, so Potterstone cannot create bids or award.
+3. Rentals, leases, maintenance, and inspections are still unscoped and limited to the legacy org.
+4. Documents, financing, change orders, and other legacy modules are CH-only through the middleware guard, not tenant-aware. The change-orders tab is hidden because its lot join is unreliable.
+5. Legal description uniqueness is still global.
+
