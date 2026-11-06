@@ -1,14 +1,14 @@
 """Rental lease agreement snapshots and property utility defaults.
 
 Revision ID: 20261102_0055
-Revises: 20261020_0053
+Revises: 20261022_0054
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 revision = "20261102_0055"
-down_revision = "20261020_0053"
+down_revision = "20261022_0054"
 branch_labels = None
 depends_on = None
 

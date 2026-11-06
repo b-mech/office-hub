@@ -1,7 +1,7 @@
 """Add org memberships and lot project ACLs.
 
 Revision ID: 20261105_0056
-Revises: 20261022_0054
+Revises: 20261102_0055
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision: str = "20261105_0056"
-down_revision: str | None = "20261022_0054"
+down_revision: str | None = "20261102_0055"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
