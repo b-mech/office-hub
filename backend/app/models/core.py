@@ -13,6 +13,7 @@ from sqlalchemy import Date
 from sqlalchemy import DateTime
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKeyConstraint
 from sqlalchemy import Index
 from sqlalchemy import JSON
 from sqlalchemy import Numeric
@@ -49,6 +50,26 @@ class UserRole(str, Enum):
 class UserOrgRole(str, Enum):
     TENANT_ADMIN = "tenant_admin"
     MEMBER = "member"
+
+
+class OrgProjectScope(str, Enum):
+    ORG = "org"
+    ASSIGNED = "assigned"
+
+
+class ClientType(str, Enum):
+    INDIVIDUAL = "individual"
+    COMPANY = "company"
+
+
+class ClientLifecycleStage(str, Enum):
+    LEAD = "lead"
+    QUALIFIED = "qualified"
+    ACTIVE = "active"
+    POSSESSION = "possession"
+    WARRANTY = "warranty"
+    CLOSED = "closed"
+    LOST = "lost"
 
 
 class ProjectRole(str, Enum):
@@ -141,6 +162,16 @@ class Org(Base):
     id: Mapped[UUID] = _uuid_pk()
     name: Mapped[str] = mapped_column(Text, nullable=False)
     slug: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    member_project_scope: Mapped[OrgProjectScope] = mapped_column(
+        SqlEnum(OrgProjectScope, name="ck_core_orgs_member_project_scope", native_enum=False,
+                create_constraint=False, values_callable=_enum_values, validate_strings=True, length=8),
+        nullable=False,
+        default=OrgProjectScope.ASSIGNED,
+        server_default=OrgProjectScope.ASSIGNED.value,
+    )
+    land_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -255,7 +286,10 @@ class ProjectMember(Base):
 
 class Contact(Base):
     __tablename__ = "contacts"
-    __table_args__ = {"schema": "core"}
+    __table_args__ = (
+        UniqueConstraint("id", "org_id", name="uq_core_contacts_id_org"),
+        {"schema": "core"},
+    )
 
     id: Mapped[UUID] = _uuid_pk()
     org_id: Mapped[UUID] = mapped_column(
@@ -290,6 +324,53 @@ class Contact(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+
+
+class Client(Base):
+    """Tenant-owned client record; projects link to it through ``core.lots.client_id``."""
+
+    __tablename__ = "clients"
+    __table_args__ = (
+        CheckConstraint("client_type IN ('individual', 'company')", name="ck_core_clients_client_type"),
+        CheckConstraint(
+            "lifecycle_stage IN ('lead', 'qualified', 'active', 'possession', 'warranty', 'closed', 'lost')",
+            name="ck_core_clients_lifecycle_stage",
+        ),
+        ForeignKeyConstraint(
+            ["primary_contact_id", "org_id"],
+            ["core.contacts.id", "core.contacts.org_id"],
+            name="fk_core_clients_primary_contact_same_org",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("id", "org_id", name="uq_core_clients_id_org"),
+        Index("idx_core_clients_org_name", "org_id", "name_normalized"),
+        Index("idx_core_clients_org_stage", "org_id", "lifecycle_stage"),
+        {"schema": "core"},
+    )
+
+    id: Mapped[UUID] = _uuid_pk()
+    org_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.orgs.id", ondelete="RESTRICT"), nullable=False
+    )
+    client_type: Mapped[str] = mapped_column(Text, nullable=False, default="individual", server_default="individual")
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    primary_contact_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    lifecycle_stage: Mapped[str] = mapped_column(Text, nullable=False, default="lead", server_default="lead")
+    stage_changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    external_ref: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("core.users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 
@@ -369,6 +450,11 @@ class Lot(Base):
     build_group_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("core.build_groups.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    client_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("core.clients.id", ondelete="RESTRICT", name="fk_core_lots_client_id"),
         nullable=True,
     )
     trigger_type: Mapped[LotTriggerType | None] = mapped_column(
@@ -564,12 +650,16 @@ __all__ = [
     "AuditLog",
     "BuildGroup",
     "BuildingType",
+    "Client",
+    "ClientLifecycleStage",
+    "ClientType",
     "Contact",
     "ContactType",
     "Development",
     "Lot",
     "LotStatus",
     "Org",
+    "OrgProjectScope",
     "Reminder",
     "SaleType",
     "User",

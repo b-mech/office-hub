@@ -21,8 +21,11 @@ os.environ.setdefault("OFFICE_HUB_API_KEY", "test")
 os.environ.setdefault("DEFAULT_ORG_ID", "00000000-0000-0000-0000-000000000001")
 os.environ.setdefault("ENVIRONMENT", "test")
 
-from app.modules.lots.router import list_otp_timeline
+from types import SimpleNamespace
+from uuid import uuid4
+
 from app.modules.lots.router import router
+from app.modules.lots.router import timeline_events
 
 
 class _EmptyMappings:
@@ -47,7 +50,7 @@ class _RecordingSession:
 async def test_timeline_excludes_paid_land_and_sale_deposits() -> None:
     session = _RecordingSession()
 
-    result = await list_otp_timeline(session)  # type: ignore[arg-type]
+    result = await timeline_events(session, SimpleNamespace(org_id=uuid4()))  # type: ignore[arg-type]
 
     assert result == []
     assert "sds.paid_at IS NULL" in session.statement
