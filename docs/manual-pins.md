@@ -45,7 +45,8 @@ also protects a pin manually saved while a geocoding batch is in flight.
 20261109_0060 follows 20261109_0059. Adds nullable location_set_by (FK core.users,
 ON DELETE SET NULL) and geocode_snapshot JSONB on core.lots/rental_properties.
 Preview only, after pg_dump backup. PR #3 has separate 0058: retain a reviewed
-merge revision before joint deployment; do not renumber either history.
+merge revision with parents 20261109_0060 and 20261106_0058 before joint
+deployment; do not renumber either history.
 
 ## QA
 Backend endpoint tests cover validation, actor spoof rejection, cross-org 404,
@@ -61,3 +62,14 @@ Reset regression: ORM JSON snapshots use none_as_null=True, and lot API flags
 require a JSON object rather than merely a non-NULL SQL value. This prevents a
 JSON null from advertising a reset option after the original geocode is restored.
 The issue was discovered by the real preview proxy roundtrip, not just mocks.
+
+Final preview QA: 258 backend tests passed, 18 skipped, 2 subtests passed;
+14 frontend tests, tsc, production build and client API URL guard passed.
+Real proxy PATCH of 8 Boulder Crescent returned manual precision/source and
+fallback actor attribution; the force-geocode dry run excluded that manual row
+(173 other records). The manual solid marker and its popup/details were captured,
+then reset restored every original location field and removed the snapshot.
+Both 1440x900 desktop and 390x844 mobile maps were visually inspected, alongside
+the unsaved Needs pin queue. No real mouse drag, UI Save-button click, automatic
+advance interaction or animation smoothness was tested; those are not established
+by API calls or still screenshots. Starts, advance and precedence have unit tests.
