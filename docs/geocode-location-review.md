@@ -14,7 +14,7 @@ between East and West. Reusing legacy pins is not safe.
 both heads (do NOT renumber or blindly run `upgrade head` across two heads).
 No production or staging database was migrated.
 
-Location storage is on `core.lots`, not `core.properties`: only 46 of the
+Location storage is on `core.lots`, not `core.properties`: only 37 of the
 153 preview lots have property_id; land inventory must not acquire fabricated
 financing property identities just to show a map. Rental metadata is on
 `rental_properties`. New nullable columns hide unverified legacy pins until

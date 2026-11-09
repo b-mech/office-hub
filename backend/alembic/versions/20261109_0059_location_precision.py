@@ -2,7 +2,7 @@
 
 0058 belongs to PR #3. Before merging both branches, add a merge revision
 with parents 20261106_0058 and 20261109_0059 (neither is an ancestor).
-Lot locations live on core.lots: 107/153 QA lots have no property_id.
+Lot locations live on core.lots: 116/153 QA lots have no property_id.
 """
 from alembic import op
 import sqlalchemy as sa
