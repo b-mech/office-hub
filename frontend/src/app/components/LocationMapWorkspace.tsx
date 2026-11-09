@@ -5,6 +5,7 @@ import { EntityMap, type EntityMapMarker } from "./EntityMap";
 import { partitionMapRecords } from "@/lib/map-points";
 import { needsPin, nextNeedsPin, outsideManitoba, pinStart, type PinDraft, type PinRecord } from "@/lib/pin-state";
 import { patchLocation } from "@/lib/api/locations";
+import { BASEMAP_CHOICES, readBasemap, resolveBasemap, saveBasemap, type MapBasemap } from "@/lib/map-basemaps";
 
 const glass = "border border-[var(--ch-border)] bg-[var(--ch-surface)]/90 shadow-lg backdrop-blur-xl";
 const button = "rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)]/80 px-3 py-2 text-xs font-medium transition hover:border-[var(--ch-accent)] disabled:cursor-not-allowed disabled:opacity-50";
@@ -15,7 +16,14 @@ export function LocationMapWorkspace({title,records,loading=false,error,mode}:{t
  const [rows,setRows]=useState(records),[query,setQuery]=useState(""),[kind,setKind]=useState("all");
  const [needsOnly,setNeedsOnly]=useState(false),[selectedId,setSelectedId]=useState<string|null>(null),[draft,setDraft]=useState<PinDraft|null>(null);
  const [trayOpen,setTrayOpen]=useState(true),[busy,setBusy]=useState(false),[notice,setNotice]=useState(""),[failure,setFailure]=useState(""),[fitKey,setFitKey]=useState(0);
+ const [basemap,setBasemap]=useState<MapBasemap>("street"),[basemapLoaded,setBasemapLoaded]=useState(false);
  const initialized=useRef(false);
+ useEffect(()=>{
+  const requested=new URLSearchParams(window.location.search).get("basemap");
+  try{setBasemap(readBasemap(window.localStorage,requested));}catch{setBasemap(resolveBasemap(requested,null));}
+  setBasemapLoaded(true);
+ },[]);
+ useEffect(()=>{if(basemapLoaded){try{saveBasemap(window.localStorage,basemap);}catch{/* Storage getter may be blocked. */}}},[basemap,basemapLoaded]);
  useEffect(()=>setRows(records),[records]);
  useEffect(()=>{
   if(!rows.length||initialized.current)return;initialized.current=true;
@@ -56,10 +64,11 @@ export function LocationMapWorkspace({title,records,loading=false,error,mode}:{t
   }catch(e){setFailure(e instanceof Error?e.message:"Unable to update pin");}finally{setBusy(false);}
  };
  return <main className="relative h-[calc(100dvh-3.5rem)] w-full overflow-hidden lg:h-dvh" aria-label={title}>
-  <EntityMap markers={stableMarkers} selectedId={selectedId} onSelect={select} ariaLabel={title} draft={draft} onDraftMove={move} focus={focus} resizeKey={trayOpen} fitKey={fitKey}/>
+  <EntityMap markers={stableMarkers} selectedId={selectedId} onSelect={select} ariaLabel={title} draft={draft} onDraftMove={move} focus={focus} resizeKey={trayOpen} fitKey={fitKey} basemap={basemap}/>
   <header className={`absolute inset-x-3 top-3 z-20 rounded-xl px-3 py-2 ${glass}`}>
    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
     <div className="min-w-0 flex-1"><h1 className="text-base font-semibold">{title}</h1><p className="text-[11px] text-[var(--ch-text-muted)]">{loading?"Loading locations…":`${rows.length} records · ${partition.located.length} mapped · ${rows.filter(needsPin).length} need a pin`}</p></div>
+    <div role="group" aria-label="Map base layer" className="order-last flex w-full shrink-0 gap-1 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)]/80 p-0.5 sm:order-none sm:w-auto">{BASEMAP_CHOICES.map((choice)=><button key={choice.id} type="button" aria-pressed={basemap===choice.id} onClick={()=>setBasemap(choice.id)} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-[var(--ch-accent)] ${basemap===choice.id?"bg-[var(--ch-accent)] text-white shadow-sm":"hover:bg-[var(--ch-accent-soft)]"}`}>{choice.label}</button>)}</div>
     <Link href={mode==="land"?"/land":"/rentals"} className={`${button} hidden sm:inline-flex`}>Overview</Link>
     <button className={button} aria-label="Fit all locations" disabled={busy||Boolean(draft?.moved)} onClick={()=>{setSelectedId(null);setDraft(null);setFitKey((n)=>n+1);}}><span className="sm:hidden">⤢</span><span className="hidden sm:inline">Fit all</span></button>
     <button className={button} onClick={()=>setTrayOpen((v)=>!v)} aria-expanded={trayOpen} aria-controls="map-item-tray" aria-label={trayOpen?"Hide location tray":"Show location tray"}><span className="sm:hidden">▤</span><span className="hidden sm:inline">{trayOpen?"Hide tray":"Show tray"}</span></button>
@@ -70,7 +79,7 @@ export function LocationMapWorkspace({title,records,loading=false,error,mode}:{t
     <button className={`${button} ${needsOnly?"border-[var(--ch-accent)] bg-[var(--ch-accent-soft)] font-semibold":""}`} onClick={changeNeeds} disabled={busy||Boolean(draft?.moved)} aria-pressed={needsOnly}>Needs pin ({queue.length})</button>
    </div>
   </header>
-  <div className={`absolute left-3 top-[10rem] z-10 max-w-[calc(100%-1.5rem)] rounded-full px-3 py-1.5 text-[10px] lg:bottom-6 lg:top-auto ${glass}`} aria-label="Map legend">● House / manual · ◌ Approximate · <span className="text-orange-700">● Unsaved</span> · Clusters expand</div>
+  <div className={`absolute left-3 top-[13rem] z-10 max-w-[calc(100%-1.5rem)] rounded-full px-3 py-1.5 text-[10px] lg:bottom-6 lg:top-auto ${glass}`} aria-label="Map legend">● House / manual · ◌ Approximate · <span className="text-orange-700">● Unsaved</span> · Clusters expand</div>
   {trayOpen?<aside id="map-item-tray" aria-label="Location details and pin queue" className={`absolute inset-x-3 bottom-7 z-20 flex max-h-[43dvh] flex-col overflow-hidden rounded-2xl lg:bottom-8 lg:left-auto lg:right-3 lg:top-[7.5rem] lg:max-h-none lg:w-[21rem] ${glass}`}>
    <div className="flex shrink-0 items-center justify-between border-b border-[var(--ch-border)] px-3 py-2"><h2 className="text-xs font-semibold">{needsOnly?"Needs pin queue":"Locations"} · {visible.length}</h2><button className="rounded px-2 py-1 text-xs" aria-label="Collapse location tray" onClick={()=>setTrayOpen(false)}>Collapse ↓</button></div>
    <div className="min-h-0 overflow-y-auto overscroll-contain">
@@ -84,7 +93,7 @@ export function LocationMapWorkspace({title,records,loading=false,error,mode}:{t
       {selected.location_set_by?<p className="mt-1 break-all text-[10px] text-[var(--ch-text-muted)]">Placed by {selected.location_set_by}</p>:null}
       <Link href={selected.href} className="mt-2 inline-block text-xs font-semibold text-[var(--ch-accent)]">{selected.kind==="rental"?"Units & inspections":"Open workspace"} ↗</Link>
       {draft?<div className="mt-3 space-y-2 rounded-xl border border-orange-300 bg-orange-50/90 p-3 text-slate-900" aria-label="Pin placement controls">
-        <p className="text-xs font-semibold">{selected.latitude==null?"Place pin":"Adjust pin"} · UNSAVED</p><p className="text-[11px]">{draft.startLabel}</p>
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold">{selected.latitude==null?"Place pin":"Adjust pin"} · UNSAVED</p><button type="button" className="rounded-md border border-orange-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-900" aria-pressed={basemap==="satellite"} onClick={()=>setBasemap("satellite")}>Satellite ↗</button></div><p className="text-[11px]">{draft.startLabel}</p>
         <p className="text-[11px]">Drag the orange pin, click the map, or focus the pin and use arrow keys. Nothing is saved until Save pin.</p>
         <div className="flex gap-2"><label className="min-w-0 flex-1 text-[10px]">Latitude<input aria-label="Pin latitude" type="number" step="0.000001" value={Number(draft.lat.toFixed(6))} disabled={busy} onChange={(e)=>{const n=Number(e.target.value);if(e.target.value&&Number.isFinite(n)&&Math.abs(n)<=90)move(n,draft.lng);}} className="mt-1 w-full rounded border border-orange-200 bg-white px-1 py-1 text-xs"/></label><label className="min-w-0 flex-1 text-[10px]">Longitude<input aria-label="Pin longitude" type="number" step="0.000001" value={Number(draft.lng.toFixed(6))} disabled={busy} onChange={(e)=>{const n=Number(e.target.value);if(e.target.value&&Number.isFinite(n)&&Math.abs(n)<=180)move(draft.lat,n);}} className="mt-1 w-full rounded border border-orange-200 bg-white px-1 py-1 text-xs"/></label></div>
         {outsideManitoba(draft.lat,draft.lng)?<p role="alert" className="text-[11px] font-semibold text-red-800">Outside the usual Manitoba area — check before saving.</p>:null}

@@ -6,6 +6,7 @@ import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { useEffect, useRef, useState } from "react";
 import type { Map as LeafletMap, Marker, MarkerClusterGroup } from "leaflet";
 import type { PinDraft } from "@/lib/pin-state";
+import { basemapTiles, type MapBasemap } from "@/lib/map-basemaps";
 
 export interface EntityMapMarker {
   id: string; lat: number; lng: number; title: string; lines?: string[];
@@ -22,7 +23,7 @@ function popupContent(marker: EntityMapMarker): HTMLElement {
   return root;
 }
 function markerHtml(color: string, approximate = false, manual = false): string {
-  return `<span data-pin-precision="${manual ? "manual" : approximate ? "street" : "house"}" style="display:block;width:20px;height:20px;border-radius:9999px;background:${approximate ? "#fff" : color};border:3px ${approximate ? "dashed" : "solid"} ${approximate ? color : "#fff"};box-shadow:0 1px 5px #0007"></span>`;
+  return `<span data-pin-precision="${manual ? "manual" : approximate ? "street" : "house"}" style="display:block;width:20px;height:20px;border-radius:9999px;background:${approximate ? "#fff" : color};border:3px ${approximate ? "dashed" : "solid"} ${approximate ? color : "#fff"};box-shadow:0 0 0 2px #fff,0 2px 8px #000b"></span>`;
 }
 // Keep selected/editor pins above the mobile bottom sheet without changing
 // their stored coordinates. The same visible-centre offset applies to selection.
@@ -31,10 +32,10 @@ function flyPoint(map: LeafletMap, lat: number, lng: number, zoom: number) {
   if(map.getSize().x<700) point.y += map.getSize().y*0.18;
   map.flyTo(map.unproject(point,zoom),zoom,{duration:0.65,easeLinearity:0.25});
 }
-export function EntityMap({ markers, selectedId, onSelect, ariaLabel, draft, onDraftMove, focus, resizeKey, fitKey = 0 }: {
+export function EntityMap({ markers, selectedId, onSelect, ariaLabel, draft, onDraftMove, focus, resizeKey, fitKey = 0, basemap = "street" }: {
   markers: EntityMapMarker[]; selectedId?: string | null; onSelect?: (id:string)=>void; ariaLabel:string;
   draft?: PinDraft | null; onDraftMove?: (lat:number,lng:number)=>void;
-  focus?: {id:string;lat:number;lng:number} | null; resizeKey?: boolean; fitKey?:number;
+  focus?: {id:string;lat:number;lng:number} | null; resizeKey?: boolean; fitKey?:number; basemap?:MapBasemap;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -54,15 +55,26 @@ export function EntityMap({ markers, selectedId, onSelect, ariaLabel, draft, onD
       await import("leaflet.markercluster");
       if(cancelled || !container.current || mapRef.current) return;
       leafletRef.current=L;
-      const map=L.map(container.current,{zoomControl:false,keyboard:true,zoomSnap:0.5,zoomDelta:0.5,inertia:true,wheelPxPerZoomLevel:110,wheelDebounceTime:20,zoomAnimation:true,markerZoomAnimation:true,preferCanvas:true}).setView([49.895,-97.138],9);
+      const map=L.map(container.current,{maxZoom:20,zoomControl:false,keyboard:true,zoomSnap:0.5,zoomDelta:0.5,inertia:true,wheelPxPerZoomLevel:110,wheelDebounceTime:20,zoomAnimation:true,markerZoomAnimation:true,preferCanvas:true}).setView([49.895,-97.138],9);
       L.control.zoom({position:"bottomleft"}).addTo(map);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).on("tileerror",()=>setTileErrors((n)=>n+1)).addTo(map);
       groupRef.current=L.markerClusterGroup({animate:true,animateAddingMarkers:true,maxClusterRadius:38,showCoverageOnHover:false,spiderfyOnMaxZoom:true,spiderfyDistanceMultiplier:1.8});
       groupRef.current.addTo(map); mapRef.current=map;setReady(true);
     }).catch((e:unknown)=>{if(!cancelled)setError(e instanceof Error?e.message:"Map failed to load");});
     const markersById=markerRefs.current;
     return ()=>{cancelled=true;mapRef.current?.remove();mapRef.current=null;groupRef.current=null;editorRef.current=null;markersById.clear();};
   },[]);
+  // Replacing only tile layers preserves clusters, active drag state, markers,
+  // current camera and draft coordinates. Leaflet maintains active attribution.
+  useEffect(()=>{
+    const L=leafletRef.current,map=mapRef.current;
+    if(!ready||!L||!map)return;
+    let active=true;setTileErrors(0);
+    const layers=basemapTiles(basemap).map(({id: _id,...options})=>{
+      const {url,...settings}=options;
+      return L.tileLayer(url,settings).on("tileerror",()=>{if(active)setTileErrors((n)=>n+1);}).addTo(map);
+    });
+    return ()=>{active=false;layers.forEach((layer)=>layer.remove());};
+  },[ready,basemap]);
   useEffect(()=>{
     const L=leafletRef.current,map=mapRef.current,group=groupRef.current;
     if(!ready||!L||!map||!group)return;
@@ -115,5 +127,5 @@ export function EntityMap({ markers, selectedId, onSelect, ariaLabel, draft, onD
     const observer=new ResizeObserver(resize);observer.observe(container.current);window.addEventListener("resize",resize);const frame=requestAnimationFrame(resize);
     return ()=>{observer.disconnect();window.removeEventListener("resize",resize);cancelAnimationFrame(frame);};
   },[ready,resizeKey]);
-  return <div className="absolute inset-0"><div ref={container} role="region" aria-label={ariaLabel} className="absolute inset-0 z-0 bg-[var(--ch-surface-muted)]"/>{error||tileErrors?<p role="alert" className="absolute bottom-8 left-14 z-10 rounded-lg bg-white/95 p-2 text-xs text-red-800">{error??`${tileErrors} map tiles failed to load`}</p>:null}</div>;
+  return <div className="absolute inset-0"><style>{`.marker-cluster { filter: drop-shadow(0 1px 3px #0009); outline: 2px solid #ffffffe6; } .leaflet-control-attribution { max-width: calc(100vw - 2rem); font-size: 9px; line-height: 1.25; } @media (min-width: 1024px) { .leaflet-control-attribution { max-width: calc(100vw - 18rem); } }`}</style><div ref={container} role="region" aria-label={ariaLabel} className="absolute inset-0 z-0 bg-[var(--ch-surface-muted)]"/>{error||tileErrors?<p role="alert" className="absolute bottom-8 left-14 z-10 rounded-lg bg-white/95 p-2 text-xs text-red-800">{error??`${tileErrors} map tiles failed to load`}</p>:null}</div>;
 }

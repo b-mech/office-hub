@@ -8,7 +8,7 @@
     "check:client-api": "node scripts/check-client-api-urls.mjs",
     "start": "next start --port 3000",
     "lint": "eslint",
-    "test:unit": "node --experimental-strip-types --no-warnings --test src/lib/map-points.test.ts src/lib/pin-state.test.ts"
+    "test:unit": "node --experimental-strip-types --no-warnings --test src/lib/map-points.test.ts src/lib/pin-state.test.ts src/lib/map-basemaps.test.ts"
   },
   "dependencies": {
     "fabric": "^7.4.0",

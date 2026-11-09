@@ -73,3 +73,14 @@ Both 1440x900 desktop and 390x844 mobile maps were visually inspected, alongside
 the unsaved Needs pin queue. No real mouse drag, UI Save-button click, automatic
 advance interaction or animation smoothness was tested; those are not established
 by API calls or still screenshots. Starts, advance and precedence have unit tests.
+
+Basemap imagery: both maps share a compact Street / Satellite / Hybrid control.
+Choice persists under localStorage `officehub.map.basemap`; a `?basemap=satellite`
+(or hybrid/street) deep link overrides the saved choice. Placement controls offer
+one-click Satellite without moving/saving the draft. Hybrid combines Esri World
+Imagery with Esri reference roads and place labels. No API key is used. Imagery
+maxNativeZoom is 19 with maxZoom 20; at 20 pixels are enlarged, not new detail.
+Switching tiles does not recreate the map, markers, clusters or draggable editor.
+Active provider attribution appears in Leaflet's lower-right corner. White marker
+outlines/shadows and cluster halos keep pins visible over dark aerial imagery.
+Imagery may predate new subdivisions; it is not a parcel boundary or survey source.
