@@ -143,7 +143,7 @@ async def _list_lots(db: AsyncSession, screen: str, ctx: TenantContext) -> list[
         SELECT
             l.id::text AS id,
             l.property_id,
-            l.development_id::text, d.municipality, l.location_set_by::text, (l.geocode_snapshot IS NOT NULL) AS can_reset_location,
+            l.development_id::text, d.municipality, l.location_set_by::text, COALESCE(jsonb_typeof(l.geocode_snapshot) = 'object', false) AS can_reset_location,
             l.latitude, l.longitude, l.geocode_precision, l.geocode_source, l.geocoded_at::text,
             l.sale_type,
             l.trigger_type,
@@ -590,7 +590,7 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db), ctx: TenantCo
         SELECT
             l.id::text AS id,
             l.property_id,
-            l.development_id::text, d.municipality, l.location_set_by::text, (l.geocode_snapshot IS NOT NULL) AS can_reset_location,
+            l.development_id::text, d.municipality, l.location_set_by::text, COALESCE(jsonb_typeof(l.geocode_snapshot) = 'object', false) AS can_reset_location,
             l.latitude, l.longitude, l.geocode_precision, l.geocode_source, l.geocoded_at::text,
             l.sale_type,
             l.trigger_type,

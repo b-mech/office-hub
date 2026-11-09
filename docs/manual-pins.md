@@ -56,3 +56,8 @@ frontend unit tests, tsc, build and API URL guard must pass before handoff.
 Visual stills can check viewport layout/tiles/controls, not animation smoothness
 or real mouse dragging. Preview API smoke saves one temporary test location
 through the frontend proxy and resets it to its exact prior location fields.
+
+Reset regression: ORM JSON snapshots use none_as_null=True, and lot API flags
+require a JSON object rather than merely a non-NULL SQL value. This prevents a
+JSON null from advertising a reset option after the original geocode is restored.
+The issue was discovered by the real preview proxy roundtrip, not just mocks.

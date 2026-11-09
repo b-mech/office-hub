@@ -97,3 +97,10 @@ def test_reset_without_snapshot_conflicts_and_leaves_row_unchanged():
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc:apply_location(r,LocationPatch(action="reset"),uuid4())
     assert exc.value.status_code==409 and r.geocode_precision=="street"
+
+
+def test_reset_snapshot_none_uses_sql_null_not_json_null():
+    from app.models.core import Lot
+    from app.models.rentals import RentalProperty
+    assert Lot.__table__.c.geocode_snapshot.type.none_as_null is True
+    assert RentalProperty.__table__.c.geocode_snapshot.type.none_as_null is True
