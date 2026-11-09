@@ -40,6 +40,7 @@ PUBLIC_PREFIXES = (
 # authenticated /api route still serves legacy, org-less Connection Homes data
 # and is limited to members of the default org (or superadmins).
 TENANT_AWARE_PREFIXES = (
+    "/api/rentals/properties",
     "/api/v1/projects",
     "/api/v1/lots",
     "/api/v1/clients",

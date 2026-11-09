@@ -70,8 +70,8 @@ export function partitionMapRecords<T extends MapRecord>(
     const lat = parseCoordinate(record.latitude);
     const lng = parseCoordinate(record.longitude);
     if (lat === null && lng === null) missing.push(record);
-    else if (lat === null || lng === null || !isValidLatLng(lat, lng)) invalid.push(record);
-    else if (!["house", "street"].includes(record.geocode_precision ?? "")) invalid.push(record);
+    else if (lat === null || lng === null || (!isValidLatLng(lat, lng) && !(record.geocode_precision === "manual" && lat === 0 && lng === 0))) invalid.push(record);
+    else if (!["house", "street", "manual"].includes(record.geocode_precision ?? "")) invalid.push(record);
     else candidates.push({ record, lat, lng, approximate: record.geocode_precision === "street" });
   }
 
@@ -88,7 +88,7 @@ export function partitionMapRecords<T extends MapRecord>(
   const approximate: LocatedPoint<T>[] = [];
   for (const point of candidates) {
     const labels = labelsByKey.get(coordinateKey(point.lat, point.lng));
-    if (sharedThreshold > 1 && labels && labels.size >= sharedThreshold) point.approximate = true;
+    if (sharedThreshold > 1 && labels && labels.size >= sharedThreshold) point.approximate = point.record.geocode_precision !== "manual";
     located.push(point);
     if (point.approximate) approximate.push(point);
   }

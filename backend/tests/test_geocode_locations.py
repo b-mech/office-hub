@@ -63,3 +63,11 @@ def test_multiple_distant_house_results_are_not_first_result_wins():
     assert row["precision"] == "not_found"
     assert row["latitude"] is None
     assert "ambiguous" in row["reason"]
+
+
+def test_force_never_overwrites_manual_without_explicit_include_flag():
+    row=dict(latitude=49.9,longitude=-97.1,geocode_precision="manual")
+    assert not g.should_geocode(row)
+    assert not g.should_geocode(row,only_missing=True)
+    assert g.should_geocode(row,include_manual=True)
+    assert g.should_geocode(dict(row,geocode_precision="street"))

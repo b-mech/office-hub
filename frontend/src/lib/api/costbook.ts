@@ -21,6 +21,10 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 export interface Lot {
   id: string;
+  development_id?: string | null;
+  municipality?: string | null;
+  location_set_by?: string | null;
+  can_reset_location?: boolean;
   property_id?: string | null;
   sale_type?: "presale" | "spec" | "showhome" | "other" | null;
   address: string;
@@ -47,7 +51,7 @@ export interface Lot {
   client_id?: string | null;
   client_name?: string | null;
   /** Reviewed coordinates stored on core.lots. */
-  geocode_precision?: "house" | "street" | "locality" | "not_found" | null;
+  geocode_precision?: "manual" | "house" | "street" | "locality" | "not_found" | null;
   geocode_source?: string | null;
   geocoded_at?: string | null;
   latitude?: number | string | null;

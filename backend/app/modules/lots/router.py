@@ -24,7 +24,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -37,6 +37,8 @@ from app.core.tenancy import require_lot_role
 from app.models.core import Lot
 from app.models.core import ProjectRole
 from app.services import lots as lot_service
+from app.services.locations import apply_location, location_payload
+from app.schemas.locations import LocationPatch, LocationOut
 
 router = APIRouter(prefix="/api/v1/lots", tags=["lots"])
 projects_router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
@@ -49,6 +51,10 @@ def verify_api_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] =
 
 class LotOut(BaseModel):
     id: str
+    development_id: Optional[str] = None
+    municipality: Optional[str] = None
+    location_set_by: Optional[str] = None
+    can_reset_location: bool = False
     latitude: Optional[Decimal] = None
     longitude: Optional[Decimal] = None
     geocode_precision: Optional[str] = None
@@ -137,6 +143,7 @@ async def _list_lots(db: AsyncSession, screen: str, ctx: TenantContext) -> list[
         SELECT
             l.id::text AS id,
             l.property_id,
+            l.development_id::text, d.municipality, l.location_set_by::text, (l.geocode_snapshot IS NOT NULL) AS can_reset_location,
             l.latitude, l.longitude, l.geocode_precision, l.geocode_source, l.geocoded_at::text,
             l.sale_type,
             l.trigger_type,
@@ -289,6 +296,8 @@ async def _list_lots(db: AsyncSession, screen: str, ctx: TenantContext) -> list[
         LotOut(
             id=row["id"],
             property_id=row.get("property_id"),
+            development_id=row.get("development_id"), municipality=row.get("municipality"),
+            location_set_by=row.get("location_set_by"), can_reset_location=row.get("can_reset_location", False),
             latitude=row.get("latitude"), longitude=row.get("longitude"),
             geocode_precision=row.get("geocode_precision"), geocode_source=row.get("geocode_source"),
             geocoded_at=row.get("geocoded_at"),
@@ -581,6 +590,7 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db), ctx: TenantCo
         SELECT
             l.id::text AS id,
             l.property_id,
+            l.development_id::text, d.municipality, l.location_set_by::text, (l.geocode_snapshot IS NOT NULL) AS can_reset_location,
             l.latitude, l.longitude, l.geocode_precision, l.geocode_source, l.geocoded_at::text,
             l.sale_type,
             l.trigger_type,
@@ -650,6 +660,8 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db), ctx: TenantCo
     return LotOut(
         id=row["id"],
         property_id=row.get("property_id"),
+        development_id=row.get("development_id"), municipality=row.get("municipality"),
+        location_set_by=row.get("location_set_by"), can_reset_location=row.get("can_reset_location", False),
         latitude=row.get("latitude"), longitude=row.get("longitude"),
         geocode_precision=row.get("geocode_precision"), geocode_source=row.get("geocode_source"),
         geocoded_at=row.get("geocoded_at"),
@@ -701,3 +713,14 @@ async def update_lot_cancelled(
     if lot is None:
         raise HTTPException(status_code=404, detail="Lot not found")
     return LotActivationFlagsOut.model_validate(lot, from_attributes=True)
+
+
+@router.patch("/{lot_id}/location", response_model=LocationOut)
+async def patch_lot_location(lot_id: UUID, data: LocationPatch, db: AsyncSession = Depends(get_db), ctx: TenantContext = Depends(get_tenant)):
+    await _require_lot_access(db, ctx, lot_id, ProjectRole.EDITOR)
+    lot = await db.scalar(select(Lot).where(Lot.id == lot_id).with_for_update())
+    if lot is None:
+        raise HTTPException(404, "Lot not found")
+    apply_location(lot, data, ctx.user.id)
+    await db.commit()
+    return location_payload(lot, ctx)

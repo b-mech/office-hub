@@ -71,3 +71,11 @@ test("planView centres one point and fits several", () => {
   assert.deepEqual(result.approximate.map((p) => p.record.id), ["street"]);
   assert.deepEqual(result.invalid.map((r) => r.id), ["locality", "legacy"]);
 });
+
+ test("manual pins remain solid exact even when coordinates overlap",()=>{
+  const result=partitionMapRecords([
+    {id:"a",label:"A",geocode_precision:"manual",latitude:49.9,longitude:-97.1},
+    {id:"b",label:"B",geocode_precision:"street",latitude:49.9,longitude:-97.1},
+  ]);
+  assert.equal(result.located.length,2);assert.deepEqual(result.approximate.map((p)=>p.record.id),["b"]);
+ });

@@ -13,6 +13,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.tenancy import TenantContext, get_tenant, require_rentals
+from app.schemas.locations import LocationPatch, LocationOut
+from app.services.locations import apply_location, location_payload, require_rental_editor
 from app.core.config import settings
 from app.models.rentals import RentalInspection, RentalInspectionPhoto, RentalInspectionReport, RentalInspectionReportComment, RentalInspectionReportItem, RentalLeaseImportBatch, RentalLeaseImportRow, RentalProperty, RentalUnit
 from app.schemas.rental_inspections import InspectionCreate, InspectionOut, InspectionPatch, PhotoOut, ReportCommentCreate, ReportCreate, ReportNotePatch, ReportSend
@@ -118,7 +121,8 @@ async def rental_units(q:str|None=Query(None),property_id:int|None=Query(None),d
     return result
 
 @inspections_router.get("/properties/map")
-async def property_map(db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
+async def property_map(db:AsyncSession=Depends(get_db),ctx:TenantContext=Depends(get_tenant))->list[dict[str,object]]:
+    require_rentals(ctx)
     properties=list((await db.scalars(select(RentalProperty).order_by(RentalProperty.street_address))).all());result=[];today=date.today()
     for prop in properties:
         unit_ids=select(RentalUnit.id).where(RentalUnit.property_id==prop.id)
@@ -126,7 +130,7 @@ async def property_map(db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
         last=await db.scalar(select(func.max(RentalInspection.inspection_date)).where(RentalInspection.unit_id.in_(unit_ids),RentalInspection.status=="submitted"))
         age=(today-last).days if last else None
         status="never" if age is None else "current" if age<=183 else "due" if age<=365 else "overdue"
-        result.append({"property_id":prop.id,"street_address":prop.street_address,"group_name":prop.group_name,"latitude":prop.latitude,"longitude":prop.longitude,"geocode_precision":prop.geocode_precision,"geocode_source":prop.geocode_source,"geocoded_at":prop.geocoded_at,"unit_count":unit_count,"last_inspection_date":last,"inspection_status":status})
+        result.append({"property_id":prop.id,"street_address":prop.street_address,"group_name":prop.group_name,"city":prop.city,"municipality":prop.municipality,"location_set_by":str(prop.location_set_by) if prop.location_set_by else None,"can_reset_location":prop.geocode_snapshot is not None,"latitude":prop.latitude,"longitude":prop.longitude,"geocode_precision":prop.geocode_precision,"geocode_source":prop.geocode_source,"geocoded_at":prop.geocoded_at,"unit_count":unit_count,"last_inspection_date":last,"inspection_status":status})
     return result
 @inspections_router.get("/units/{unit_id}/inspections",response_model=list[InspectionOut])
 async def history(unit_id:int,db:AsyncSession=Depends(get_db))->list[InspectionOut]: return [await _inspection_out(db,x) for x in (await db.scalars(select(RentalInspection).where(RentalInspection.unit_id==unit_id).order_by(RentalInspection.inspection_date.desc()))).all()]
@@ -255,3 +259,14 @@ async def _batch_out(db: AsyncSession, batch: RentalLeaseImportBatch) -> LeaseIm
     result = LeaseImportBatchOut.model_validate(batch)
     result.rows = [LeaseImportRowOut.model_validate(row) for row in rows]
     return result
+
+
+@inspections_router.patch("/properties/{property_id}/location", response_model=LocationOut)
+async def patch_rental_location(property_id: int, data: LocationPatch, db: AsyncSession = Depends(get_db), ctx: TenantContext = Depends(get_tenant)):
+    require_rental_editor(ctx)
+    prop = await db.scalar(select(RentalProperty).where(RentalProperty.id == property_id).with_for_update())
+    if prop is None:
+        raise HTTPException(404, "Rental property not found")
+    apply_location(prop, data, ctx.user.id)
+    await db.commit()
+    return location_payload(prop, ctx)

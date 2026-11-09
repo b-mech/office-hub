@@ -1,173 +1,112 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { useEffect, useRef, useState } from "react";
-import type { LayerGroup, Map as LeafletMap, Marker } from "leaflet";
-import { planView } from "@/lib/map-points";
-
-// Reusable OpenStreetMap (Leaflet) map. Leaflet touches `window`, so it is
-// imported inside an effect and never runs during server rendering. Markers
-// are only ever drawn at coordinates the caller passes in; there is no
-// geocoding and no default location.
+import type { Map as LeafletMap, Marker, MarkerClusterGroup } from "leaflet";
+import type { PinDraft } from "@/lib/pin-state";
 
 export interface EntityMapMarker {
-  id: string;
-  lat: number;
-  lng: number;
-  title: string;
-  /** Extra plain-text lines shown in the popup. */
-  lines?: string[];
-  href: string;
-  linkLabel: string;
-  color?: string;
-  approximate?: boolean;
+  id: string; lat: number; lng: number; title: string; lines?: string[];
+  href: string; linkLabel: string; color?: string; approximate?: boolean; manual?: boolean;
 }
-
-const OSM_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors';
-const SINGLE_MARKER_ZOOM = 16;
-const MAX_FIT_ZOOM = 16;
-const DEFAULT_COLOR = "rgb(23 105 140)";
-
 function popupContent(marker: EntityMapMarker): HTMLElement {
-  const root = document.createElement("div");
-  root.style.minWidth = "200px";
-  const title = document.createElement("strong");
-  title.textContent = marker.title;
-  if (marker.approximate) {
-    const note = document.createElement("div");
-    note.textContent = "Approximate street location — not the parcel. Manual pin needed.";
-    note.style.fontWeight = "600";
-    root.appendChild(note);
-  }
-  root.appendChild(title);
-  for (const line of marker.lines ?? []) {
+  const root = document.createElement("div"); root.style.minWidth = "190px";
+  const title = document.createElement("strong"); title.textContent = marker.title; root.appendChild(title);
+  for (const line of [marker.manual ? "Manually placed pin" : marker.approximate ? "Approximate street location — manual pin needed" : "House-level geocode", ...(marker.lines ?? [])]) {
     if (!line) continue;
-    const row = document.createElement("div");
-    row.style.fontSize = "12px";
-    row.textContent = line;
-    root.appendChild(row);
+    const row = document.createElement("div"); row.textContent = line; row.style.fontSize = "12px"; root.appendChild(row);
   }
-  const link = document.createElement("a");
-  link.href = marker.href;
-  link.textContent = marker.linkLabel;
-  link.style.display = "inline-block";
-  link.style.marginTop = "6px";
-  link.style.fontWeight = "600";
-  link.style.color = DEFAULT_COLOR;
-  root.appendChild(link);
+  const link = document.createElement("a"); link.href = marker.href; link.textContent = marker.linkLabel; link.style.display = "block"; link.style.marginTop = "6px"; root.appendChild(link);
   return root;
 }
-
-function markerHtml(color: string, approximate = false): string {
-  // Colour is chosen by the caller from a fixed palette, never from record data.
-  return `<span style="display:block;width:18px;height:18px;border-radius:9999px;background:${approximate ? "#fff" : color};border:3px ${approximate ? "dashed" : "solid"} ${approximate ? color : "#fff"};box-shadow:0 0 0 1px rgba(0,0,0,.35)"></span>`;
+function markerHtml(color: string, approximate = false, manual = false): string {
+  return `<span data-pin-precision="${manual ? "manual" : approximate ? "street" : "house"}" style="display:block;width:20px;height:20px;border-radius:9999px;background:${approximate ? "#fff" : color};border:3px ${approximate ? "dashed" : "solid"} ${approximate ? color : "#fff"};box-shadow:0 1px 5px #0007"></span>`;
 }
-
-export function EntityMap({
-  markers,
-  selectedId,
-  onSelect,
-  ariaLabel,
-}: {
-  markers: EntityMapMarker[];
-  selectedId?: string | null;
-  onSelect?: (id: string) => void;
-  ariaLabel: string;
+export function EntityMap({ markers, selectedId, onSelect, ariaLabel, draft, onDraftMove, focus, resizeKey, fitKey = 0 }: {
+  markers: EntityMapMarker[]; selectedId?: string | null; onSelect?: (id:string)=>void; ariaLabel:string;
+  draft?: PinDraft | null; onDraftMove?: (lat:number,lng:number)=>void;
+  focus?: {id:string;lat:number;lng:number} | null; resizeKey?: boolean; fitKey?:number;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LeafletMap | null>(null);
-  const layerRef = useRef<LayerGroup | null>(null);
-  const markerRefs = useRef(new Map<string, Marker>());
+  const groupRef = useRef<MarkerClusterGroup | null>(null);
+  const editorRef = useRef<Marker | null>(null);
+  const markerRefs = useRef(new Map<string,Marker>());
   const leafletRef = useRef<typeof import("leaflet") | null>(null);
-  const onSelectRef = useRef(onSelect);
-  const [ready, setReady] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [tileErrors, setTileErrors] = useState(0);
-
-  useEffect(() => {
-    onSelectRef.current = onSelect;
-  }, [onSelect]);
-
-  // Create the map once.
-  useEffect(() => {
-    let cancelled = false;
-    import("leaflet")
-      .then((module) => {
-        const L = (module as unknown as { default?: typeof import("leaflet") }).default ?? module;
-        if (cancelled || !container.current || mapRef.current) return;
-        leafletRef.current = L;
-        const map = L.map(container.current, { keyboard: true, zoomControl: true, scrollWheelZoom: true, worldCopyJump: true });
-        L.tileLayer(OSM_TILE_URL, { maxZoom: 19, attribution: OSM_ATTRIBUTION })
-          .on("tileerror", () => setTileErrors((count) => count + 1))
-          .addTo(map);
-        layerRef.current = L.layerGroup().addTo(map);
-        mapRef.current = map;
-        setReady(true);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setLoadError(error instanceof Error ? error.message : "Map library failed to load");
-      });
-    const markersById = markerRefs.current;
-    return () => {
-      cancelled = true;
-      mapRef.current?.remove();
-      mapRef.current = null;
-      layerRef.current = null;
-      markersById.clear();
-    };
-  }, []);
-
-  // Draw markers and fit the view whenever the marker set changes.
-  useEffect(() => {
-    const L = leafletRef.current;
-    const map = mapRef.current;
-    const layer = layerRef.current;
-    if (!ready || !L || !map || !layer) return;
-    layer.clearLayers();
-    markerRefs.current.clear();
-    for (const item of markers) {
-      const marker = L.marker([item.lat, item.lng], {
-        title: item.title,
-        alt: item.title,
-        keyboard: true,
-        riseOnHover: true,
-        icon: L.divIcon({ className: "", html: markerHtml(item.color ?? DEFAULT_COLOR, item.approximate), iconSize: [18, 18], iconAnchor: [9, 9], popupAnchor: [0, -10] }),
-      });
-      marker.bindPopup(() => popupContent(item));
-      marker.on("click", () => onSelectRef.current?.(item.id));
-      marker.addTo(layer);
-      markerRefs.current.set(item.id, marker);
+  const onSelectRef = useRef(onSelect), onMoveRef = useRef(onDraftMove);
+  const selectedRef = useRef(selectedId), draftRef = useRef(draft);
+  const [ready,setReady] = useState(false), [error,setError] = useState<string|null>(null);
+  const [tileErrors,setTileErrors] = useState(0);
+  useEffect(()=>{onSelectRef.current=onSelect;onMoveRef.current=onDraftMove;selectedRef.current=selectedId;draftRef.current=draft;},[onSelect,onDraftMove,selectedId,draft]);
+  useEffect(()=>{
+    let cancelled=false;
+    import("leaflet").then(async (module)=>{
+      const L = (module as unknown as {default?:typeof import("leaflet")}).default ?? module;
+      await import("leaflet.markercluster");
+      if(cancelled || !container.current || mapRef.current) return;
+      leafletRef.current=L;
+      const map=L.map(container.current,{zoomControl:false,keyboard:true,zoomSnap:0.5,zoomDelta:0.5,inertia:true,wheelPxPerZoomLevel:110,wheelDebounceTime:20,zoomAnimation:true,markerZoomAnimation:true,preferCanvas:true}).setView([49.895,-97.138],9);
+      L.control.zoom({position:"bottomleft"}).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).on("tileerror",()=>setTileErrors((n)=>n+1)).addTo(map);
+      groupRef.current=L.markerClusterGroup({animate:true,animateAddingMarkers:true,maxClusterRadius:38,showCoverageOnHover:false,spiderfyOnMaxZoom:true,spiderfyDistanceMultiplier:1.8});
+      groupRef.current.addTo(map); mapRef.current=map;setReady(true);
+    }).catch((e:unknown)=>{if(!cancelled)setError(e instanceof Error?e.message:"Map failed to load");});
+    const markersById=markerRefs.current;
+    return ()=>{cancelled=true;mapRef.current?.remove();mapRef.current=null;groupRef.current=null;editorRef.current=null;markersById.clear();};
+  },[]);
+  useEffect(()=>{
+    const L=leafletRef.current,map=mapRef.current,group=groupRef.current;
+    if(!ready||!L||!map||!group)return;
+    group.clearLayers();markerRefs.current.clear();
+    for(const item of markers){
+      if(item.id===draft?.id)continue;
+      const marker=L.marker([item.lat,item.lng],{title:item.title,alt:item.title,keyboard:true,bubblingMouseEvents:false,riseOnHover:true,icon:L.divIcon({className:"",html:markerHtml(item.color??"#17698c",item.approximate,item.manual),iconSize:[20,20],iconAnchor:[10,10],popupAnchor:[0,-12]})});
+      marker.bindPopup(()=>popupContent(item));marker.on("click",()=>onSelectRef.current?.(item.id));group.addLayer(marker);markerRefs.current.set(item.id,marker);
     }
-    const plan = planView(markers);
-    if (plan.kind === "center") map.setView([plan.lat, plan.lng], SINGLE_MARKER_ZOOM);
-    else if (plan.kind === "bounds") map.fitBounds([[plan.south, plan.west], [plan.north, plan.east]], { padding: [40, 40], maxZoom: MAX_FIT_ZOOM });
-  }, [ready, markers]);
-
-  // Focus a marker chosen from the list.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map || !selectedId) return;
-    const marker = markerRefs.current.get(selectedId);
-    if (!marker) return;
-    map.setView(marker.getLatLng(), Math.max(map.getZoom(), 15));
-    marker.openPopup();
-  }, [ready, selectedId]);
-
-  return (
-    <div>
-      <div
-        ref={container}
-        role="region"
-        aria-label={ariaLabel}
-        className="relative isolate z-0 h-[60vh] min-h-[320px] w-full overflow-hidden rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-muted)]"
-      />
-      {loadError ? <p className="mt-2 text-sm text-[var(--ch-error-text)]">Map failed to load: {loadError}</p> : null}
-      {tileErrors > 0 ? (
-        <p className="mt-2 text-sm text-[var(--ch-warning-text)]">
-          {tileErrors} map tile{tileErrors === 1 ? "" : "s"} failed to load from OpenStreetMap. Markers and the list below remain available; dashed markers are approximate.
-        </p>
-      ) : null}
-    </div>
-  );
+    if(markers.length&&!selectedRef.current&&!draftRef.current){
+      const bounds=L.latLngBounds(markers.map((p)=>[p.lat,p.lng]));
+      map.flyToBounds(bounds,{paddingTopLeft:[35,130],paddingBottomRight:map.getSize().x>700?[375,55]:[30,330],maxZoom:16,duration:0.7,easeLinearity:0.25});
+    }
+  },[ready,markers,draft?.id,fitKey]);
+  useEffect(()=>{
+    const map=mapRef.current,group=groupRef.current;
+    if(!ready||!map||!selectedId||draft?.id)return;
+    const marker=markerRefs.current.get(selectedId);
+    if(marker){
+      map.flyTo(marker.getLatLng(),16,{duration:0.65,easeLinearity:0.25});
+      const open=()=>group?.zoomToShowLayer(marker,()=>marker.openPopup());
+      map.once("moveend",open);return ()=>{map.off("moveend",open);};
+    }
+    if(focus)map.flyTo([focus.lat,focus.lng],14,{duration:0.65,easeLinearity:0.25});
+  },[ready,selectedId,focus,draft?.id]);
+  useEffect(()=>{
+    const map=mapRef.current,L=leafletRef.current;
+    if(!ready||!map||!L||!draft)return;
+    const editor=L.marker([draft.lat,draft.lng],{draggable:true,keyboard:true,title:"Unsaved pin — drag, click map, or use arrow keys",alt:"Unsaved pin; arrow keys move it",zIndexOffset:1000,icon:L.divIcon({className:"",html:'<span style="display:block;width:26px;height:26px;background:#d36b23;border:4px solid white;border-radius:50%;box-shadow:0 0 0 3px #d36b2366,0 3px 12px #0005"></span>',iconSize:[26,26],iconAnchor:[13,13]})}).addTo(map);
+    editorRef.current=editor;
+    editor.on("dragend",()=>{const p=editor.getLatLng();onMoveRef.current?.(p.lat,p.lng);});
+    const click=(e:import("leaflet").LeafletMouseEvent)=>onMoveRef.current?.(e.latlng.lat,e.latlng.lng);
+    map.on("click",click);
+    const element=editor.getElement();
+    const key=(e:KeyboardEvent)=>{
+      const delta:Record<string,[number,number]>={ArrowLeft:[-8,0],ArrowRight:[8,0],ArrowUp:[0,-8],ArrowDown:[0,8]};
+      if(!delta[e.key])return;e.preventDefault();e.stopPropagation();
+      const point=map.latLngToContainerPoint(editor.getLatLng());const [x,y]=delta[e.key];const p=map.containerPointToLatLng([point.x+x,point.y+y]);editor.setLatLng(p);onMoveRef.current?.(p.lat,p.lng);
+    };
+    element?.addEventListener("keydown",key);
+    map.flyTo([draft.lat,draft.lng],16,{duration:0.65,easeLinearity:0.25});
+    return ()=>{map.off("click",click);element?.removeEventListener("keydown",key);editor.remove();editorRef.current=null;};
+    // Coordinates update the same draggable marker below, not its lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[ready,draft?.id]);
+  useEffect(()=>{if(draft)editorRef.current?.setLatLng([draft.lat,draft.lng]);},[draft]);
+  useEffect(()=>{
+    const map=mapRef.current;if(!ready||!map||!container.current)return;
+    const resize=()=>map.invalidateSize({pan:false,animate:false});
+    const observer=new ResizeObserver(resize);observer.observe(container.current);window.addEventListener("resize",resize);const frame=requestAnimationFrame(resize);
+    return ()=>{observer.disconnect();window.removeEventListener("resize",resize);cancelAnimationFrame(frame);};
+  },[ready,resizeKey]);
+  return <div className="absolute inset-0"><div ref={container} role="region" aria-label={ariaLabel} className="absolute inset-0 z-0 bg-[var(--ch-surface-muted)]"/>{error||tileErrors?<p role="alert" className="absolute bottom-8 left-14 z-10 rounded-lg bg-white/95 p-2 text-xs text-red-800">{error??`${tileErrors} map tiles failed to load`}</p>:null}</div>;
 }

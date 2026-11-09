@@ -186,6 +186,12 @@ def flag_clusters(rows):
                 row["reason"] += "; identical shared point, manual pin needed"
 
 
+def should_geocode(row, *, only_missing=False, include_manual=False):
+    if row.get("geocode_precision") == "manual" and not include_manual:
+        return False
+    return not (only_missing and row["latitude"] is not None and row["longitude"] is not None and row["geocode_precision"] in {"house", "street", "manual"})
+
+
 async def run(args):
     from dotenv import load_dotenv
     load_dotenv(args.env_file, override=True)
@@ -208,7 +214,7 @@ async def run(args):
         rows = []
         for kind, records in [("rental", rental), ("lot", lots)]:
             for r in records:
-                if args.only_missing and r["latitude"] is not None and r["longitude"] is not None and r["geocode_precision"] in {"house", "street"}:
+                if not should_geocode(r, only_missing=args.only_missing, include_manual=args.include_manual):
                     continue
                 source = dict(r, kind=kind)
                 result = geocoder.locate(source)
@@ -226,7 +232,7 @@ async def run(args):
             async with engine.begin() as conn:
                 for row in rows:
                     table = "rental_properties" if row["kind"] == "rental" else "core.lots"
-                    await conn.execute(text(f"update {table} set latitude=:latitude,longitude=:longitude,geocode_precision=:precision,geocode_source=:source,geocoded_at=:now where id::text=:id"), dict(row, source="osm_nominatim", now=datetime.now(timezone.utc)))
+                    await conn.execute(text(f"update {table} set latitude=:latitude,longitude=:longitude,geocode_precision=:precision,geocode_source=:source,geocoded_at=:now,location_set_by=NULL,geocode_snapshot=NULL where id::text=:id AND (geocode_precision IS DISTINCT FROM 'manual' OR :include_manual)"), dict(row, source="osm_nominatim", now=datetime.now(timezone.utc), include_manual=args.include_manual))
         for kind in ["rental", "lot"]:
             print(kind, dict(Counter(r["precision"] for r in rows if r["kind"] == kind)))
         print("DRY RUN: no database changes" if args.dry_run else "Committed preview geocodes")
@@ -239,6 +245,7 @@ def main():
     parser.add_argument("--env-file", required=True)
     parser.add_argument("--database", required=True)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--include-manual", action="store_true", help="Explicitly permit replacing manual pins; --force alone never does")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--force", action="store_true", help="Re-geocode every address, ignoring old coordinates (cache still reused)")
     mode.add_argument("--only-missing", action="store_true", help="Only records without a validated house/street geocode")

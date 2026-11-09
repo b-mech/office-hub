@@ -517,6 +517,8 @@ class Lot(Base):
         nullable=False,
         unique=True,
     )
+    location_set_by: Mapped[UUID | None] = mapped_column(ForeignKey("core.users.id", ondelete="SET NULL"))
+    geocode_snapshot: Mapped[dict | None] = mapped_column(JSON)
     geocode_precision: Mapped[str | None] = mapped_column(String(20))
     geocode_source: Mapped[str | None] = mapped_column(String(100))
     geocoded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
