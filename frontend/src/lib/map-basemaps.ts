@@ -30,7 +30,7 @@ export function basemapTiles(choice: MapBasemap): readonly BasemapTile[] {
   if (choice === "street") return [{ id: "street", url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxNativeZoom: 19, maxZoom: 20, zIndex: 1 }];
   if (choice === "satellite") return [imagery];
   return [imagery,
-    { id: "roads", url: "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}", attribution: "Reference roads © Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS User Community", maxNativeZoom: 19, maxZoom: 20, zIndex: 2 },
-    { id: "labels", url: "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", attribution: "Reference labels © Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS User Community", maxNativeZoom: 19, maxZoom: 20, zIndex: 3 },
+    { id: "roads", url: "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}", attribution: "Reference © Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS User Community", maxNativeZoom: 19, maxZoom: 20, zIndex: 2 },
+    { id: "labels", url: "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", attribution: "Reference © Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS User Community", maxNativeZoom: 19, maxZoom: 20, zIndex: 3 },
   ];
 }

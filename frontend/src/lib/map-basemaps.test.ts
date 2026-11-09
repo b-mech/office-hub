@@ -32,6 +32,7 @@ test("satellite uses requested keyless Esri source and overzooms 19 to 20", () =
 });
 test("hybrid overlays roads and labels above imagery; street has no Esri attribution", () => {
   const layers = basemapTiles("hybrid"); assert.deepEqual(layers.map((l) => l.id), ["imagery", "roads", "labels"]);
+  assert.equal(layers[1].attribution, layers[2].attribution); // Leaflet deduplicates shared reference credits.
   assert.ok(layers[1].zIndex > layers[0].zIndex); assert.ok(layers[2].zIndex > layers[1].zIndex);
   assert.ok(layers.every((l) => l.maxZoom === 20 && l.url.startsWith("https://")));
   const street = basemapTiles("street"); assert.equal(street.length, 1);

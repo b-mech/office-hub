@@ -80,7 +80,7 @@ export function LocationMapWorkspace({title,records,loading=false,error,mode}:{t
    </div>
   </header>
   <div className={`absolute left-3 top-[13rem] z-10 max-w-[calc(100%-1.5rem)] rounded-full px-3 py-1.5 text-[10px] lg:bottom-6 lg:top-auto ${glass}`} aria-label="Map legend">● House / manual · ◌ Approximate · <span className="text-orange-700">● Unsaved</span> · Clusters expand</div>
-  {trayOpen?<aside id="map-item-tray" aria-label="Location details and pin queue" className={`absolute inset-x-3 bottom-7 z-20 flex max-h-[43dvh] flex-col overflow-hidden rounded-2xl lg:bottom-8 lg:left-auto lg:right-3 lg:top-[7.5rem] lg:max-h-none lg:w-[21rem] ${glass}`}>
+  {trayOpen?<aside id="map-item-tray" aria-label="Location details and pin queue" className={`absolute inset-x-3 bottom-12 z-20 flex max-h-[43dvh] flex-col overflow-hidden rounded-2xl lg:bottom-8 lg:left-auto lg:right-3 lg:top-[7.5rem] lg:max-h-none lg:w-[21rem] ${glass}`}>
    <div className="flex shrink-0 items-center justify-between border-b border-[var(--ch-border)] px-3 py-2"><h2 className="text-xs font-semibold">{needsOnly?"Needs pin queue":"Locations"} · {visible.length}</h2><button className="rounded px-2 py-1 text-xs" aria-label="Collapse location tray" onClick={()=>setTrayOpen(false)}>Collapse ↓</button></div>
    <div className="min-h-0 overflow-y-auto overscroll-contain">
     {error||failure?<p role="alert" className="m-3 rounded-lg bg-red-50 p-2 text-xs text-red-900">{failure||error}</p>:null}

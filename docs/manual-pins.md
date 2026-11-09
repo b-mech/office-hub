@@ -84,3 +84,12 @@ Switching tiles does not recreate the map, markers, clusters or draggable editor
 Active provider attribution appears in Leaflet's lower-right corner. White marker
 outlines/shadows and cluster halos keep pins visible over dark aerial imagery.
 Imagery may predate new subdivisions; it is not a parcel boundary or survey source.
+
+Satellite visual QA: Esri imagery rendered on Parkview Pointe (215 Middlechurch
+Gate) with the orange unsaved editor, and the rentals overview with visible
+clusters. Mobile Hybrid showed road labels over aerial imagery. A queryless Land
+map opened in the rentals screenshot browser profile retained Satellite, verifying
+real localStorage persistence across routes. Mobile tray/footer spacing was
+adjusted after inspection to keep complete imagery/reference attribution visible.
+No pointer clicks, real drags or layer changes mid-drag were interactively tested;
+unit tests cover preferences/configuration, and only tile layers are replaced.
