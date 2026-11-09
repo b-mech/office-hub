@@ -24,6 +24,13 @@ function popupContent(marker: EntityMapMarker): HTMLElement {
 function markerHtml(color: string, approximate = false, manual = false): string {
   return `<span data-pin-precision="${manual ? "manual" : approximate ? "street" : "house"}" style="display:block;width:20px;height:20px;border-radius:9999px;background:${approximate ? "#fff" : color};border:3px ${approximate ? "dashed" : "solid"} ${approximate ? color : "#fff"};box-shadow:0 1px 5px #0007"></span>`;
 }
+// Keep selected/editor pins above the mobile bottom sheet without changing
+// their stored coordinates. The same visible-centre offset applies to selection.
+function flyPoint(map: LeafletMap, lat: number, lng: number, zoom: number) {
+  const point = map.project([lat,lng],zoom);
+  if(map.getSize().x<700) point.y += map.getSize().y*0.18;
+  map.flyTo(map.unproject(point,zoom),zoom,{duration:0.65,easeLinearity:0.25});
+}
 export function EntityMap({ markers, selectedId, onSelect, ariaLabel, draft, onDraftMove, focus, resizeKey, fitKey = 0 }: {
   markers: EntityMapMarker[]; selectedId?: string | null; onSelect?: (id:string)=>void; ariaLabel:string;
   draft?: PinDraft | null; onDraftMove?: (lat:number,lng:number)=>void;
@@ -67,7 +74,7 @@ export function EntityMap({ markers, selectedId, onSelect, ariaLabel, draft, onD
     }
     if(markers.length&&!selectedRef.current&&!draftRef.current){
       const bounds=L.latLngBounds(markers.map((p)=>[p.lat,p.lng]));
-      map.flyToBounds(bounds,{paddingTopLeft:[35,130],paddingBottomRight:map.getSize().x>700?[375,55]:[30,330],maxZoom:16,duration:0.7,easeLinearity:0.25});
+      map.flyToBounds(bounds,{paddingTopLeft:map.getSize().x>700?[35,130]:[30,190],paddingBottomRight:map.getSize().x>700?[375,55]:[30,330],maxZoom:16,duration:0.7,easeLinearity:0.25});
     }
   },[ready,markers,draft?.id,fitKey]);
   useEffect(()=>{
@@ -75,11 +82,11 @@ export function EntityMap({ markers, selectedId, onSelect, ariaLabel, draft, onD
     if(!ready||!map||!selectedId||draft?.id)return;
     const marker=markerRefs.current.get(selectedId);
     if(marker){
-      map.flyTo(marker.getLatLng(),16,{duration:0.65,easeLinearity:0.25});
+      const point=marker.getLatLng();flyPoint(map,point.lat,point.lng,16);
       const open=()=>group?.zoomToShowLayer(marker,()=>marker.openPopup());
       map.once("moveend",open);return ()=>{map.off("moveend",open);};
     }
-    if(focus)map.flyTo([focus.lat,focus.lng],14,{duration:0.65,easeLinearity:0.25});
+    if(focus)flyPoint(map,focus.lat,focus.lng,14);
   },[ready,selectedId,focus,draft?.id]);
   useEffect(()=>{
     const map=mapRef.current,L=leafletRef.current;
@@ -96,7 +103,7 @@ export function EntityMap({ markers, selectedId, onSelect, ariaLabel, draft, onD
       const point=map.latLngToContainerPoint(editor.getLatLng());const [x,y]=delta[e.key];const p=map.containerPointToLatLng([point.x+x,point.y+y]);editor.setLatLng(p);onMoveRef.current?.(p.lat,p.lng);
     };
     element?.addEventListener("keydown",key);
-    map.flyTo([draft.lat,draft.lng],16,{duration:0.65,easeLinearity:0.25});
+    flyPoint(map,draft.lat,draft.lng,16);
     return ()=>{map.off("click",click);element?.removeEventListener("keydown",key);editor.remove();editorRef.current=null;};
     // Coordinates update the same draggable marker below, not its lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps

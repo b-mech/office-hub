@@ -59,10 +59,10 @@ export function LocationMapWorkspace({title,records,loading=false,error,mode}:{t
   <EntityMap markers={stableMarkers} selectedId={selectedId} onSelect={select} ariaLabel={title} draft={draft} onDraftMove={move} focus={focus} resizeKey={trayOpen} fitKey={fitKey}/>
   <header className={`absolute inset-x-3 top-3 z-20 rounded-xl px-3 py-2 ${glass}`}>
    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-    <div className="mr-auto"><h1 className="text-base font-semibold">{title}</h1><p className="text-[11px] text-[var(--ch-text-muted)]">{loading?"Loading locations…":`${rows.length} records · ${partition.located.length} mapped · ${rows.filter(needsPin).length} need a pin`}</p></div>
+    <div className="min-w-0 flex-1"><h1 className="text-base font-semibold">{title}</h1><p className="text-[11px] text-[var(--ch-text-muted)]">{loading?"Loading locations…":`${rows.length} records · ${partition.located.length} mapped · ${rows.filter(needsPin).length} need a pin`}</p></div>
     <Link href={mode==="land"?"/land":"/rentals"} className={`${button} hidden sm:inline-flex`}>Overview</Link>
-    <button className={button} disabled={busy||Boolean(draft?.moved)} onClick={()=>{setSelectedId(null);setDraft(null);setFitKey((n)=>n+1);}}>Fit all</button>
-    <button className={button} onClick={()=>setTrayOpen((v)=>!v)} aria-expanded={trayOpen} aria-controls="map-item-tray">{trayOpen?"Hide tray":"Show tray"}</button>
+    <button className={button} aria-label="Fit all locations" disabled={busy||Boolean(draft?.moved)} onClick={()=>{setSelectedId(null);setDraft(null);setFitKey((n)=>n+1);}}><span className="sm:hidden">⤢</span><span className="hidden sm:inline">Fit all</span></button>
+    <button className={button} onClick={()=>setTrayOpen((v)=>!v)} aria-expanded={trayOpen} aria-controls="map-item-tray" aria-label={trayOpen?"Hide location tray":"Show location tray"}><span className="sm:hidden">▤</span><span className="hidden sm:inline">{trayOpen?"Hide tray":"Show tray"}</span></button>
    </div>
    <div className="mt-2 flex flex-wrap items-center gap-2">
     {mode==="land"?<div className="flex gap-1" role="group" aria-label="Location type">{[["all","All"],["lot","Land lots"],["project","Projects"]].map(([key,label])=><button key={key} className={`${button} ${kind===key?"border-[var(--ch-accent)] bg-[var(--ch-accent-soft)]":""}`} aria-pressed={kind===key} disabled={busy||Boolean(draft?.moved)} onClick={()=>{setKind(key);setSelectedId(null);setDraft(null);}}>{label}</button>)}</div>:null}
@@ -70,7 +70,7 @@ export function LocationMapWorkspace({title,records,loading=false,error,mode}:{t
     <button className={`${button} ${needsOnly?"border-[var(--ch-accent)] bg-[var(--ch-accent-soft)] font-semibold":""}`} onClick={changeNeeds} disabled={busy||Boolean(draft?.moved)} aria-pressed={needsOnly}>Needs pin ({queue.length})</button>
    </div>
   </header>
-  <div className={`absolute left-3 top-[12rem] z-10 max-w-[calc(100%-1.5rem)] rounded-full px-3 py-1.5 text-[10px] lg:bottom-6 lg:top-auto ${glass}`} aria-label="Map legend">● House / manual · ◌ Approximate · <span className="text-orange-700">● Unsaved</span> · Clusters expand</div>
+  <div className={`absolute left-3 top-[10rem] z-10 max-w-[calc(100%-1.5rem)] rounded-full px-3 py-1.5 text-[10px] lg:bottom-6 lg:top-auto ${glass}`} aria-label="Map legend">● House / manual · ◌ Approximate · <span className="text-orange-700">● Unsaved</span> · Clusters expand</div>
   {trayOpen?<aside id="map-item-tray" aria-label="Location details and pin queue" className={`absolute inset-x-3 bottom-7 z-20 flex max-h-[43dvh] flex-col overflow-hidden rounded-2xl lg:bottom-8 lg:left-auto lg:right-3 lg:top-[7.5rem] lg:max-h-none lg:w-[21rem] ${glass}`}>
    <div className="flex shrink-0 items-center justify-between border-b border-[var(--ch-border)] px-3 py-2"><h2 className="text-xs font-semibold">{needsOnly?"Needs pin queue":"Locations"} · {visible.length}</h2><button className="rounded px-2 py-1 text-xs" aria-label="Collapse location tray" onClick={()=>setTrayOpen(false)}>Collapse ↓</button></div>
    <div className="min-h-0 overflow-y-auto overscroll-contain">
