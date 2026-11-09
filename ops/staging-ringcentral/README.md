@@ -104,6 +104,12 @@ would replace unrelated lease features. Do not touch ports 3058/8058 or QA.
 
 First confirm the approved fix branch tip matches the commit in the handoff.
 Preserve the existing modified maintenance seed script; do not reset or clean.
+The lease checkout also has unrelated uncommitted DocuSign/config/test/docs
+changes, including an already-modified `frontend/next.config.ts`; this task did
+not edit them. Review/coordinate pending frontend/config changes before approving
+ANY build: a rebuild includes the checkout's current frontend source, not just
+this patch. Leave the pending backend changes alone and do not restart that
+backend. The commands below assume this source review has been completed.
 
 ```sh
 set -eu
@@ -115,6 +121,8 @@ APPROVED_COMMIT=$(git -C "$FIX" rev-parse fix/ringcentral-staging-alerts)
 git -C "$MAINT" fetch origin fix/ringcentral-staging-alerts
 test "$(git -C "$MAINT" rev-parse FETCH_HEAD)" = "$APPROVED_COMMIT"
 git -C "$MAINT" status --short
+git -C "$LEASE" status --short
+# STOP here if pending lease frontend/config changes have not been reviewed.
 git -C "$MAINT" merge --ff-only "$APPROVED_COMMIT"
 PATCH="$MAINT/ops/staging-ringcentral/lease-frontend-webhook-rewrite.patch"
 if git -C "$LEASE" apply --check "$PATCH"; then
