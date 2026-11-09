@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -16,7 +17,8 @@ from app.services.maintenance.scheduler_health import (
     SUBSCRIPTION_STALE_ALERT_LOCK_KEY,
     record_subscription_scheduler_heartbeat,
 )
-from app.services.maintenance.slack.client import HttpSlackClient, SlackClient
+from app.services.maintenance.slack.client import SlackClient
+from app.services.maintenance.subscription_alerts import alert_subscription_renewal_status
 from app.services.maintenance.sms.providers import (
     RingCentralProvider,
     SmsProviderHttpError,
@@ -58,16 +60,27 @@ class SubscriptionRenewalResult:
 
 
 async def verify_public_webhook_token(callback_url: str, validation_token: str) -> None:
-    """Verify the public route accepts the same private token written to RingCentral."""
-    async with httpx.AsyncClient(timeout=15) as client:
+    """Check the public registration handshake, not an inbound SMS notification.
+
+    Keep the second argument for existing injected probes. The configured private
+    verification token is reconciled by the provider PUT, but is deliberately not
+    sent to an unverified public route. Use a fresh, non-secret challenge instead.
+    Redirects (including Cloudflare Access) must fail closed.
+    """
+    challenge = secrets.token_urlsafe(24)
+    async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
         response = await client.post(
             callback_url,
-            headers={"Verification-Token": validation_token},
-            json={"officeHubProbe": True},
+            headers={"Validation-Token": challenge},
+            content=b"",
         )
     if response.status_code != 200:
         raise RingCentralSubscriptionError(
             f"public webhook validation-token probe returned HTTP {response.status_code}"
+        )
+    if response.headers.get("Validation-Token") != challenge:
+        raise RingCentralSubscriptionError(
+            "public webhook validation-token probe did not echo the challenge"
         )
 
 
@@ -110,20 +123,6 @@ def _matching_active_subscriptions(
             continue
         matches.append((record, _parse_expiration(record.get("expirationTime"))))
     return matches
-
-
-async def _post_failure_alert(
-    detail: str,
-    *,
-    client: SlackClient | None,
-) -> None:
-    if client is None and not settings.slack_configured:
-        logger.error("RingCentral subscription renewal failed: %s", detail)
-        return
-    await (client or HttpSlackClient()).post_message(
-        settings.slack_emergency_destination,
-        f"RingCentral subscription renewal failed in {settings.environment}: {detail}",
-    )
 
 
 async def maintain_ringcentral_subscription(
@@ -178,6 +177,9 @@ async def maintain_ringcentral_subscription(
         expires_at = _parse_expiration(renewed_payload.get("expirationTime"))
         await probe(callback_url, validation_token)
 
+        # Timestamp the completed observation, so an overlapping monitor cannot
+        # make a later result look older than its heartbeat snapshot.
+        checked_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         await record_subscription_scheduler_heartbeat(
             expires_at=expires_at,
             healthy=True,
@@ -187,6 +189,14 @@ async def maintain_ringcentral_subscription(
         )
         if redis is not None:
             await redis.delete(SUBSCRIPTION_STALE_ALERT_LOCK_KEY)
+        await alert_subscription_renewal_status(
+            healthy=True,
+            callback_url=callback_url,
+            detail="public validation-token handshake passed",
+            client=client,
+            redis=redis,
+            now=checked_at,
+        )
         return SubscriptionRenewalResult(
             subscription_id=subscription_id,
             expires_at=expires_at,
@@ -194,6 +204,7 @@ async def maintain_ringcentral_subscription(
             active_match_count=len(matches),
         )
     except Exception as exc:
+        checked_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         detail = (
             str(exc)
             if isinstance(exc, (RingCentralSubscriptionError, SmsProviderHttpError))
@@ -210,7 +221,14 @@ async def maintain_ringcentral_subscription(
         except Exception:
             logger.exception("Could not record failed RingCentral renewal heartbeat")
         try:
-            await _post_failure_alert(detail, client=client)
+            await alert_subscription_renewal_status(
+                healthy=False,
+                callback_url=callback_url,
+                detail=detail,
+                client=client,
+                redis=redis,
+                now=checked_at,
+            )
         except Exception:
             logger.exception("Could not post RingCentral renewal failure alert")
         raise

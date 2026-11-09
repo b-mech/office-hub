@@ -9,6 +9,7 @@ from redis.exceptions import RedisError
 
 from app.core.config import settings
 from app.services.maintenance.slack.client import HttpSlackClient, SlackClient
+from app.services.maintenance.subscription_alerts import alert_subscription_renewal_status
 
 
 HEARTBEAT_KEY = "officehub:maintenance:escalation:last-run"
@@ -185,32 +186,24 @@ async def alert_if_subscription_scheduler_stale(
     client: SlackClient | None = None,
     now: datetime | None = None,
 ) -> bool:
-    if not settings.slack_configured:
-        return False
+    """Use the renewal job's durable policy, not a separate 30-minute alert lock.
+
+    The API monitor and Celery job must share failure/recovery/reminder claims;
+    otherwise a backend restart or health poll could bypass renewal throttling.
+    """
     checked_at = now or datetime.now(timezone.utc)
     owned = redis is None
-    redis = redis or _client()
+    store = redis if redis is not None else _client()
     try:
-        health = await subscription_scheduler_health(redis=redis, now=checked_at)
-        if health.healthy:
-            return False
-        claimed = await redis.set(
-            SUBSCRIPTION_STALE_ALERT_LOCK_KEY,
-            checked_at.isoformat(),
-            ex=STALE_ALERT_INTERVAL_SECONDS,
-            nx=True,
+        health = await subscription_scheduler_health(redis=store, now=checked_at)
+        return await alert_subscription_renewal_status(
+            healthy=health.healthy,
+            callback_url=f"{settings.public_base_url.rstrip('/')}/api/webhooks/ringcentral/sms",
+            detail=health.detail,
+            redis=store,
+            client=client,
+            now=checked_at,
         )
-        if not claimed:
-            return False
-        try:
-            await (client or HttpSlackClient()).post_message(
-                settings.slack_emergency_destination,
-                f"RingCentral subscription renewal scheduler is unhealthy: {health.detail}",
-            )
-        except Exception:
-            await redis.delete(SUBSCRIPTION_STALE_ALERT_LOCK_KEY)
-            raise
-        return True
     finally:
         if owned:
-            await redis.aclose()
+            await store.aclose()

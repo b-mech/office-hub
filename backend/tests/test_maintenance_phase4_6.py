@@ -487,6 +487,8 @@ async def test_ringcentral_webhook_distinguishes_mismatched_token(
 async def test_ringcentral_token_authenticated_probe_has_no_side_effects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # This probe requires RingCentral selection; do not depend on a developer's .env.
+    monkeypatch.setattr(settings, "sms_provider", "ringcentral")
     monkeypatch.setattr(
         settings,
         "ringcentral_webhook_validation_token",

@@ -1,0 +1,13 @@
+--- a/frontend/next.config.ts
++++ b/frontend/next.config.ts
+@@ -8,6 +8,10 @@
+         source: "/backend-api/:path*",
+         destination: `${process.env.BACKEND_INTERNAL_URL || "http://127.0.0.1:8000"}/:path*`,
+       },
++      {
++        source: "/api/webhooks/:path*",
++        destination: `${process.env.BACKEND_INTERNAL_URL || "http://127.0.0.1:8000"}/api/webhooks/:path*`,
++      },
+     ];
+   },
+ };
