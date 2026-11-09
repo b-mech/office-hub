@@ -1,4 +1,5 @@
 import { API_BASE } from "@/lib/api";
+import { tenantHeaders } from "@/lib/tenant";
 
 const LOTS_API_BASE = API_BASE.endsWith("/api/v1") ? API_BASE : `${API_BASE}/api/v1`;
 
@@ -19,6 +20,7 @@ export async function getOtpTimeline(): Promise<TimelineEvent[]> {
   const response = await fetch(`${LOTS_API_BASE}/lots/timeline`, {
     credentials: "include",
     cache: "no-store",
+    headers: tenantHeaders(),
   });
 
   if (!response.ok) {

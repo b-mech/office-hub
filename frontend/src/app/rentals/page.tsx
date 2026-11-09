@@ -1,6 +1,91 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import Script from "next/script";import {useEffect,useMemo,useRef,useState} from "react";import {MarkerClusterer} from "@googlemaps/markerclusterer";import {getRentalMap,type MapProperty} from "@/lib/api/rentals-map";
-declare global{interface Window{google:any}}
-const colors={current:"#2E7D32",due:"#D6A700",overdue:"#C62828",never:"#777777"};
-export default function RentalsHome(){const [items,setItems]=useState<MapProperty[]>([]),[q,setQ]=useState(""),[view,setView]=useState<"map"|"list">("map"),[ready,setReady]=useState(false),[error,setError]=useState("");const mapNode=useRef<HTMLDivElement>(null);const filtered=useMemo(()=>items.filter(x=>`${x.street_address} ${x.group_name||""}`.toLowerCase().includes(q.toLowerCase())),[items,q]);useEffect(()=>{getRentalMap().then(setItems).catch(e=>setError(e.message))},[]);useEffect(()=>{if(!ready||!mapNode.current||!window.google)return;const located=filtered.filter(x=>x.latitude!==null&&x.longitude!==null);if(!located.length)return;const map=new window.google.maps.Map(mapNode.current,{mapTypeControl:false,streetViewControl:false,fullscreenControl:false});const bounds=new window.google.maps.LatLngBounds();const info=new window.google.maps.InfoWindow();const markers=located.map(p=>{const position={lat:Number(p.latitude),lng:Number(p.longitude)};bounds.extend(position);const marker=new window.google.maps.Marker({position,title:p.street_address,icon:{path:window.google.maps.SymbolPath.CIRCLE,scale:10,fillColor:colors[p.inspection_status],fillOpacity:1,strokeColor:"#fff",strokeWeight:2}});marker.addListener("click",()=>{info.setContent(`<div style="min-width:210px"><strong>${p.street_address}</strong><div>${p.group_name||""}</div><p>${p.unit_count} unit${p.unit_count===1?"":"s"} · ${p.inspection_status}</p><p>${p.last_inspection_date?`Last inspected ${p.last_inspection_date}`:"Never inspected"}</p><a href="/rentals/inspections?property_id=${p.property_id}" style="color:#1A527A;font-weight:bold">View Units</a></div>`);info.open({map,anchor:marker})});return marker});new MarkerClusterer({map,markers});map.fitBounds(bounds,60)},[ready,filtered]);const key=process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;return <main className="flex h-screen flex-col"><Script src={key?`https://maps.googleapis.com/maps/api/js?key=${key}`:""} onLoad={()=>setReady(true)} onError={()=>setError("Google Maps failed to load. Check the restricted frontend key.")}/><header className="border-b bg-[var(--ch-surface)] p-4"><div className="mx-auto flex max-w-6xl gap-2"><input value={q} onChange={e=>setQ(e.target.value)} className="min-w-0 flex-1 rounded-xl border p-3" placeholder="Search rental address or group"/><button onClick={()=>setView(view==="map"?"list":"map")} className="rounded-xl border px-4 font-bold">{view==="map"?"List":"Map"}</button></div>{!key&&<p className="mx-auto mt-2 max-w-6xl text-sm text-[var(--ch-error-text)]">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not configured.</p>}{error&&<p className="mx-auto mt-2 max-w-6xl text-sm text-[var(--ch-error-text)]">{error}</p>}</header>{view==="map"?<div ref={mapNode} className="min-h-0 flex-1 bg-[var(--ch-page-bg)]"/>:<div className="mx-auto w-full max-w-3xl flex-1 overflow-auto p-4">{filtered.map(p=><a key={p.property_id} href={`/rentals/inspections?property_id=${p.property_id}`} className="mb-2 block rounded-xl border bg-[var(--ch-surface)] p-4"><div className="flex items-center"><strong>{p.street_address}</strong><span className="ml-auto rounded-full px-2 py-1 text-xs text-white" style={{background:colors[p.inspection_status]}}>{p.inspection_status}</span></div><div className="text-sm text-[var(--ch-text-muted)]">{p.group_name} · {p.unit_count} units · {p.last_inspection_date||"never inspected"}</div></a>)}</div>}</main>}
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { getRentalsOverview, type RentalsOverview } from "@/lib/api/workspace";
+import { Card, Empty, ErrorNote, PageShell, Stat, formatDate } from "../components/WorkspaceUi";
+
+const PRIORITY_ORDER = ["emergency", "urgent", "routine", "low"];
+const label = (value: string) => value.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+
+export default function RentalsOverviewPage() {
+  const [data, setData] = useState<RentalsOverview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    getRentalsOverview().then(setData).catch((err: unknown) => setError(err instanceof Error ? err.message : "Rentals overview unavailable"));
+  }, []);
+
+  return (
+    <PageShell
+      title="Rentals"
+      subtitle={data?.scope_note}
+      actions={<div className="flex gap-2 text-xs"><Link className="rounded-md border border-[var(--ch-border)] px-3 py-2" href="/rentals/map">Map</Link><Link className="rounded-md border border-[var(--ch-border)] px-3 py-2" href="/rentals/inspections">Inspections</Link><Link className="rounded-md border border-[var(--ch-border)] px-3 py-2" href="/rentals/lease-import">Lease import</Link></div>}
+    >
+      <ErrorNote message={error} />
+      {!data && !error ? <p className="text-sm text-[var(--ch-text-muted)]">Loading…</p> : null}
+      {data ? (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Stat label="Properties" value={data.properties} href="/rentals/map" />
+            <Stat label="Units" value={data.units} />
+            <Stat label="Occupancy" value={data.occupancy} hint="Unit status is not maintained" />
+            <Stat label="Rent collected" value={data.rent_collected} hint="No payments data in Office Hub" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Stat label="Leases awaiting signature" value={data.lease_agreements_awaiting_signature} />
+            <Stat label="Open lease follow-ups" value={data.lease_agreement_open_tasks} />
+            <Stat label="Leases ending in 90 days" value={data.leases_expiring_90_days_count} />
+            <Stat label="Open maintenance" value={Object.values(data.maintenance_open_by_priority).reduce((a, b) => a + b, 0)} />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card title="Lease records">
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="mb-1 text-xs text-[var(--ch-text-muted)]">Imported leases by status</p>
+                  {Object.keys(data.rental_leases_by_status).length === 0 ? <Empty>No lease records.</Empty> : (
+                    <div className="flex flex-wrap gap-2">{Object.entries(data.rental_leases_by_status).map(([status, count]) => <span key={status} className="rounded-full border border-[var(--ch-border)] px-2 py-1 text-xs">{label(status)} · {count}</span>)}</div>
+                  )}
+                </div>
+                <div>
+                  <p className="mb-1 text-xs text-[var(--ch-text-muted)]">Lease agreements (DocuSign) by status</p>
+                  {Object.keys(data.lease_agreements_by_status).length === 0 ? <Empty>No lease agreements yet.</Empty> : (
+                    <div className="flex flex-wrap gap-2">{Object.entries(data.lease_agreements_by_status).map(([status, count]) => <span key={status} className="rounded-full border border-[var(--ch-border)] px-2 py-1 text-xs">{label(status)} · {count}</span>)}</div>
+                  )}
+                </div>
+              </div>
+            </Card>
+            <Card title="Leases ending in 90 days">
+              {data.leases_expiring_90_days.length === 0 ? <Empty>No active leases end in the next 90 days.</Empty> : (
+                <ul className="divide-y divide-[var(--ch-border)]">
+                  {data.leases_expiring_90_days.map((lease) => (
+                    <li key={lease.id} className="py-2">
+                      <Link href={`/rentals/units/${lease.unit_id}`} className="flex justify-between gap-3 text-sm hover:text-[var(--ch-accent)]">
+                        <span className="truncate">{lease.street_address} · {lease.unit_label}</span>
+                        <span className="shrink-0 text-xs text-[var(--ch-text-muted)]">{formatDate(lease.lease_end)} · {lease.days_until}d</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+            <Card title="Maintenance needing attention" className="lg:col-span-2">
+              <div className="mb-3 flex flex-wrap gap-2">
+                {PRIORITY_ORDER.map((priority) => <span key={priority} className="rounded-full border border-[var(--ch-border)] px-2 py-1 text-xs">{label(priority)} · {data.maintenance_open_by_priority[priority] ?? 0}</span>)}
+              </div>
+              {data.maintenance_open_tickets.length === 0 ? <Empty>No open maintenance tickets.</Empty> : (
+                <ul className="divide-y divide-[var(--ch-border)]">
+                  {data.maintenance_open_tickets.map((ticket) => (
+                    <li key={ticket.id} className="flex justify-between gap-3 py-2 text-sm">
+                      <span className="min-w-0 truncate">{ticket.number} · {ticket.title}{ticket.street_address ? ` · ${ticket.street_address}` : ""}{ticket.unit_label ? ` ${ticket.unit_label}` : ""}</span>
+                      <span className="shrink-0 text-xs text-[var(--ch-text-muted)]">{label(ticket.priority)} · {label(ticket.status)}{ticket.sla_due_at ? ` · SLA ${formatDate(ticket.sla_due_at)}` : ""}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
+        </div>
+      ) : null}
+    </PageShell>
+  );
+}

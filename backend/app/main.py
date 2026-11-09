@@ -22,8 +22,12 @@ from app.routers.maintenance import router as maintenance_router
 from app.routers.program_allocations import router as program_allocations_router
 from app.routers.presales import router as presales_router
 from app.routers.rentals import inspections_router, router as rentals_router
+from app.routers.lease_agreements import router as lease_agreements_router
 from app.routers.tendering import router as tendering_router
 from app.routers.users import router as users_router
+from app.routers.clients import project_client_router
+from app.routers.clients import router as clients_router
+from app.routers.workspace import router as workspace_router
 from app.core.config import settings
 from app.middleware.auth import AuthenticationMiddleware
 from app.routers.auth import router as auth_router
@@ -48,8 +52,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-if settings.auth_enforced:
-    app.add_middleware(AuthenticationMiddleware)
+
+app.add_middleware(AuthenticationMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -84,9 +88,13 @@ app.include_router(maintenance_router)
 app.include_router(program_allocations_router)
 app.include_router(presales_router)
 app.include_router(rentals_router)
+app.include_router(lease_agreements_router)
 app.include_router(inspections_router)
 app.include_router(tendering_router)
 app.include_router(costbook_router)
 app.include_router(developments_router)
 app.include_router(lots_router)
 app.include_router(projects_router)
+app.include_router(project_client_router)
+app.include_router(clients_router)
+app.include_router(workspace_router)

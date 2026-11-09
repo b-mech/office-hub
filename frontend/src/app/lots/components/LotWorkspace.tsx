@@ -128,14 +128,18 @@ function LotCard({
 
 // ─── LotDetail ────────────────────────────────────────────────────────────────
 
-function LotDetail({
+export function LotDetail({
   lot,
   showTendering,
   onMarkedPresale,
+  showLegacyActions = true,
+  workspaceLink = false,
 }: {
   lot: Lot;
   showTendering: boolean;
   onMarkedPresale: () => Promise<void>;
+  showLegacyActions?: boolean;
+  workspaceLink?: boolean;
 }) {
   const [markingPresale, setMarkingPresale] = useState(false);
   const [presaleError, setPresaleError] = useState<string | null>(null);
@@ -164,6 +168,21 @@ function LotDetail({
           <p className="text-[var(--ch-text-muted)] mt-1">{lot.buyer_name}</p>
         )}
         <p className="text-sm text-[var(--ch-text-muted)] mt-1">{lot.community}</p>
+        {lot.client_id ? (
+          <Link href={`/clients/${lot.client_id}`} className="mt-1 inline-block text-sm text-[var(--ch-accent)]">
+            Client: {lot.client_name || "View client"}
+          </Link>
+        ) : null}
+        {workspaceLink ? (
+          <div className="mt-3">
+            <Link
+              href={`/projects/${lot.id}`}
+              className="inline-flex items-center rounded-md bg-[var(--ch-accent)] px-3 py-2 text-xs font-semibold text-[var(--ch-accent-text)]"
+            >
+              Open project workspace
+            </Link>
+          </div>
+        ) : null}
       </div>
 
       {showTendering ? (
@@ -239,7 +258,7 @@ function LotDetail({
       </div>
 
       {/* Actions */}
-      <div className="mb-8">
+      {showLegacyActions ? <div className="mb-8">
         <h2 className="text-xs font-semibold text-[var(--ch-text-muted)] uppercase tracking-widest mb-3">Quick Actions</h2>
         <div className="grid grid-cols-2 gap-3">
           <Link
@@ -299,7 +318,7 @@ function LotDetail({
           )}
         </div>
         {presaleError ? <p className="mt-3 text-sm text-[var(--ch-error-text)]">{presaleError}</p> : null}
-      </div>
+      </div> : null}
 
       {/* Agreement IDs for debugging */}
       <div className="rounded-xl bg-[var(--ch-surface)] border border-[var(--ch-border)] p-4">
@@ -325,12 +344,14 @@ export function LotWorkspace({
   emptyText,
   loadLots,
   showTendering = false,
+  headerLink,
 }: {
   title: string;
   loadingText: string;
   emptyText: string;
   loadLots: () => Promise<Lot[]>;
   showTendering?: boolean;
+  headerLink?: { href: string; label: string };
 }) {
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -392,7 +413,14 @@ export function LotWorkspace({
       <div className="w-80 shrink-0 flex flex-col border-r border-[var(--ch-border)]">
         {/* Panel header */}
         <div className="p-4 border-b border-[var(--ch-border)]">
-          <h1 className="text-base font-semibold text-[var(--ch-text-primary)] mb-3">{title}</h1>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h1 className="text-base font-semibold text-[var(--ch-text-primary)]">{title}</h1>
+            {headerLink ? (
+              <Link href={headerLink.href} className="rounded-md border border-[var(--ch-border)] px-2.5 py-1 text-xs text-[var(--ch-text-secondary)] hover:border-[var(--ch-border-strong)]">
+                {headerLink.label}
+              </Link>
+            ) : null}
+          </div>
 
           {/* Search */}
           <input
@@ -454,6 +482,7 @@ export function LotWorkspace({
           <LotDetail
             lot={selected}
             showTendering={showTendering}
+            workspaceLink={showTendering}
             onMarkedPresale={async () => {
               await presalesApi.updateLot(selected.id, { sale_type: "presale" });
               setLots((current) => current.map((lot) => lot.id === selected.id ? { ...lot, sale_type: "presale" } : lot));

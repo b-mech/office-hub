@@ -24,12 +24,21 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import text, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.tenancy import TenantContext
+from app.core.tenancy import get_tenant
+from app.core.tenancy import lot_scope_sql
+from app.core.tenancy import require_land
+from app.core.tenancy import require_lot_role
+from app.models.core import Lot
+from app.models.core import ProjectRole
 from app.services import lots as lot_service
+from app.services.locations import apply_location, location_payload
+from app.schemas.locations import LocationPatch, LocationOut
 
 router = APIRouter(prefix="/api/v1/lots", tags=["lots"])
 projects_router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
@@ -42,6 +51,15 @@ def verify_api_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] =
 
 class LotOut(BaseModel):
     id: str
+    development_id: Optional[str] = None
+    municipality: Optional[str] = None
+    location_set_by: Optional[str] = None
+    can_reset_location: bool = False
+    latitude: Optional[Decimal] = None
+    longitude: Optional[Decimal] = None
+    geocode_precision: Optional[str] = None
+    geocode_source: Optional[str] = None
+    geocoded_at: Optional[str] = None
     property_id: Optional[UUID] = None
     sale_type: Optional[str] = None
     trigger_type: Optional[str] = None
@@ -65,6 +83,8 @@ class LotOut(BaseModel):
     draw_available: Optional[Decimal] = None
     construction_stage: Optional[str] = None
     construction_stage_updated_at: Optional[datetime] = None
+    client_id: Optional[UUID] = None
+    client_name: Optional[str] = None
 
 
 class TimelineEvent(BaseModel):
@@ -95,7 +115,7 @@ class LotActivationFlagsOut(BaseModel):
     cancelled: bool
 
 
-async def _list_lots(db: AsyncSession, screen: str) -> list[LotOut]:
+async def _list_lots(db: AsyncSession, screen: str, ctx: TenantContext) -> list[LotOut]:
     """
     Produce a unified lot list from core.lots with optional sales data.
     """
@@ -107,6 +127,7 @@ async def _list_lots(db: AsyncSession, screen: str) -> list[LotOut]:
         if screen == "lots"
         else "(l.trigger_type IS NOT NULL AND l.cancelled = false)"
     )
+    scope_predicate, scope_params = lot_scope_sql(ctx)
     query = text(f"""
         WITH lot_rows AS (
             SELECT
@@ -122,6 +143,8 @@ async def _list_lots(db: AsyncSession, screen: str) -> list[LotOut]:
         SELECT
             l.id::text AS id,
             l.property_id,
+            l.development_id::text, d.municipality, l.location_set_by::text, COALESCE(jsonb_typeof(l.geocode_snapshot) = 'object', false) AS can_reset_location,
+            l.latitude, l.longitude, l.geocode_precision, l.geocode_source, l.geocoded_at::text,
             l.sale_type,
             l.trigger_type,
             l.on_hold,
@@ -150,9 +173,12 @@ async def _list_lots(db: AsyncSession, screen: str) -> list[LotOut]:
             financing.lender_name,
             financing.draw_available,
             financing.construction_stage,
-            financing.construction_stage_updated_at
+            financing.construction_stage_updated_at,
+            l.client_id,
+            cl.display_name AS client_name
         FROM lot_rows l
         JOIN core.developments d ON d.id = l.development_id
+        LEFT JOIN core.clients cl ON cl.id = l.client_id AND cl.org_id = d.org_id
         LEFT JOIN LATERAL (
             SELECT agreement_id
             FROM land.lot_terms
@@ -258,18 +284,23 @@ async def _list_lots(db: AsyncSession, screen: str) -> list[LotOut]:
             ORDER BY matched.match_priority ASC, matched.last_synced_at DESC NULLS LAST
             LIMIT 1
         ) financing ON true
-        WHERE d.org_id = :org_id
+        WHERE {scope_predicate}
           AND {eligibility_predicate}
         ORDER BY l.created_at DESC
     """)
 
-    result = await db.execute(query, {"org_id": str(settings.default_org_id)})
+    result = await db.execute(query, scope_params)
     rows = result.mappings().all()
 
     return [
         LotOut(
             id=row["id"],
             property_id=row.get("property_id"),
+            development_id=row.get("development_id"), municipality=row.get("municipality"),
+            location_set_by=row.get("location_set_by"), can_reset_location=row.get("can_reset_location", False),
+            latitude=row.get("latitude"), longitude=row.get("longitude"),
+            geocode_precision=row.get("geocode_precision"), geocode_source=row.get("geocode_source"),
+            geocoded_at=row.get("geocoded_at"),
             sale_type=row.get("sale_type"),
             trigger_type=row.get("trigger_type"),
             on_hold=row.get("on_hold", False),
@@ -292,18 +323,28 @@ async def _list_lots(db: AsyncSession, screen: str) -> list[LotOut]:
             draw_available=row.get("draw_available"),
             construction_stage=row.get("construction_stage"),
             construction_stage_updated_at=row.get("construction_stage_updated_at"),
+            client_id=row.get("client_id"),
+            client_name=row.get("client_name"),
         )
         for row in rows
     ]
 
 
 @router.get("", response_model=List[LotOut])
-async def list_lots(db: AsyncSession = Depends(get_db)):
-    return await _list_lots(db, "lots")
+async def list_lots(db: AsyncSession = Depends(get_db), ctx: TenantContext = Depends(get_tenant)):
+    require_land(ctx)
+    return await _list_lots(db, "lots", ctx)
 
 
 @router.get("/timeline", response_model=list[TimelineEvent])
-async def list_otp_timeline(db: AsyncSession = Depends(get_db)) -> list[TimelineEvent]:
+async def list_otp_timeline(
+    db: AsyncSession = Depends(get_db), ctx: TenantContext = Depends(get_tenant)
+) -> list[TimelineEvent]:
+    require_land(ctx)
+    return await timeline_events(db, ctx)
+
+
+async def timeline_events(db: AsyncSession, ctx: TenantContext) -> list[TimelineEvent]:
     query = text("""
         WITH base_lots AS (
             SELECT
@@ -498,7 +539,7 @@ async def list_otp_timeline(db: AsyncSession = Depends(get_db)) -> list[Timeline
         ORDER BY event_date ASC, address ASC, event_label ASC
     """)
 
-    rows = (await db.execute(query, {"org_id": str(settings.default_org_id)})).mappings().all()
+    rows = (await db.execute(query, {"org_id": str(ctx.org_id)})).mappings().all()
     return [
         TimelineEvent(
             id=f"{row['lot_id']}-{_event_slug(row['event_type'], row['event_label'], row['event_date'])}-{index}",
@@ -523,16 +564,34 @@ def _event_slug(event_type: str, event_label: str, event_date: date) -> str:
 
 
 @projects_router.get("", response_model=List[LotOut])
-async def list_projects(db: AsyncSession = Depends(get_db)):
-    return await _list_lots(db, "projects")
+async def list_projects(db: AsyncSession = Depends(get_db), ctx: TenantContext = Depends(get_tenant)):
+    return await _list_lots(db, "projects", ctx)
+
+
+async def _require_lot_access(
+    db: AsyncSession, ctx: TenantContext, lot_id: UUID, min_role: ProjectRole
+) -> None:
+    """Project lots need a project role; land (non-project) lots also need Land access."""
+    await require_lot_role(ctx, lot_id, min_role, db, not_found="Lot not found")
+    lot = await db.get(Lot, lot_id)
+    is_project = lot is not None and lot.trigger_type is not None and not lot.cancelled
+    if not is_project and not ctx.can_access_land:
+        raise HTTPException(status_code=404, detail="Lot not found")
 
 
 @router.get("/{lot_id}", response_model=LotOut)
-async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
+async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db), ctx: TenantContext = Depends(get_tenant)):
+    try:
+        lot_uuid = UUID(lot_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Lot not found") from exc
+    await _require_lot_access(db, ctx, lot_uuid, ProjectRole.VIEWER)
     query = text("""
         SELECT
             l.id::text AS id,
             l.property_id,
+            l.development_id::text, d.municipality, l.location_set_by::text, COALESCE(jsonb_typeof(l.geocode_snapshot) = 'object', false) AS can_reset_location,
+            l.latitude, l.longitude, l.geocode_precision, l.geocode_source, l.geocoded_at::text,
             l.sale_type,
             l.trigger_type,
             l.on_hold,
@@ -556,9 +615,12 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
                 ELSE 'inventory'
             END AS status,
             lt.agreement_id::text AS land_agreement_id,
-            sa.id::text AS sale_agreement_id
+            sa.id::text AS sale_agreement_id,
+            l.client_id,
+            cl.display_name AS client_name
         FROM core.lots l
         JOIN core.developments d ON d.id = l.development_id
+        LEFT JOIN core.clients cl ON cl.id = l.client_id AND cl.org_id = d.org_id
         LEFT JOIN LATERAL (
             SELECT agreement_id
             FROM land.lot_terms
@@ -589,7 +651,7 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
           AND d.org_id = :org_id
     """)
 
-    result = await db.execute(query, {"lot_id": lot_id, "org_id": str(settings.default_org_id)})
+    result = await db.execute(query, {"lot_id": str(lot_uuid), "org_id": str(ctx.org_id)})
     row = result.mappings().first()
 
     if not row:
@@ -598,6 +660,11 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
     return LotOut(
         id=row["id"],
         property_id=row.get("property_id"),
+        development_id=row.get("development_id"), municipality=row.get("municipality"),
+        location_set_by=row.get("location_set_by"), can_reset_location=row.get("can_reset_location", False),
+        latitude=row.get("latitude"), longitude=row.get("longitude"),
+        geocode_precision=row.get("geocode_precision"), geocode_source=row.get("geocode_source"),
+        geocoded_at=row.get("geocoded_at"),
         sale_type=row.get("sale_type"),
         trigger_type=row.get("trigger_type"),
         on_hold=row.get("on_hold", False),
@@ -615,6 +682,8 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db)):
         status=row["status"],
         land_agreement_id=row.get("land_agreement_id"),
         sale_agreement_id=row.get("sale_agreement_id"),
+        client_id=row.get("client_id"),
+        client_name=row.get("client_name"),
     )
 
 
@@ -623,7 +692,9 @@ async def update_lot_hold(
     lot_id: UUID,
     data: LotHoldUpdate,
     db: AsyncSession = Depends(get_db),
+    ctx: TenantContext = Depends(get_tenant),
 ) -> LotActivationFlagsOut:
+    await _require_lot_access(db, ctx, lot_id, ProjectRole.EDITOR)
     lot = await lot_service.set_lot_hold(db, lot_id, on_hold=data.on_hold)
     if lot is None:
         raise HTTPException(status_code=404, detail="Lot not found")
@@ -635,8 +706,21 @@ async def update_lot_cancelled(
     lot_id: UUID,
     data: LotCancelledUpdate,
     db: AsyncSession = Depends(get_db),
+    ctx: TenantContext = Depends(get_tenant),
 ) -> LotActivationFlagsOut:
+    await _require_lot_access(db, ctx, lot_id, ProjectRole.EDITOR)
     lot = await lot_service.set_lot_cancelled(db, lot_id, cancelled=data.cancelled)
     if lot is None:
         raise HTTPException(status_code=404, detail="Lot not found")
     return LotActivationFlagsOut.model_validate(lot, from_attributes=True)
+
+
+@router.patch("/{lot_id}/location", response_model=LocationOut)
+async def patch_lot_location(lot_id: UUID, data: LocationPatch, db: AsyncSession = Depends(get_db), ctx: TenantContext = Depends(get_tenant)):
+    await _require_lot_access(db, ctx, lot_id, ProjectRole.EDITOR)
+    lot = await db.scalar(select(Lot).where(Lot.id == lot_id).with_for_update())
+    if lot is None:
+        raise HTTPException(404, "Lot not found")
+    apply_location(lot, data, ctx.user.id)
+    await db.commit()
+    return location_payload(lot, ctx)

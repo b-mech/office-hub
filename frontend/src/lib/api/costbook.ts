@@ -1,12 +1,14 @@
 // lib/api/costbook.ts
 // API client for costbook + lots endpoints
 
+import { tenantHeaders } from "@/lib/tenant";
+
 const BASE = process.env.NEXT_PUBLIC_API_URL || "/backend-api";
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: { "Content-Type": "application/json", ...tenantHeaders(), ...(options?.headers || {}) },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -19,6 +21,10 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 export interface Lot {
   id: string;
+  development_id?: string | null;
+  municipality?: string | null;
+  location_set_by?: string | null;
+  can_reset_location?: boolean;
   property_id?: string | null;
   sale_type?: "presale" | "spec" | "showhome" | "other" | null;
   address: string;
@@ -42,6 +48,14 @@ export interface Lot {
   draw_available?: string | number | null;
   construction_stage?: string | null;
   construction_stage_updated_at?: string | null;
+  client_id?: string | null;
+  client_name?: string | null;
+  /** Reviewed coordinates stored on core.lots. */
+  geocode_precision?: "manual" | "house" | "street" | "locality" | "not_found" | null;
+  geocode_source?: string | null;
+  geocoded_at?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 }
 
 export async function getLots(): Promise<Lot[]> {

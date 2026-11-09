@@ -10,6 +10,7 @@ export default function LotsPage() {
       loadingText="Loading lots..."
       emptyText="No lots found"
       loadLots={getLots}
+      headerLink={{ href: "/lots/map", label: "Map" }}
     />
   );
 }

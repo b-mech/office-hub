@@ -11,12 +11,15 @@ from fastapi import HTTPException
 from fastapi import Query
 from fastapi import UploadFile
 from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.tendering import TenderDocument
-from app.models.tendering import TenderDocumentMarkup
-from app.models.tendering import TenderBidDocument
+from app.core import tender_access as access
+from app.core.tenancy import TenantContext
+from app.core.tenancy import get_tenant
+from app.models.core import ProjectRole
+from app.modules.costbook.models import Budget
 from app.schemas.tendering import CategoryOut
 from app.schemas.tendering import ContractorCreate
 from app.schemas.tendering import ContractorOut
@@ -35,10 +38,19 @@ from app.services import tender_markups
 
 
 router = APIRouter(prefix="/api", tags=["tendering"])
+VIEW = ProjectRole.VIEWER
+EDIT = ProjectRole.EDITOR
+Tenant = Annotated[TenantContext, Depends(get_tenant)]
+
+
+def _require_contractor_directory(ctx: TenantContext) -> None:
+    """Contractors have no org_id yet; the directory stays with the legacy org."""
+    if not (ctx.is_legacy_org and (ctx.org_wide_projects or ctx.is_superadmin)):
+        raise HTTPException(status_code=403, detail="The contractor directory is not available for this organization")
 
 
 @router.get("/contractor-categories", response_model=list[CategoryOut])
-async def contractor_categories(db: AsyncSession = Depends(get_db)) -> list[CategoryOut]:
+async def contractor_categories(ctx: Tenant, db: AsyncSession = Depends(get_db)) -> list[CategoryOut]:
     return [CategoryOut.model_validate(item) for item in await tendering.list_categories(db)]
 
 
@@ -87,12 +99,14 @@ async def deactivate_contractor(contractor_id: UUID, db: AsyncSession = Depends(
 
 
 @router.get("/properties/{property_id}/tender-packages", response_model=list[TenderPackageOut])
-async def property_tender_packages(property_id: UUID, db: AsyncSession = Depends(get_db)) -> list[TenderPackageOut]:
+async def property_tender_packages(property_id: UUID, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> list[TenderPackageOut]:
+    await access.require_property(ctx, property_id, VIEW, db)
     return [TenderPackageOut.model_validate(item) for item in await tendering.list_tender_packages(db, property_id)]
 
 
 @router.post("/properties/{property_id}/tender-packages", response_model=TenderPackageOut, status_code=201)
-async def create_tender_package(property_id: UUID, data: TenderPackageCreate, db: AsyncSession = Depends(get_db)) -> TenderPackageOut:
+async def create_tender_package(property_id: UUID, data: TenderPackageCreate, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> TenderPackageOut:
+    await access.require_property(ctx, property_id, EDIT, db)
     try:
         return TenderPackageOut.model_validate(await tendering.create_tender_package(db, property_id, data))
     except ValueError as exc:
@@ -100,18 +114,14 @@ async def create_tender_package(property_id: UUID, data: TenderPackageCreate, db
 
 
 @router.get("/tender-packages/{package_id}", response_model=TenderPackageOut)
-async def tender_package_detail(package_id: UUID, db: AsyncSession = Depends(get_db)) -> TenderPackageOut:
-    package = await tendering.get_tender_package(db, package_id)
-    if package is None:
-        raise HTTPException(status_code=404, detail="Tender package not found")
+async def tender_package_detail(package_id: UUID, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> TenderPackageOut:
+    package = await access.require_package(ctx, package_id, VIEW, db)
     return TenderPackageOut.model_validate(package)
 
 
 @router.patch("/tender-packages/{package_id}", response_model=TenderPackageOut)
-async def update_tender_package(package_id: UUID, data: TenderPackageUpdate, db: AsyncSession = Depends(get_db)) -> TenderPackageOut:
-    package = await tendering.get_tender_package(db, package_id)
-    if package is None:
-        raise HTTPException(status_code=404, detail="Tender package not found")
+async def update_tender_package(package_id: UUID, data: TenderPackageUpdate, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> TenderPackageOut:
+    package = await access.require_package(ctx, package_id, EDIT, db)
     try:
         return TenderPackageOut.model_validate(await tendering.update_tender_package(db, package, data))
     except ValueError as exc:
@@ -123,11 +133,10 @@ async def upload_tender_document(
     package_id: UUID,
     document_type: Annotated[TenderDocumentType, Form()],
     file: Annotated[UploadFile, File()],
+    ctx: Tenant,
     db: AsyncSession = Depends(get_db),
 ) -> TenderDocumentOut:
-    package = await tendering.get_tender_package(db, package_id)
-    if package is None:
-        raise HTTPException(status_code=404, detail="Tender package not found")
+    package = await access.require_package(ctx, package_id, EDIT, db)
     try:
         return TenderDocumentOut.model_validate(await tendering.upload_tender_document(db, package, document_type, file))
     except ValueError as exc:
@@ -135,26 +144,21 @@ async def upload_tender_document(
 
 
 @router.get("/tender-packages/{package_id}/documents", response_model=list[TenderDocumentOut])
-async def tender_documents(package_id: UUID, db: AsyncSession = Depends(get_db)) -> list[TenderDocumentOut]:
-    if await tendering.get_tender_package(db, package_id) is None:
-        raise HTTPException(status_code=404, detail="Tender package not found")
+async def tender_documents(package_id: UUID, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> list[TenderDocumentOut]:
+    await access.require_package(ctx, package_id, VIEW, db)
     return [TenderDocumentOut.model_validate(item) for item in await tendering.list_tender_documents(db, package_id)]
 
 
 @router.get("/tender-documents/{document_id}/content")
-async def tender_document_content(document_id: UUID, db: AsyncSession = Depends(get_db)) -> Response:
-    document = await db.get(TenderDocument, document_id)
-    if document is None:
-        raise HTTPException(status_code=404, detail="Tender document not found")
+async def tender_document_content(document_id: UUID, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> Response:
+    document = await access.require_document(ctx, document_id, VIEW, db)
     content = await tendering.get_tender_document_content(document)
     return Response(content=content, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{document.original_filename}"'})
 
 
 @router.delete("/tender-documents/{document_id}", status_code=204)
-async def delete_tender_document(document_id: UUID, db: AsyncSession = Depends(get_db)) -> Response:
-    document = await db.get(TenderDocument, document_id)
-    if document is None:
-        raise HTTPException(status_code=404, detail="Tender document not found")
+async def delete_tender_document(document_id: UUID, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> Response:
+    document = await access.require_document(ctx, document_id, EDIT, db)
     await tendering.delete_tender_document(db, document)
     return Response(status_code=204)
 
@@ -167,11 +171,10 @@ async def delete_tender_document(document_id: UUID, db: AsyncSession = Depends(g
 async def create_tender_document_markup(
     document_id: UUID,
     data: TenderDocumentMarkupCreate,
+    ctx: Tenant,
     db: AsyncSession = Depends(get_db),
 ) -> TenderDocumentMarkupOut:
-    document = await db.get(TenderDocument, document_id)
-    if document is None:
-        raise HTTPException(status_code=404, detail="Tender document not found")
+    document = await access.require_document(ctx, document_id, EDIT, db)
     try:
         return TenderDocumentMarkupOut.model_validate(
             await tender_markups.create_markup(db, document, data)
@@ -186,10 +189,10 @@ async def create_tender_document_markup(
 )
 async def tender_document_markups(
     document_id: UUID,
+    ctx: Tenant,
     db: AsyncSession = Depends(get_db),
 ) -> list[TenderDocumentMarkupSummary]:
-    if await db.get(TenderDocument, document_id) is None:
-        raise HTTPException(status_code=404, detail="Tender document not found")
+    await access.require_document(ctx, document_id, VIEW, db)
     return [
         TenderDocumentMarkupSummary.model_validate(item)
         for item in await tender_markups.list_markups(db, document_id)
@@ -202,22 +205,20 @@ async def tender_document_markups(
 )
 async def tender_document_markup(
     markup_id: UUID,
+    ctx: Tenant,
     db: AsyncSession = Depends(get_db),
 ) -> TenderDocumentMarkupOut:
-    markup = await db.get(TenderDocumentMarkup, markup_id)
-    if markup is None:
-        raise HTTPException(status_code=404, detail="Tender document markup not found")
+    markup = await access.require_markup(ctx, markup_id, VIEW, db)
     return TenderDocumentMarkupOut.model_validate(markup)
 
 
 @router.get("/tender-document-markups/{markup_id}/flattened")
 async def tender_document_markup_flattened(
     markup_id: UUID,
+    ctx: Tenant,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    markup = await db.get(TenderDocumentMarkup, markup_id)
-    if markup is None:
-        raise HTTPException(status_code=404, detail="Tender document markup not found")
+    markup = await access.require_markup(ctx, markup_id, VIEW, db)
     content = await tender_markups.get_flattened_pdf(markup)
     return Response(
         content=content,
@@ -227,10 +228,9 @@ async def tender_document_markup_flattened(
 
 
 @router.post("/tender-packages/{package_id}/bids", response_model=TenderBidOut, status_code=201)
-async def create_tender_bid(package_id: UUID, data: TenderBidCreate, db: AsyncSession = Depends(get_db)) -> TenderBidOut:
-    package = await tendering.get_tender_package(db, package_id)
-    if package is None:
-        raise HTTPException(status_code=404, detail="Tender package not found")
+async def create_tender_bid(package_id: UUID, data: TenderBidCreate, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> TenderBidOut:
+    package = await access.require_package(ctx, package_id, EDIT, db)
+    _require_contractor_directory(ctx)
     try:
         return TenderBidOut.model_validate(await tendering.create_tender_bid(db, package, data))
     except ValueError as exc:
@@ -239,15 +239,14 @@ async def create_tender_bid(package_id: UUID, data: TenderBidCreate, db: AsyncSe
 
 
 @router.get("/tender-packages/{package_id}/bids", response_model=list[TenderBidOut])
-async def tender_bids(package_id: UUID, db: AsyncSession = Depends(get_db)) -> list[TenderBidOut]:
-    if await tendering.get_tender_package(db, package_id) is None:
-        raise HTTPException(status_code=404, detail="Tender package not found")
+async def tender_bids(package_id: UUID, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> list[TenderBidOut]:
+    await access.require_package(ctx, package_id, VIEW, db)
     return [TenderBidOut.model_validate(item) for item in await tendering.list_tender_bids(db, package_id)]
 
 
 @router.post("/tender-bids/{bid_id}/documents", response_model=TenderBidOut)
-async def upload_tender_bid_document(bid_id: UUID, file: Annotated[UploadFile, File()], db: AsyncSession = Depends(get_db)) -> TenderBidOut:
-    bid = await tendering.get_tender_bid(db, bid_id)
+async def upload_tender_bid_document(bid_id: UUID, file: Annotated[UploadFile, File()], ctx: Tenant, db: AsyncSession = Depends(get_db)) -> TenderBidOut:
+    bid = await access.require_bid(ctx, bid_id, EDIT, db)
     if bid is None or bid.status == "cancelled":
         raise HTTPException(status_code=404, detail="Active tender bid not found")
     try:
@@ -257,25 +256,23 @@ async def upload_tender_bid_document(bid_id: UUID, file: Annotated[UploadFile, F
 
 
 @router.get("/tender-bid-documents/{document_id}/content")
-async def tender_bid_document_content(document_id: UUID, db: AsyncSession = Depends(get_db)) -> Response:
-    document = await db.get(TenderBidDocument, document_id)
-    if document is None:
-        raise HTTPException(status_code=404, detail="Tender bid document not found")
+async def tender_bid_document_content(document_id: UUID, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> Response:
+    document = await access.require_bid_document(ctx, document_id, VIEW, db)
     content = await tendering.get_tender_bid_document_content(document)
     return Response(content=content, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{document.original_filename}"'})
 
 
 @router.patch("/tender-bids/{bid_id}", response_model=TenderBidOut)
-async def update_tender_bid(bid_id: UUID, data: TenderBidUpdate, db: AsyncSession = Depends(get_db)) -> TenderBidOut:
-    bid = await tendering.get_tender_bid(db, bid_id)
+async def update_tender_bid(bid_id: UUID, data: TenderBidUpdate, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> TenderBidOut:
+    bid = await access.require_bid(ctx, bid_id, EDIT, db)
     if bid is None or bid.status == "cancelled":
         raise HTTPException(status_code=404, detail="Active tender bid not found")
     return TenderBidOut.model_validate(await tendering.update_tender_bid(db, bid, data))
 
 
 @router.delete("/tender-bids/{bid_id}", status_code=204)
-async def cancel_tender_bid(bid_id: UUID, db: AsyncSession = Depends(get_db)) -> Response:
-    bid = await tendering.get_tender_bid(db, bid_id)
+async def cancel_tender_bid(bid_id: UUID, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> Response:
+    bid = await access.require_bid(ctx, bid_id, EDIT, db)
     if bid is None:
         raise HTTPException(status_code=404, detail="Tender bid not found")
     await tendering.cancel_tender_bid(db, bid)
@@ -283,20 +280,22 @@ async def cancel_tender_bid(bid_id: UUID, db: AsyncSession = Depends(get_db)) ->
 
 
 @router.get("/tender-packages/{package_id}/comparison", response_model=TenderComparisonOut)
-async def tender_comparison(package_id: UUID, db: AsyncSession = Depends(get_db)) -> TenderComparisonOut:
-    package = await tendering.get_tender_package(db, package_id)
-    if package is None:
-        raise HTTPException(status_code=404, detail="Tender package not found")
+async def tender_comparison(package_id: UUID, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> TenderComparisonOut:
+    package = await access.require_package(ctx, package_id, VIEW, db)
     bids = await tendering.list_tender_bids(db, package_id)
     bid_models = [TenderBidOut.model_validate(item) for item in bids]
     return TenderComparisonOut(package=TenderPackageOut.model_validate(package), bids=bid_models, bid_count=len(bids), received_count=sum(item.status in {"received", "reviewed"} for item in bids))
 
 
 @router.post("/tender-packages/{package_id}/award", response_model=TenderAwardOut, status_code=201)
-async def award_tender_package(package_id: UUID, data: TenderAwardCreate, db: AsyncSession = Depends(get_db)) -> TenderAwardOut:
-    package = await tendering.get_tender_package(db, package_id)
-    if package is None:
-        raise HTTPException(status_code=404, detail="Tender package not found")
+async def award_tender_package(package_id: UUID, data: TenderAwardCreate, ctx: Tenant, db: AsyncSession = Depends(get_db)) -> TenderAwardOut:
+    package = await access.require_package(ctx, package_id, EDIT, db)
+    if not ctx.is_legacy_org:
+        # Costbook purchase orders are still written to the legacy org.
+        raise HTTPException(status_code=403, detail="Costbook awards are not available for this organization")
+    budget_org = await db.scalar(select(Budget.org_id).where(Budget.id == data.budget_id))
+    if budget_org is not None and budget_org != ctx.org_id:
+        raise HTTPException(status_code=422, detail="Budget not found")
     try:
         award, po = await tendering.award_tender_package(db, package, data)
     except ValueError as exc:

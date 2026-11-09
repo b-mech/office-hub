@@ -6,6 +6,7 @@ import { ClientOtpPanel } from "./ClientOtpPanel";
 import { ConstructionStageHistory } from "./ConstructionStageHistory";
 import { DocumentUploadPanel } from "./DocumentUploadPanel";
 import { FacilityAssignmentModal } from "./FacilityAssignmentModal";
+import { FacilityDrawHistory } from "./FacilityDrawHistory";
 import { FinancialOverview } from "./FinancialOverview";
 import { LenderFacilityForm } from "./LenderFacilityForm";
 import { MilestoneTimeline } from "./MilestoneTimeline";
@@ -134,6 +135,8 @@ export function PropertyDetailDrawer({
           {property.flag ? <p className="mt-3 text-sm font-medium text-[var(--ch-warning-text)]">{explainFlag(property.flag)}</p> : null}
           {property.lender_type === "CLIENT" ? <p className="mt-3 text-sm text-[var(--ch-text-secondary)]">CLIENT — use Prep Draw to match the reviewed OTP schedule to the current stage.</p> : null}
         </div>
+
+        {property.lender_type !== "PRO" && property.facility_id ? <FacilityDrawHistory key={property.facility_id} property={property} /> : null}
 
         {property.lender_type === "PRO" && property.commitment_source ? (
           <div className="mb-4 rounded-lg border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4">
