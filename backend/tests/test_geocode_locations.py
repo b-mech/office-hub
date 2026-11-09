@@ -52,3 +52,14 @@ def test_condo_house_is_never_unit_exact():
 
 def test_city_prefix_does_not_accept_another_town():
     assert g.classify(result(city="Winnipeg Beach"), "142 Clubhouse Drive", "Winnipeg")[0] == "not_found"
+
+
+def test_multiple_distant_house_results_are_not_first_result_wins():
+    coder = g.Geocoder.__new__(g.Geocoder)
+    first = result(house="142")
+    second = dict(first, lat="49.750000")
+    coder.search = lambda street, city: [first, second]
+    row = coder.locate(dict(address="142 Clubhouse Drive", municipality="Lorette"))
+    assert row["precision"] == "not_found"
+    assert row["latitude"] is None
+    assert "ambiguous" in row["reason"]

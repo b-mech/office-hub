@@ -107,7 +107,7 @@ def classify(result, street, city, unit=False):
         return ("not_found", "street mismatch / missing East-West direction; manual review") if any(roads) else ("locality", "locality centroid; not plotted")
     if number and normalize(str(a.get("house_number", ""))) == normalize(number.group(1)) and not unit:
         return "house", "house number and street match"
-    return "street", "street only; manual parcel pin needed" if not unit else "shared civic street; condo unit needs manual pin"
+    return "street", "street only; manual parcel pin needed" if not unit else "shared or normalized civic street; manual pin needed"
 
 
 class Geocoder:
@@ -155,6 +155,13 @@ class Geocoder:
                 rank = {"house": 3, "street": 2, "locality": 1, "not_found": 0}
                 if rank[p] > rank[precision]:
                     best, precision, reason = result, p, why
+                elif best is None and precision == "not_found":
+                    reason = why
+            if precision == "house":
+                houses = [r for r in results if classify(r, street, city, unit)[0] == "house"]
+                if any(abs(float(r["lat"]) - float(best["lat"])) > 0.0005 or abs(float(r["lon"]) - float(best["lon"])) > 0.0005 for r in houses):
+                    best, precision, reason = None, "not_found", "ambiguous matching house results; manual review"
+                    break
             if precision in {"house", "street"}:
                 break
         plottable = precision in {"house", "street"}
