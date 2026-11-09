@@ -9,18 +9,21 @@ export interface MapRecord {
   label: string;
   latitude?: CoordinateValue;
   longitude?: CoordinateValue;
+  geocode_precision?: string | null;
 }
 
 export interface LocatedPoint<T extends MapRecord> {
   record: T;
   lat: number;
   lng: number;
+  approximate: boolean;
 }
 
 export type ExclusionReason = "missing" | "invalid" | "shared";
 
 export interface PartitionedPoints<T extends MapRecord> {
   located: LocatedPoint<T>[];
+  approximate: LocatedPoint<T>[];
   /** No stored latitude/longitude. */
   missing: T[];
   /** Stored values that are not usable: non-numeric, out of range, or the 0,0 sentinel. */
@@ -30,7 +33,7 @@ export interface PartitionedPoints<T extends MapRecord> {
 }
 
 /** Minimum number of distinct records on exactly the same point before the point is treated as an approximate geocode. */
-export const SHARED_COORDINATE_THRESHOLD = 3;
+export const SHARED_COORDINATE_THRESHOLD = 2;
 
 /** Parses one stored coordinate. Returns null for missing values and NaN for present-but-unusable ones. */
 export function parseCoordinate(value: CoordinateValue): number | null {
@@ -53,7 +56,8 @@ const coordinateKey = (lat: number, lng: number) => `${lat.toFixed(6)},${lng.toF
 /**
  * Splits records into plottable points and the reasons the rest are not plotted.
  * Records whose stored coordinates are shared, to six decimals, by
- * SHARED_COORDINATE_THRESHOLD or more different labels are excluded as approximate.
+ * SHARED_COORDINATE_THRESHOLD or more labels are approximate, never exact.
+ * Only validated house/street precision can plot; legacy/locality points cannot.
  */
 export function partitionMapRecords<T extends MapRecord>(
   records: readonly T[],
@@ -67,7 +71,8 @@ export function partitionMapRecords<T extends MapRecord>(
     const lng = parseCoordinate(record.longitude);
     if (lat === null && lng === null) missing.push(record);
     else if (lat === null || lng === null || !isValidLatLng(lat, lng)) invalid.push(record);
-    else candidates.push({ record, lat, lng });
+    else if (!["house", "street"].includes(record.geocode_precision ?? "")) invalid.push(record);
+    else candidates.push({ record, lat, lng, approximate: record.geocode_precision === "street" });
   }
 
   const labelsByKey = new Map<string, Set<string>>();
@@ -80,12 +85,14 @@ export function partitionMapRecords<T extends MapRecord>(
 
   const located: LocatedPoint<T>[] = [];
   const shared: T[] = [];
+  const approximate: LocatedPoint<T>[] = [];
   for (const point of candidates) {
     const labels = labelsByKey.get(coordinateKey(point.lat, point.lng));
-    if (sharedThreshold > 1 && labels && labels.size >= sharedThreshold) shared.push(point.record);
-    else located.push(point);
+    if (sharedThreshold > 1 && labels && labels.size >= sharedThreshold) point.approximate = true;
+    located.push(point);
+    if (point.approximate) approximate.push(point);
   }
-  return { located, missing, invalid, shared };
+  return { located, approximate, missing, invalid, shared };
 }
 
 export type ViewPlan =

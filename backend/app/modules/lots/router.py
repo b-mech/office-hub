@@ -49,6 +49,11 @@ def verify_api_key(x_api_key: Annotated[str | None, Header(alias="X-API-Key")] =
 
 class LotOut(BaseModel):
     id: str
+    latitude: Optional[Decimal] = None
+    longitude: Optional[Decimal] = None
+    geocode_precision: Optional[str] = None
+    geocode_source: Optional[str] = None
+    geocoded_at: Optional[str] = None
     property_id: Optional[UUID] = None
     sale_type: Optional[str] = None
     trigger_type: Optional[str] = None
@@ -132,6 +137,7 @@ async def _list_lots(db: AsyncSession, screen: str, ctx: TenantContext) -> list[
         SELECT
             l.id::text AS id,
             l.property_id,
+            l.latitude, l.longitude, l.geocode_precision, l.geocode_source, l.geocoded_at::text,
             l.sale_type,
             l.trigger_type,
             l.on_hold,
@@ -283,6 +289,9 @@ async def _list_lots(db: AsyncSession, screen: str, ctx: TenantContext) -> list[
         LotOut(
             id=row["id"],
             property_id=row.get("property_id"),
+            latitude=row.get("latitude"), longitude=row.get("longitude"),
+            geocode_precision=row.get("geocode_precision"), geocode_source=row.get("geocode_source"),
+            geocoded_at=row.get("geocoded_at"),
             sale_type=row.get("sale_type"),
             trigger_type=row.get("trigger_type"),
             on_hold=row.get("on_hold", False),
@@ -572,6 +581,7 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db), ctx: TenantCo
         SELECT
             l.id::text AS id,
             l.property_id,
+            l.latitude, l.longitude, l.geocode_precision, l.geocode_source, l.geocoded_at::text,
             l.sale_type,
             l.trigger_type,
             l.on_hold,
@@ -640,6 +650,9 @@ async def get_lot(lot_id: str, db: AsyncSession = Depends(get_db), ctx: TenantCo
     return LotOut(
         id=row["id"],
         property_id=row.get("property_id"),
+        latitude=row.get("latitude"), longitude=row.get("longitude"),
+        geocode_precision=row.get("geocode_precision"), geocode_source=row.get("geocode_source"),
+        geocoded_at=row.get("geocoded_at"),
         sale_type=row.get("sale_type"),
         trigger_type=row.get("trigger_type"),
         on_hold=row.get("on_hold", False),

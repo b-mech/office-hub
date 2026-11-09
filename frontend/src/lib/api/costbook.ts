@@ -46,7 +46,10 @@ export interface Lot {
   construction_stage_updated_at?: string | null;
   client_id?: string | null;
   client_name?: string | null;
-  /** Not returned by /api/v1/lots today (no coordinate columns on core.lots); read by the Land map if added. */
+  /** Reviewed coordinates stored on core.lots. */
+  geocode_precision?: "house" | "street" | "locality" | "not_found" | null;
+  geocode_source?: string | null;
+  geocoded_at?: string | null;
   latitude?: number | string | null;
   longitude?: number | string | null;
 }

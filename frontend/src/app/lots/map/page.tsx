@@ -11,8 +11,7 @@ import { Card, Empty, ErrorNote, PageShell, fieldClass } from "../../components/
 // Land map. Records come from the tenant-enforced /api/v1/lots (land lots) and
 // /api/v1/projects (active, triggered lots). Markers are drawn only from
 // stored latitude/longitude on those records; there is no geocoding here.
-// core.lots and core.properties have no coordinate columns today, so every
-// record is listed as "without coordinates" until coordinates are stored.
+// core.lots stores validated coordinates and geocode precision for every lot.
 
 type Kind = "lot" | "project";
 type Row = Lot & { kind: Kind; label: string };
@@ -75,7 +74,8 @@ export default function LotsMapPage() {
     () =>
       partition.located
         .filter((point) => visibleIds.has(point.record.id))
-        .map(({ record, lat, lng }) => ({
+        .map(({ record, lat, lng, approximate }) => ({
+          approximate,
           id: record.id,
           lat,
           lng,
@@ -88,6 +88,7 @@ export default function LotsMapPage() {
     [partition, visibleIds],
   );
 
+  const approximateIds = new Set(partition.approximate.map((point) => point.record.id));
   const total = rows?.length ?? 0;
 
   return (
@@ -108,6 +109,7 @@ export default function LotsMapPage() {
               missing={partition.missing.length}
               invalid={partition.invalid.length}
               shared={partition.shared.length}
+              approximate={partition.approximate.length}
             />
             <div className="flex w-full flex-wrap gap-2 sm:w-auto">
               <div className="flex gap-1" role="group" aria-label="Show">
@@ -136,7 +138,7 @@ export default function LotsMapPage() {
             <EntityMap markers={markers} selectedId={selectedId} onSelect={setSelectedId} ariaLabel="Lots and projects map" />
           ) : (
             <Empty>
-              Lots don&apos;t have stored map coordinates yet ({total} without coordinates), so no markers can be placed.
+              No validated house or street coordinates are available for these records.
               Locations are not guessed from addresses. Every lot and project is listed below.
             </Empty>
           )}
@@ -158,7 +160,7 @@ export default function LotsMapPage() {
                         <span className="rounded-full border border-[var(--ch-border)] px-2 py-1 text-xs text-[var(--ch-text-muted)]">{UNPLOTTED_LABEL[reason]}</span>
                       ) : (
                         <button type="button" onClick={() => setSelectedId(row.id)} className="rounded-md border border-[var(--ch-border)] px-2 py-1 text-xs hover:border-[var(--ch-border-strong)]">
-                          Show on map
+                          {approximateIds.has(row.id) ? "Approximate street pin · review" : "Show on map"}
                         </button>
                       )}
                     </li>

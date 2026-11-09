@@ -66,7 +66,8 @@ export default function RentalsMapPage() {
     () =>
       partition.located
         .filter((point) => matches(point.record))
-        .map(({ record, lat, lng }) => ({
+        .map(({ record, lat, lng, approximate }) => ({
+          approximate,
           id: record.id,
           lat,
           lng,
@@ -83,6 +84,7 @@ export default function RentalsMapPage() {
     [partition, matches],
   );
 
+  const approximateIds = new Set(partition.approximate.map((point) => point.record.id));
   const listed = (items ?? []).filter(matches);
 
   return (
@@ -103,6 +105,7 @@ export default function RentalsMapPage() {
               missing={partition.missing.length}
               invalid={partition.invalid.length}
               shared={partition.shared.length}
+              approximate={partition.approximate.length}
             />
             <input
               value={query}
@@ -144,7 +147,7 @@ export default function RentalsMapPage() {
                         <span className="rounded-full border border-[var(--ch-border)] px-2 py-1 text-xs text-[var(--ch-text-muted)]">{UNPLOTTED_LABEL[reason]}</span>
                       ) : (
                         <button type="button" onClick={() => setSelectedId(id)} className="rounded-md border border-[var(--ch-border)] px-2 py-1 text-xs hover:border-[var(--ch-border-strong)]">
-                          Show on map
+                          {approximateIds.has(id) ? "Approximate street pin · review" : "Show on map"}
                         </button>
                       )}
                     </li>

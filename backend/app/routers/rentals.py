@@ -126,7 +126,7 @@ async def property_map(db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
         last=await db.scalar(select(func.max(RentalInspection.inspection_date)).where(RentalInspection.unit_id.in_(unit_ids),RentalInspection.status=="submitted"))
         age=(today-last).days if last else None
         status="never" if age is None else "current" if age<=183 else "due" if age<=365 else "overdue"
-        result.append({"property_id":prop.id,"street_address":prop.street_address,"group_name":prop.group_name,"latitude":prop.latitude,"longitude":prop.longitude,"unit_count":unit_count,"last_inspection_date":last,"inspection_status":status})
+        result.append({"property_id":prop.id,"street_address":prop.street_address,"group_name":prop.group_name,"latitude":prop.latitude,"longitude":prop.longitude,"geocode_precision":prop.geocode_precision,"geocode_source":prop.geocode_source,"geocoded_at":prop.geocoded_at,"unit_count":unit_count,"last_inspection_date":last,"inspection_status":status})
     return result
 @inspections_router.get("/units/{unit_id}/inspections",response_model=list[InspectionOut])
 async def history(unit_id:int,db:AsyncSession=Depends(get_db))->list[InspectionOut]: return [await _inspection_out(db,x) for x in (await db.scalars(select(RentalInspection).where(RentalInspection.unit_id==unit_id).order_by(RentalInspection.inspection_date.desc()))).all()]

@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import String
 from sqlalchemy import BigInteger
 from sqlalchemy import Boolean
 from sqlalchemy import CheckConstraint
@@ -516,6 +517,11 @@ class Lot(Base):
         nullable=False,
         unique=True,
     )
+    geocode_precision: Mapped[str | None] = mapped_column(String(20))
+    geocode_source: Mapped[str | None] = mapped_column(String(100))
+    geocoded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     civic_address: Mapped[str | None] = mapped_column(Text)
     street_number: Mapped[str | None] = mapped_column(Text)
     street_name: Mapped[str | None] = mapped_column(Text)

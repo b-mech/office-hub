@@ -32,3 +32,6 @@ dist/
 # Docker volumes
 pgdata/
 miniodata/
+
+# Private one-time geocode cache and operator review output
+**/.qa/geocode*

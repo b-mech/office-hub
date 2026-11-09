@@ -20,6 +20,7 @@ export interface EntityMapMarker {
   href: string;
   linkLabel: string;
   color?: string;
+  approximate?: boolean;
 }
 
 const OSM_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -33,6 +34,12 @@ function popupContent(marker: EntityMapMarker): HTMLElement {
   root.style.minWidth = "200px";
   const title = document.createElement("strong");
   title.textContent = marker.title;
+  if (marker.approximate) {
+    const note = document.createElement("div");
+    note.textContent = "Approximate street location — not the parcel. Manual pin needed.";
+    note.style.fontWeight = "600";
+    root.appendChild(note);
+  }
   root.appendChild(title);
   for (const line of marker.lines ?? []) {
     if (!line) continue;
@@ -52,9 +59,9 @@ function popupContent(marker: EntityMapMarker): HTMLElement {
   return root;
 }
 
-function markerHtml(color: string): string {
+function markerHtml(color: string, approximate = false): string {
   // Colour is chosen by the caller from a fixed palette, never from record data.
-  return `<span style="display:block;width:18px;height:18px;border-radius:9999px;background:${color};border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.35)"></span>`;
+  return `<span style="display:block;width:18px;height:18px;border-radius:9999px;background:${approximate ? "#fff" : color};border:3px ${approximate ? "dashed" : "solid"} ${approximate ? color : "#fff"};box-shadow:0 0 0 1px rgba(0,0,0,.35)"></span>`;
 }
 
 export function EntityMap({
@@ -125,7 +132,7 @@ export function EntityMap({
         alt: item.title,
         keyboard: true,
         riseOnHover: true,
-        icon: L.divIcon({ className: "", html: markerHtml(item.color ?? DEFAULT_COLOR), iconSize: [18, 18], iconAnchor: [9, 9], popupAnchor: [0, -10] }),
+        icon: L.divIcon({ className: "", html: markerHtml(item.color ?? DEFAULT_COLOR, item.approximate), iconSize: [18, 18], iconAnchor: [9, 9], popupAnchor: [0, -10] }),
       });
       marker.bindPopup(() => popupContent(item));
       marker.on("click", () => onSelectRef.current?.(item.id));
@@ -158,7 +165,7 @@ export function EntityMap({
       {loadError ? <p className="mt-2 text-sm text-[var(--ch-error-text)]">Map failed to load: {loadError}</p> : null}
       {tileErrors > 0 ? (
         <p className="mt-2 text-sm text-[var(--ch-warning-text)]">
-          {tileErrors} map tile{tileErrors === 1 ? "" : "s"} failed to load from OpenStreetMap. Markers and the list below are still accurate.
+          {tileErrors} map tile{tileErrors === 1 ? "" : "s"} failed to load from OpenStreetMap. Markers and the list below remain available; dashed markers are approximate.
         </p>
       ) : null}
     </div>
