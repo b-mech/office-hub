@@ -2,7 +2,7 @@
 
 0058 belongs to PR #3. Before merging both branches, add a merge revision
 with parents 20261106_0058 and the latest map-branch head (now
-20261109_0060); do not merge the obsolete 0059 head after 0060 exists.
+20261109_0061); do not merge the obsolete 0059 head after 0060 exists.
 Lot locations live on core.lots: 116/153 QA lots have no property_id.
 """
 from alembic import op

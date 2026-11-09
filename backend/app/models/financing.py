@@ -105,6 +105,7 @@ class FacilityTransaction(Base):
     __tablename__ = "facility_transactions"
     __table_args__ = (
         UniqueConstraint("facility_id", "txn_date", "amount", "reference", name="uq_facility_transactions_identity"),
+        CheckConstraint("percent_complete IS NULL OR percent_complete BETWEEN 0 AND 100", name="ck_facility_transactions_percent_complete"),
         {"schema": "core"},
     )
 
@@ -115,6 +116,9 @@ class FacilityTransaction(Base):
     amount = Column(Numeric(14, 2), nullable=False)
     reference = Column(Text)
     source = Column(String(20), nullable=False)
+    notes = Column(Text)
+    confirmed_by = Column(String(255))
+    percent_complete = Column(Numeric(5, 2))
     statement_id = Column(UUID(as_uuid=True), ForeignKey("documents.lender_statements.id", ondelete="SET NULL"))
     funds_entry_id = Column(UUID(as_uuid=True), ForeignKey("documents.funds_entries.id", ondelete="SET NULL"))
     funds_notice_id = Column(UUID(as_uuid=True), ForeignKey("documents.funds_notices.id", ondelete="SET NULL"))

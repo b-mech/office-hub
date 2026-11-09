@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.routers.facility_draws import router as facility_draws_router
 from app.core.addresses import normalize_address
 from app.schemas.financing import ClientDrawRequestOut
 from app.schemas.financing import ClientDrawScheduleOut
@@ -627,3 +628,7 @@ def _decimal(value: object) -> Decimal | None:
 def _safe_path(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-")
     return cleaned[:160] or "file"
+
+
+# Supplemental non-PRO draw history; existing PRO ledger routes remain unchanged.
+router.include_router(facility_draws_router)

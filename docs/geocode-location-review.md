@@ -11,8 +11,8 @@ between East and West. Reusing legacy pins is not safe.
 ## Schema and merge order
 `20261109_0059` follows `20261106_0057` on PR #2. PR #3 separately has
 `20261106_0058`; before both are deployed, add an Alembic merge revision with
-both current heads, `20261106_0058` and `20261109_0060` (manual-pin
-followup to 0059). Do NOT merge the obsolete 0059 head, renumber, or blindly
+both current heads, `20261106_0058` and `20261109_0061` (draw-history
+followup to manual-pin 0060). Do NOT merge the obsolete 0059 head, renumber, or blindly
 run `upgrade head` across two heads.
 No production or staging database was migrated.
 

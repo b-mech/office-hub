@@ -45,7 +45,7 @@ also protects a pin manually saved while a geocoding batch is in flight.
 20261109_0060 follows 20261109_0059. Adds nullable location_set_by (FK core.users,
 ON DELETE SET NULL) and geocode_snapshot JSONB on core.lots/rental_properties.
 Preview only, after pg_dump backup. PR #3 has separate 0058: retain a reviewed
-merge revision with parents 20261109_0060 and 20261106_0058 before joint
+merge revision with parents 20261109_0061 and 20261106_0058 before joint
 deployment; do not renumber either history.
 
 ## QA
