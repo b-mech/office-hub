@@ -106,3 +106,27 @@ async def test_staff_actor_is_recorded(isolated):
     ticket,_=await create_staff_ticket(db,StaffTicketCreate(**fields()),actor)
     assert ticket.created_by==actor.user_id
     assert next(o for o in db.added if isinstance(o,MaintEvent) and o.event_type=="created").actor_user_id==actor.user_id
+
+
+@pytest.mark.asyncio
+async def test_staff_photos_attach_to_created_ticket_with_web_audit(isolated,monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+    uploaded=[]
+    async def store(db,**kwargs):uploaded.append(kwargs);return SimpleNamespace(id=uuid4())
+    monkeypatch.setattr("app.services.maintenance.staff_tickets.store_attachment",store)
+    image=BytesIO();Image.new("RGB",(2,2)).save(image,format="JPEG")
+    r=await post(fields(),[("photos",("tap.jpg",image.getvalue(),"image/jpeg"))])
+    assert r.status_code==201,r.text
+    assert len(uploaded)==1 and str(uploaded[0]["ticket_id"])==r.json()["id"]
+    assert uploaded[0]["uploaded_by_party"]==MaintParty.STAFF
+    assert any(isinstance(e,MaintEvent) and e.event_type=="attachment_added" and e.channel==MaintEventChannel.WEB for e in isolated[0].added)
+
+
+@pytest.mark.asyncio
+async def test_invalid_later_photo_does_not_leave_partial_ticket(isolated):
+    from io import BytesIO
+    from PIL import Image
+    image=BytesIO();Image.new("RGB",(2,2)).save(image,format="JPEG")
+    r=await post(fields(),[("photos",("tap.jpg",image.getvalue(),"image/jpeg")),("photos",("bad.jpg",b"bad","image/jpeg"))])
+    assert r.status_code==422 and not isolated[0].added

@@ -56,7 +56,6 @@ def is_future_scheduled_visit(
     work_order: MaintWorkOrder,
     *,
     now: datetime | None = None,
-    channel: MaintEventChannel = MaintEventChannel.SYSTEM,
 ) -> bool:
     checked_at = now or datetime.now(timezone.utc)
     return bool(

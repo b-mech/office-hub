@@ -86,3 +86,17 @@ frontend to test this branch. No live SMS/Slack/mail/DocuSign is needed for test
 Before any staging rollout: obtain Nicholas's approval, choose vendor seed data,
 confirm the allowlisted test recipients and approve any real test texts. Tests
 with fake sessions do not replace a fresh trial-DB/browser acceptance pass.
+
+## External access prerequisite (not applied)
+
+An application-level public route does not bypass Cloudflare Access. Before
+rollout, check anonymous access to `/w/*` and the public work-order API through
+its actual frontend proxy path (`/backend-api/api/public/work-orders/*`, or
+`/api/public/work-orders/*` when using the existing direct public rewrite).
+They need the same narrowly scoped public-access treatment as `/r/*` and its
+intake API. Keep all staff `/api/maintenance/*` and admin pages protected. No
+Cloudflare/tunnel settings were changed during this development task.
+
+The isolated Next build exposed two pre-existing invalid named Page exports.
+Reusable ChangeOrderForm and LotWorkspace were moved into components without
+behavior changes, keeping their Page entry points export-compatible with Next.

@@ -13,8 +13,8 @@ export default function NewMaintenanceTicket() {
   const [busy,setBusy] = useState(false); const [ready,setReady] = useState(false); const [error,setError] = useState("");
   const [created,setCreated] = useState<Awaited<ReturnType<typeof createStaffTicket>>|null>(null);
   useEffect(()=>{ getStaffTicketOptions().then(setOptions).catch(e=>setError(e.message)).finally(()=>setReady(true)); },[]);
-  const properties = useMemo(()=>options.properties.filter(p=>`${p.name} ${p.address}`.toLowerCase().includes(propertySearch.toLowerCase())),[options.properties,propertySearch]);
-  const units = useMemo(()=>options.units.filter(u=>u.property_id===Number(propertyId)&&u.label.toLowerCase().includes(unitSearch.toLowerCase())),[options.units,propertyId,unitSearch]);
+  const properties = useMemo(()=>options.properties.filter(p=>p.id===Number(propertyId)||`${p.name} ${p.address}`.toLowerCase().includes(propertySearch.toLowerCase())),[options.properties,propertySearch,propertyId]);
+  const units = useMemo(()=>options.units.filter(u=>u.property_id===Number(propertyId)&&(u.id===Number(unitId)||u.label.toLowerCase().includes(unitSearch.toLowerCase()))),[options.units,propertyId,unitSearch,unitId]);
   async function submit(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();setError("");const data=new FormData(event.currentTarget);
     if(photos.length>10||photos.some(f=>f.size>10*1024*1024)){setError("Choose up to 10 photos, each 10 MB or smaller");return;}
