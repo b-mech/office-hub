@@ -4,16 +4,18 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 from datetime import date, datetime, timezone
 from io import BytesIO
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from redis.exceptions import RedisError
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -26,17 +28,26 @@ from app.models.maintenance import (
     MaintEvent,
     MaintEventChannel,
     MaintParty,
+    MaintPriority,
     MaintSmsMessage,
+    MaintStatus,
+    MaintTicket,
     MaintUnitToken,
     MaintVisibility,
+    MaintVendor,
+    MaintWorkOrder,
 )
 from app.models.rentals import RentalLease, RentalLeaseTenant, RentalProperty, RentalTenant, RentalUnit
 from app.services.maintenance.errors import InvalidMediaError
 from app.services.maintenance.media import (
+    MAX_FILE_BYTES,
+    process_media,
+    create_ticket_upload_token,
     download_attachment,
     store_attachment,
     validate_file_count,
     verify_signed_media_token,
+    verify_ticket_upload_token,
 )
 from app.services.maintenance.notifier import get_maintenance_notifier
 from app.services.maintenance.permissions import has_maintenance_permission
@@ -54,11 +65,49 @@ from app.services.maintenance.sms.outbound import SmsOptedOutError, normalized_d
 from app.services.maintenance.sms.providers import get_sms_provider
 from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext
+from app.services.maintenance.staff_tickets import create_staff_ticket
+from app.services.maintenance.vendors import DuplicateVendorPhone, save_vendor, vendor_view
+from app.services.maintenance.tokens import hash_token
+from app.services.maintenance.vendor_portal import (InvalidVendorLink, VendorActionConflict,
+    apply_vendor_action, portal_view, resolve_vendor_link, upload_vendor_photos)
 from app.services.maintenance.tickets import TicketCreate, create_ticket
 from app.services.maintenance.turnstile import TurnstileError, verify_turnstile
+from app.services.maintenance.webhook_alerts import alert_ringcentral_webhook_failure
+from app.services.maintenance.workspace import (
+    acknowledge_ticket,
+    actor_for,
+    apply_more_action,
+    apply_triage,
+    assign_work,
+    cancel_message,
+    calendar_view,
+    complete_order,
+    list_ticket_views,
+    post_message,
+    preview_schedule_work,
+    resolve_ticket,
+    retry_message,
+    schedule_work,
+    update_scheduled_visit,
+    ticket_detail_view,
+)
+from app.schemas.maintenance import (
+    VendorCreate,
+    VendorUpdate,
+    VendorPortalAction,
+    StaffTicketCreate,
+    AssignmentRequest,
+    CompleteWorkOrderRequest,
+    MoreActionRequest,
+    ResolveRequest,
+    ScheduleRequest,
+    ScheduledVisitRequest,
+    TriageRequest,
+)
 
 
 router = APIRouter(tags=["maintenance"])
+logger = logging.getLogger("uvicorn.error")
 
 
 def _invalid_link() -> str:
@@ -86,6 +135,21 @@ def _property_label(prop: RentalProperty) -> str:
 
 def _unit_label(unit: RentalUnit) -> str:
     return unit.unit_label or "Main building"
+
+
+async def _ticket_or_404(db: AsyncSession, ticket_id: UUID) -> MaintTicket:
+    ticket = await db.get(MaintTicket, ticket_id)
+    if ticket is None:
+        raise HTTPException(404, "Maintenance ticket not found")
+    return ticket
+
+
+async def _commit_workspace(db: AsyncSession) -> None:
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.get("/api/public/maintenance/config")
@@ -241,13 +305,81 @@ async def submit_intake(
                     payload={"phone_last4": normalized_phone[-4:]},
                 )
             )
-            await get_maintenance_notifier().opted_out(normalized_phone)
-        await get_maintenance_notifier().ticket_created(ticket)
+            await get_maintenance_notifier().opted_out(
+                db, normalized_phone, source_key=f"ticket:{ticket.id}"
+            )
+        await get_maintenance_notifier().ticket_created(db, ticket)
         await db.commit()
     except (InvalidMediaError, ValueError) as exc:
         await db.rollback()
         raise HTTPException(422, str(exc)) from exc
-    return {"ticket_number": ticket.number, "phone": normalized_phone}
+    return {
+        "ticket_number": ticket.number,
+        "phone": normalized_phone,
+        "photo_upload_token": create_ticket_upload_token(ticket.id, settings.secret_key),
+    }
+
+
+@router.post("/api/public/intake/photos/{signed_token}", status_code=201)
+async def upload_intake_photos(
+    signed_token: str,
+    photos: Annotated[list[UploadFile], File()],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, int]:
+    _require_enabled()
+    try:
+        ticket_id = verify_ticket_upload_token(signed_token, settings.secret_key)
+    except InvalidMediaError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+    ticket = await db.scalar(
+        select(MaintTicket)
+        .where(MaintTicket.id == ticket_id, MaintTicket.source == "tenant_qr")
+        .with_for_update()
+    )
+    if ticket is None:
+        raise HTTPException(404, "Maintenance ticket not found")
+
+    existing_count = int(
+        await db.scalar(
+            select(func.count(MaintAttachment.id)).where(
+                MaintAttachment.ticket_id == ticket_id,
+                MaintAttachment.uploaded_by_party == MaintParty.TENANT,
+                MaintAttachment.kind == "photo",
+            )
+        )
+        or 0
+    )
+    try:
+        if not photos:
+            raise InvalidMediaError("Choose at least one photo")
+        validate_file_count(existing_count + len(photos), party=MaintParty.TENANT)
+        for photo in photos:
+            attachment = await store_attachment(
+                db,
+                ticket_id=ticket.id,
+                content=await photo.read(),
+                original_filename=photo.filename,
+                uploaded_by_party=MaintParty.TENANT,
+            )
+            event = MaintEvent(
+                ticket_id=ticket.id,
+                event_type="attachment_added",
+                channel=MaintEventChannel.WEB,
+                visibility=MaintVisibility.EXTERNAL,
+                direction=MaintDirection.INBOUND,
+                actor_party=MaintParty.TENANT,
+                actor_phone_e164=ticket.reporter_phone_e164,
+                payload={"attachment_id": str(attachment.id)},
+            )
+            db.add(event)
+            await db.flush()
+            attachment.event_id = event.id
+        await db.commit()
+    except InvalidMediaError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"uploaded": len(photos)}
 
 
 @router.get("/api/public/media/{signed_token}")
@@ -300,7 +432,7 @@ async def twilio_status(request: Request, db: AsyncSession = Depends(get_db)) ->
                     payload={"status": message.status, "error_code": message.error_code},
                 )
             )
-        await get_maintenance_notifier().sms_status_changed(message)
+        await get_maintenance_notifier().sms_status_changed(db, message)
         await db.commit()
     return Response(status_code=204)
 
@@ -326,27 +458,50 @@ async def twilio_inbound(request: Request, db: AsyncSession = Depends(get_db)) -
 @router.post("/api/webhooks/ringcentral/sms")
 async def ringcentral_inbound(request: Request, db: AsyncSession = Depends(get_db)) -> Response:
     raw_body = await request.body()
-    supplied_token = request.headers.get("Validation-Token", "")
+    validation_challenge = request.headers.get("Validation-Token", "")
 
     # RingCentral validates a new callback URL with an empty POST and requires
     # the supplied challenge token to be echoed in a small JSON response.
     if not raw_body:
-        if not supplied_token:
+        if not validation_challenge:
+            try:
+                await alert_ringcentral_webhook_failure(400, "validation token missing")
+            except Exception:
+                logger.exception("Could not post RingCentral webhook rejection alert")
             raise HTTPException(400, "Validation-Token is required")
         return Response(
             status_code=200,
-            headers={"Validation-Token": supplied_token},
+            headers={"Validation-Token": validation_challenge},
             media_type="application/json",
         )
 
+    supplied_token = request.headers.get("Verification-Token", "") or validation_challenge
     configured_token = settings.ringcentral_webhook_validation_token.get_secret_value()
-    if not configured_token or not hmac.compare_digest(configured_token, supplied_token):
+    if not supplied_token:
+        try:
+            await alert_ringcentral_webhook_failure(403, "validation token missing")
+        except Exception:
+            logger.exception("Could not post RingCentral webhook rejection alert")
+        raise HTTPException(403, "Invalid RingCentral validation token")
+    if not configured_token:
+        try:
+            await alert_ringcentral_webhook_failure(403, "validation token configuration missing")
+        except Exception:
+            logger.exception("Could not post RingCentral webhook rejection alert")
+        raise HTTPException(403, "Invalid RingCentral validation token")
+    if not hmac.compare_digest(configured_token, supplied_token):
+        try:
+            await alert_ringcentral_webhook_failure(403, "validation token mismatched")
+        except Exception:
+            logger.exception("Could not post RingCentral webhook rejection alert")
         raise HTTPException(403, "Invalid RingCentral validation token")
     if settings.sms_provider.casefold() != "ringcentral":
         raise HTTPException(503, "RingCentral is not the selected SMS provider")
 
     try:
         payload = json.loads(raw_body)
+        if payload == {"officeHubProbe": True}:
+            return Response(status_code=200, media_type="application/json")
         notifications = payload if isinstance(payload, list) else [payload]
         if not notifications or not all(isinstance(item, dict) for item in notifications):
             raise ValueError("RingCentral notification payload is invalid")
@@ -361,6 +516,10 @@ async def ringcentral_inbound(request: Request, db: AsyncSession = Depends(get_d
         await db.commit()
     except (json.JSONDecodeError, ValueError) as exc:
         await db.rollback()
+        try:
+            await alert_ringcentral_webhook_failure(422, "invalid notification payload")
+        except Exception:
+            logger.exception("Could not post RingCentral webhook rejection alert")
         raise HTTPException(422, str(exc)) from exc
     return Response(status_code=200, media_type="application/json")
 
@@ -439,3 +598,487 @@ async def print_property_qrs(property_id: int, request: Request, db: AsyncSessio
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="maintenance-property-{property_id}.pdf"'},
     )
+
+
+@router.get("/api/maintenance/create-options")
+async def staff_create_options(request: Request, db: AsyncSession = Depends(get_db)):
+    _staff(request, "triage")
+    properties = list((await db.scalars(select(RentalProperty).order_by(RentalProperty.street_address))).all())
+    units = list((await db.scalars(select(RentalUnit).order_by(RentalUnit.unit_label))).all())
+    return {"properties": [{"id": p.id, "name": _property_label(p), "address": p.street_address} for p in properties],
+            "units": [{"id": u.id, "property_id": u.property_id, "label": _unit_label(u)} for u in units]}
+
+
+@router.post("/api/maintenance/tickets", status_code=201)
+async def staff_create_ticket(request: Request, data: Annotated[str, Form()],
+                              photos: Annotated[list[UploadFile] | None, File()] = None,
+                              db: AsyncSession = Depends(get_db)):
+    user = _staff(request, "triage")
+    try:
+        values = StaffTicketCreate.model_validate_json(data)
+        validate_file_count(len(photos or []), party=MaintParty.STAFF)
+        files = []
+        for photo in photos or []:
+            content = await photo.read(MAX_FILE_BYTES + 1)
+            await asyncio.to_thread(process_media, content)
+            files.append((photo.filename, content))
+        ticket, confirmation = await create_staff_ticket(db, values, actor_for(user), files=files)
+        await _commit_workspace(db)
+    except ValidationError as exc:
+        await db.rollback()
+        raise HTTPException(422, "Check required ticket fields and their formats") from exc
+    except (InvalidMediaError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"id": ticket.id, "number": ticket.number, "status": ticket.status,
+            "sla_due_at": ticket.sla_due_at, "needs_reply": False, "confirmation": confirmation}
+
+
+@router.get("/api/maintenance/tickets")
+async def maintenance_tickets(
+    request: Request,
+    include_terminal: bool = False,
+    status: MaintStatus | None = None,
+    priority: MaintPriority | None = None,
+    property_id: int | None = None,
+    needs_reply: bool = False,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, object]]:
+    _staff(request, "view")
+    return await list_ticket_views(
+        db,
+        include_terminal=include_terminal,
+        status=status,
+        priority=priority,
+        property_id=property_id,
+        needs_reply_only=needs_reply,
+    )
+
+
+@router.get("/api/maintenance/calendar")
+async def maintenance_calendar(
+    request: Request,
+    start: datetime,
+    end: datetime,
+    property_id: int | None = None,
+    assignee_id: UUID | None = None,
+    visit_type: Literal["routine", "tenant_consent", "emergency"] | None = None,
+    status: MaintStatus | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    _staff(request, "view")
+    try:
+        return await calendar_view(
+            db,
+            start=start,
+            end=end,
+            property_id=property_id,
+            assignee_id=assignee_id,
+            visit_type=visit_type,
+            status=status,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/api/maintenance/tickets/{ticket_id}")
+async def maintenance_ticket(
+    ticket_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    _staff(request, "view")
+    detail = await ticket_detail_view(db, ticket_id)
+    if detail is None:
+        raise HTTPException(404, "Maintenance ticket not found")
+    return detail
+
+
+@router.get("/api/maintenance/attachments/{attachment_id}")
+async def maintenance_attachment(
+    attachment_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    _staff(request, "view")
+    attachment = await db.get(MaintAttachment, attachment_id)
+    if attachment is None or attachment.ticket_id is None:
+        raise HTTPException(404, "Attachment not found")
+    content = await asyncio.to_thread(download_attachment, attachment.minio_key)
+    filename = attachment.original_filename or str(attachment.id)
+    return StreamingResponse(
+        BytesIO(content),
+        media_type=attachment.content_type,
+        headers={"Content-Disposition": f'inline; filename="{filename.replace(chr(34), "")}"'},
+    )
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/messages")
+async def maintenance_message(
+    ticket_id: UUID,
+    request: Request,
+    target: Annotated[str, Form()],
+    body: Annotated[str, Form()] = "",
+    work_order_id: Annotated[UUID | None, Form()] = None,
+    attachments: Annotated[list[UploadFile] | None, File()] = None,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    user = _staff(request, "message_external")
+    ticket = await _ticket_or_404(db, ticket_id)
+    files = [(item.filename, await item.read()) for item in attachments or []]
+    try:
+        message = await post_message(
+            db,
+            ticket,
+            actor_for(user),
+            target=target,
+            body=body,
+            work_order_id=work_order_id,
+            files=files,
+        )
+        await _commit_workspace(db)
+    except (InvalidMediaError, SmsOptedOutError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True, "message_id": message.id if message else None}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/messages/{message_id}/cancel")
+async def maintenance_cancel_message(
+    ticket_id: UUID,
+    message_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "message_external")
+    message = await db.get(MaintSmsMessage, message_id)
+    if message is None or message.ticket_id != ticket_id:
+        raise HTTPException(404, "Message not found")
+    try:
+        await cancel_message(db, message_id, actor_for(user))
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/messages/{message_id}/retry")
+async def maintenance_retry_message(
+    ticket_id: UUID,
+    message_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "message_external")
+    message = await db.get(MaintSmsMessage, message_id)
+    if message is None or message.ticket_id != ticket_id:
+        raise HTTPException(404, "Message not found")
+    try:
+        await retry_message(db, message_id, actor_for(user))
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/triage")
+async def maintenance_triage(
+    ticket_id: UUID,
+    data: TriageRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "triage")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        await apply_triage(db, ticket, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/assign")
+async def maintenance_assign(
+    ticket_id: UUID,
+    data: AssignmentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    user = _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        order = await assign_work(db, ticket, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except (SmsOptedOutError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True, "work_order_id": order.id}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/schedule")
+async def maintenance_schedule(
+    ticket_id: UUID,
+    data: ScheduleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        await schedule_work(db, ticket, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/schedule-preview")
+async def maintenance_schedule_preview(
+    ticket_id: UUID,
+    data: ScheduleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        message = await preview_schedule_work(db, ticket, **data.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"message": message}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/work-orders/{work_order_id}/complete")
+async def maintenance_complete_work_order(
+    ticket_id: UUID,
+    work_order_id: UUID,
+    data: CompleteWorkOrderRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    user = _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        all_complete, future_visits = await complete_order(
+            db,
+            ticket,
+            actor_for(user),
+            work_order_id=work_order_id,
+            **data.model_dump(),
+        )
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "ok": True,
+        "all_work_orders_complete": all_complete,
+        "future_scheduled_visits": future_visits,
+    }
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/work-orders/{work_order_id}/scheduled-visit")
+async def maintenance_update_scheduled_visit(
+    ticket_id: UUID,
+    work_order_id: UUID,
+    data: ScheduledVisitRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        await update_scheduled_visit(
+            db,
+            ticket,
+            actor_for(user),
+            work_order_id=work_order_id,
+            status=data.status,
+        )
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/resolve")
+async def maintenance_resolve(
+    ticket_id: UUID,
+    data: ResolveRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "triage")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        await resolve_ticket(db, ticket, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/more")
+async def maintenance_more_action(
+    ticket_id: UUID,
+    data: MoreActionRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    permission = "admin" if data.action == "reopen" else "triage"
+    user = _staff(request, permission)
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        await apply_more_action(db, ticket, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/acknowledge")
+async def maintenance_acknowledge(
+    ticket_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "triage")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        acknowledged = await acknowledge_ticket(db, ticket, actor_for(user))
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True, "acknowledged": acknowledged}
+
+
+PORTAL_HEADERS = {"Cache-Control": "no-store, private", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow"}
+
+
+async def _vendor_context(request, db, token, *, write=False):
+    _require_enabled()
+    try:
+        context = await resolve_vendor_link(db, token, lock=write)
+        await get_rate_limiter().vendor_portal(hash_token(token), request.client.host if request.client else "unknown", write=write)
+        return context
+    except InvalidVendorLink:
+        raise HTTPException(404, "This work-order link is invalid, expired or revoked", headers=PORTAL_HEADERS)
+    except RateLimitExceeded as exc:
+        raise HTTPException(429, str(exc), headers=PORTAL_HEADERS) from exc
+    except RedisError as exc:
+        raise HTTPException(503, "Please try again shortly", headers=PORTAL_HEADERS) from exc
+
+
+@router.get("/api/public/work-orders/{token}")
+async def vendor_work_order(token: str, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    order,ticket,vendor = await _vendor_context(request,db,token)
+    response.headers.update(PORTAL_HEADERS)
+    return await portal_view(db,order,ticket,vendor)
+
+
+@router.post("/api/public/work-orders/{token}/actions")
+async def vendor_work_order_action(token: str, data: VendorPortalAction, request: Request,
+                                  response: Response, db: AsyncSession = Depends(get_db)):
+    order,ticket,vendor = await _vendor_context(request,db,token,write=True)
+    try:
+        await apply_vendor_action(db,order,ticket,vendor,data)
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(409 if isinstance(exc,VendorActionConflict) else 422,str(exc),headers=PORTAL_HEADERS) from exc
+    response.headers.update(PORTAL_HEADERS)
+    return {"status":order.status,"action":data.action,"link_revoked":data.action=="decline"}
+
+
+@router.post("/api/public/work-orders/{token}/photos",status_code=201)
+async def vendor_work_order_photos(token: str, request: Request, response: Response,
+                                   photos: Annotated[list[UploadFile],File()], db: AsyncSession = Depends(get_db)):
+    order,ticket,vendor = await _vendor_context(request,db,token,write=True)
+    try:
+        validate_file_count(len(photos),party=MaintParty.VENDOR)
+        files=[]
+        for photo in photos:
+            content=await photo.read(MAX_FILE_BYTES+1)
+            await asyncio.to_thread(process_media,content)
+            files.append((photo.filename,content))
+        await upload_vendor_photos(db,order,ticket,vendor,files)
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(409 if isinstance(exc,VendorActionConflict) else 422,str(exc),headers=PORTAL_HEADERS) from exc
+    response.headers.update(PORTAL_HEADERS)
+    return {"uploaded":len(files)}
+
+
+@router.get("/api/public/work-orders/{token}/photos/{attachment_id}")
+async def vendor_work_order_photo(token: str, attachment_id: UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    order,ticket,vendor = await _vendor_context(request,db,token)
+    photo=await db.get(MaintAttachment,attachment_id)
+    if photo is None or photo.work_order_id!=order.id or photo.uploaded_by_party!=MaintParty.VENDOR or photo.kind!="photo":
+        raise HTTPException(404,"Photo not found",headers=PORTAL_HEADERS)
+    content=await asyncio.to_thread(download_attachment,photo.minio_key)
+    return Response(content,media_type=photo.content_type,headers={**PORTAL_HEADERS,"X-Content-Type-Options":"nosniff"})
+
+
+@router.post("/api/maintenance/work-orders/{work_order_id}/revoke-link")
+async def revoke_vendor_link(work_order_id: UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    user=_staff(request,"assign")
+    order=await db.get(MaintWorkOrder,work_order_id)
+    if order is None or order.assignee_type!="vendor": raise HTTPException(404,"Work order not found")
+    await _ticket_or_404(db,order.ticket_id)
+    order.access_token_hash=None
+    order.token_expires_at=datetime.now(timezone.utc)
+    db.add(MaintEvent(ticket_id=order.ticket_id,work_order_id=order.id,event_type="vendor_link_revoked",
+        channel=MaintEventChannel.WEB,visibility=MaintVisibility.INTERNAL,direction=MaintDirection.NONE,
+        actor_party=MaintParty.STAFF,actor_user_id=user.id if user else None))
+    await _commit_workspace(db)
+    return {"revoked":True}
+
+
+@router.get("/api/maintenance/vendors")
+async def maintenance_vendors(request:Request,include_inactive:bool=False,db:AsyncSession=Depends(get_db)):
+    _staff(request,"manage_vendors")
+    query=select(MaintVendor).order_by(MaintVendor.name)
+    if not include_inactive:query=query.where(MaintVendor.is_active.is_(True))
+    return [vendor_view(v) for v in (await db.scalars(query)).all()]
+
+
+async def _save_vendor_response(db,values,*,vendor=None,user=None):
+    try:
+        saved=await save_vendor(db,values,vendor=vendor,actor_user_id=user.id if user else None)
+        await _commit_workspace(db)
+        return vendor_view(saved)
+    except DuplicateVendorPhone as exc:
+        await db.rollback()
+        raise HTTPException(409,str(exc)) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        if "uq_maint_vendors_active_phone" in str(exc.orig):
+            raise HTTPException(409,"An active vendor already uses this phone") from exc
+        raise HTTPException(409,"Vendor could not be saved; refresh and try again") from exc
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422,str(exc)) from exc
+
+
+@router.post("/api/maintenance/vendors",status_code=201)
+async def maintenance_create_vendor(data:VendorCreate,request:Request,db:AsyncSession=Depends(get_db)):
+    user=_staff(request,"manage_vendors")
+    return await _save_vendor_response(db,data.model_dump(),user=user)
+
+
+@router.patch("/api/maintenance/vendors/{vendor_id}")
+async def maintenance_update_vendor(vendor_id:UUID,data:VendorUpdate,request:Request,db:AsyncSession=Depends(get_db)):
+    user=_staff(request,"manage_vendors")
+    vendor=await db.scalar(select(MaintVendor).where(MaintVendor.id==vendor_id).with_for_update())
+    if vendor is None:raise HTTPException(404,"Vendor not found")
+    return await _save_vendor_response(db,data.model_dump(exclude_unset=True),vendor=vendor,user=user)

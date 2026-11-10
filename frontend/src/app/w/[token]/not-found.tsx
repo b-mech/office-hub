@@ -1,0 +1,1 @@
+export default function InvalidWorkOrder(){return <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center p-6"><h1 className="text-2xl font-semibold">Work-order link unavailable</h1><p className="mt-3 text-[var(--ch-text-muted)]">This link is invalid, expired or revoked. Please contact your maintenance coordinator for a new link.</p></main>;}

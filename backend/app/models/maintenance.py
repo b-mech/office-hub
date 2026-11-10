@@ -6,7 +6,7 @@ from enum import Enum
 from uuid import UUID
 
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer
-from sqlalchemy import Numeric, Sequence, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Numeric, Sequence, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.orm import Mapped, mapped_column
@@ -240,6 +240,7 @@ class MaintWorkOrder(Base):
     scope: Mapped[str] = mapped_column(Text, nullable=False)
     scheduled_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scheduled_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_visit_status: Mapped[str | None] = mapped_column(Text)
     decline_reason: Mapped[str | None] = mapped_column(Text)
     access_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -258,6 +259,10 @@ class MaintWorkOrder(Base):
     __table_args__ = (
         CheckConstraint("assignee_type IN ('staff','vendor')", name="ck_maint_work_orders_assignee_type"),
         CheckConstraint("cost_class IS NULL OR cost_class IN ('repair','capital')", name="ck_maint_work_orders_cost_class"),
+        CheckConstraint(
+            "scheduled_visit_status IS NULL OR scheduled_visit_status IN ('scheduled','completed','cancelled')",
+            name="ck_maint_work_orders_scheduled_visit_status",
+        ),
         CheckConstraint(
             "(assignee_type = 'staff' AND assignee_user_id IS NOT NULL AND vendor_id IS NULL) OR "
             "(assignee_type = 'vendor' AND vendor_id IS NOT NULL AND assignee_user_id IS NULL)",
@@ -283,8 +288,6 @@ class MaintSmsMessage(Base):
     provider_sid: Mapped[str | None] = mapped_column(Text, unique=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending", server_default="pending")
     error_code: Mapped[str | None] = mapped_column(Text)
-    slack_channel_id: Mapped[str | None] = mapped_column(Text)
-    slack_ts: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -313,7 +316,6 @@ class MaintEvent(Base):
     body: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     sms_message_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_sms_messages.id"))
-    slack_ts: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (Index("idx_maint_events_ticket_created", "ticket_id", "created_at"),)
@@ -340,21 +342,35 @@ class MaintAttachment(Base):
     )
 
 
-class MaintSlackCard(Base):
-    __tablename__ = "maint_slack_cards"
+class MaintSlackOutbox(Base):
+    __tablename__ = "maint_slack_outbox"
 
     id: Mapped[UUID] = _uuid_pk()
-    ticket_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_tickets.id"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    ticket_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_tickets.id"))
     work_order_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_work_orders.id"))
-    channel_id: Mapped[str] = mapped_column(Text, nullable=False)
-    message_ts: Mapped[str] = mapped_column(Text, nullable=False)
-    thread_party: Mapped[MaintParty] = mapped_column(MAINT_PARTY_DB, nullable=False)
+    sms_message_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("maint_sms_messages.id"))
+    payload: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        UniqueConstraint("channel_id", "message_ts", name="uq_maint_slack_cards_message"),
-        Index("uq_maint_slack_cards_ticket", "ticket_id", unique=True, postgresql_where=text("work_order_id IS NULL")),
-        Index("uq_maint_slack_cards_work_order", "work_order_id", unique=True, postgresql_where=text("work_order_id IS NOT NULL")),
+        CheckConstraint("attempts >= 0", name="ck_maint_slack_outbox_attempts"),
+        Index(
+            "idx_maint_slack_outbox_due",
+            "available_at",
+            "created_at",
+            postgresql_where=text("delivered_at IS NULL AND failed_at IS NULL"),
+        ),
     )
 
 

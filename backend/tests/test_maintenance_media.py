@@ -8,8 +8,10 @@ from app.services.maintenance.errors import InvalidMediaError
 from app.services.maintenance.media import (
     MAX_FILE_BYTES,
     create_signed_media_token,
+    create_ticket_upload_token,
     process_media,
     verify_signed_media_token,
+    verify_ticket_upload_token,
     validate_file_count,
 )
 from app.models.maintenance import MaintParty
@@ -73,3 +75,13 @@ def test_signed_media_token_is_scoped_and_expires() -> None:
         verify_signed_media_token(token, "wrong-secret", now=159)
     with pytest.raises(InvalidMediaError):
         verify_signed_media_token(token, "test-secret", now=161)
+
+
+def test_ticket_upload_token_is_scoped_and_expires() -> None:
+    ticket_id = uuid4()
+    token = create_ticket_upload_token(ticket_id, "test-secret", now=100, expires_in_seconds=60)
+    assert verify_ticket_upload_token(token, "test-secret", now=159) == ticket_id
+    with pytest.raises(InvalidMediaError):
+        verify_ticket_upload_token(token, "wrong-secret", now=159)
+    with pytest.raises(InvalidMediaError):
+        verify_ticket_upload_token(token, "test-secret", now=161)

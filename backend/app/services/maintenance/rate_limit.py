@@ -28,6 +28,13 @@ class RedisRateLimiter:
             RateLimit("IP address", f"maint:intake:ip:{ip_address}", 10),
         )
 
+    async def vendor_portal(self, token_hash: str, ip_address: str, *, write: bool = False) -> None:
+        kind = "write" if write else "read"
+        await self._check(
+            RateLimit("vendor link", f"maint:vendor:{kind}:token:{token_hash}", 60 if write else 240),
+            RateLimit("IP address", f"maint:vendor:{kind}:ip:{ip_address}", 120 if write else 1000),
+        )
+
     async def _check(self, *limits: RateLimit) -> None:
         pipe = self.redis.pipeline(transaction=True)
         for limit in limits:

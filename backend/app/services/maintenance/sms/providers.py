@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 import base64
-import asyncio
 import hashlib
 import hmac
 import json
 import logging
-import time
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Mapping, Protocol, Sequence
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 
 from app.core.config import settings
+from app.services.maintenance.ringcentral_tokens import (
+    LocalRingCentralTokenCache,
+    RedisRingCentralTokenCache,
+    RingCentralTokenCache,
+)
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -46,6 +51,82 @@ class SmsProvider(Protocol):
     async def fetch_media(self, url: str) -> bytes: ...
 
 
+class StagingSmsRecipientBlocked(RuntimeError):
+    """Raised at the provider boundary before a staging SMS can leave Office Hub."""
+
+
+class SmsProviderHttpError(RuntimeError):
+    """Provider HTTP failure with secret-free diagnostics safe to persist."""
+
+    def __init__(self, provider: str, stage: str, response: httpx.Response) -> None:
+        self.provider = provider
+        self.stage = stage
+        self.status_code = response.status_code
+        self.provider_code = ""
+        self.provider_message = ""
+        try:
+            payload = response.json()
+        except (json.JSONDecodeError, ValueError):
+            payload = None
+        if isinstance(payload, dict):
+            errors = payload.get("errors")
+            first_error = errors[0] if isinstance(errors, list) and errors else None
+            candidates = [payload, first_error] if isinstance(first_error, dict) else [payload]
+            for item in candidates:
+                if not isinstance(item, dict):
+                    continue
+                if not self.provider_code:
+                    self.provider_code = str(
+                        item.get("errorCode") or item.get("code") or item.get("error") or ""
+                    ).strip()
+                if not self.provider_message:
+                    self.provider_message = str(
+                        item.get("message")
+                        or item.get("error_description")
+                        or item.get("description")
+                        or ""
+                    ).strip()
+        self.provider_message = re.sub(
+            r"(?<!\d)\+?\d{10,15}(?!\d)",
+            "[redacted phone]",
+            self.provider_message,
+        )[:500]
+        suffix = f" ({self.provider_code})" if self.provider_code else ""
+        super().__init__(f"{provider} {stage} failed with HTTP {self.status_code}{suffix}")
+
+    @property
+    def machine_code(self) -> str:
+        code = re.sub(r"[^a-z0-9]+", "_", self.provider_code.casefold()).strip("_")
+        suffix = f"_{code}" if code else ""
+        return f"{self.provider}_{self.stage}_http_{self.status_code}{suffix}"
+
+    @property
+    def staff_reason(self) -> str:
+        reference = f", {self.provider_code}" if self.provider_code else ""
+        if self.status_code == 429:
+            return f"RingCentral temporarily rate-limited the SMS (HTTP 429{reference}). Retry shortly."
+        if self.status_code >= 500:
+            return f"RingCentral was temporarily unavailable (HTTP {self.status_code}{reference}). Retry shortly."
+        if self.stage == "authentication" or self.status_code == 401:
+            return (
+                f"RingCentral authentication failed (HTTP {self.status_code}{reference}). "
+                "Retry the message; contact an administrator if it fails again."
+            )
+        return (
+            f"RingCentral rejected the SMS (HTTP {self.status_code}{reference}). "
+            "Check the recipient and message, then retry."
+        )
+
+
+def enforce_staging_sms_recipient(to: str) -> None:
+    if not settings.is_staging:
+        return
+    if to in settings.staging_sms_allowlist_values:
+        return
+    logger.warning("Dropped staging SMS to non-allowlisted phone ending %s", to[-4:])
+    raise StagingSmsRecipientBlocked("Staging SMS recipient is not allowlisted")
+
+
 @dataclass
 class FakeProvider:
     auth_token: str = "test-auth-token"
@@ -53,6 +134,7 @@ class FakeProvider:
     media: dict[str, bytes] = field(default_factory=dict)
 
     async def send(self, to: str, body: str, media_urls: Sequence[str]) -> str:
+        enforce_staging_sms_recipient(to)
         sid = f"SMFAKE{len(self.sent) + 1:08d}"
         self.sent.append({"sid": sid, "to": to, "body": body, "media_urls": list(media_urls)})
         logger.info("Fake SMS queued to phone ending %s", to[-4:])
@@ -74,6 +156,7 @@ class TwilioProvider:
         self.from_number = from_number
 
     async def send(self, to: str, body: str, media_urls: Sequence[str]) -> str:
+        enforce_staging_sms_recipient(to)
         url = f"https://api.twilio.com/2010-04-01/Accounts/{self.account_sid}/Messages.json"
         form: list[tuple[str, str]] = [("To", to), ("From", self.from_number), ("Body", body)]
         form.extend(("MediaUrl", media_url) for media_url in media_urls)
@@ -99,7 +182,7 @@ class TwilioProvider:
 
 
 class RingCentralProvider:
-    """RingCentral JWT provider with an in-memory OAuth access-token cache."""
+    """RingCentral provider using one Redis-cached OAuth session per environment."""
 
     def __init__(
         self,
@@ -110,6 +193,7 @@ class RingCentralProvider:
         from_number: str,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        token_cache: RingCentralTokenCache | None = None,
     ) -> None:
         self.server_url = server_url.rstrip("/")
         self.client_id = client_id
@@ -117,47 +201,78 @@ class RingCentralProvider:
         self.jwt = jwt
         self.from_number = from_number
         self.transport = transport
-        self._access_token = ""
-        self._access_token_expires_at = 0.0
-        self._token_lock = asyncio.Lock()
+        self.token_cache = token_cache or (
+            LocalRingCentralTokenCache()
+            if transport is not None
+            else RedisRingCentralTokenCache(settings.redis_url, settings.environment)
+        )
+
+    async def _authenticate(self) -> tuple[str, int]:
+        async with httpx.AsyncClient(
+            timeout=15,
+            auth=(self.client_id, self.client_secret),
+            transport=self.transport,
+        ) as client:
+            response = await client.post(
+                f"{self.server_url}/restapi/oauth/token",
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "assertion": self.jwt,
+                },
+                headers={"Accept": "application/json"},
+            )
+            if response.is_error:
+                raise SmsProviderHttpError("ringcentral", "authentication", response)
+            payload = response.json()
+        return str(payload["access_token"]), max(int(payload.get("expires_in", 3600)), 120)
 
     async def _bearer_token(self) -> str:
-        if self._access_token and time.monotonic() < self._access_token_expires_at:
-            return self._access_token
-        async with self._token_lock:
-            if self._access_token and time.monotonic() < self._access_token_expires_at:
-                return self._access_token
-            async with httpx.AsyncClient(
-                timeout=15,
-                auth=(self.client_id, self.client_secret),
-                transport=self.transport,
-            ) as client:
-                response = await client.post(
-                    f"{self.server_url}/restapi/oauth/token",
-                    data={
-                        "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-                        "assertion": self.jwt,
-                    },
-                    headers={"Accept": "application/json"},
-                )
-                response.raise_for_status()
-                payload = response.json()
-            self._access_token = str(payload["access_token"])
-            expires_in = max(int(payload.get("expires_in", 3600)), 120)
-            self._access_token_expires_at = time.monotonic() + expires_in - 60
-            return self._access_token
+        return await self.token_cache.get_or_refresh(self._authenticate)
+
+    async def authenticate(self) -> None:
+        """Validate the configured JWT grant without exposing the access token."""
+        await self._bearer_token()
+
+    async def aclose(self) -> None:
+        """Close cache connections without revoking the environment's shared session."""
+        await self.token_cache.aclose()
+
+    async def _request(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        url: str,
+        *,
+        stage: str,
+        **kwargs: object,
+    ) -> httpx.Response:
+        async def call(access_token: str) -> httpx.Response:
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+            }
+            return await client.request(method, url, headers=headers, **kwargs)
+
+        token = await self._bearer_token()
+        response = await call(token)
+        if response.status_code == 401:
+            await self.token_cache.invalidate(token)
+            response = await call(await self._bearer_token())
+        if response.is_error:
+            raise SmsProviderHttpError("ringcentral", stage, response)
+        return response
 
     async def send(self, to: str, body: str, media_urls: Sequence[str]) -> str:
-        token = await self._bearer_token()
+        enforce_staging_sms_recipient(to)
         payload = {
             "from": {"phoneNumber": self.from_number},
             "to": [{"phoneNumber": to}],
             "text": body,
         }
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         async with httpx.AsyncClient(timeout=30, transport=self.transport) as client:
+            files: list[tuple[str, tuple[str | None, bytes | str, str]]] = []
             if media_urls:
-                files: list[tuple[str, tuple[str | None, bytes | str, str]]] = [
+                files = [
                     ("json", (None, json.dumps(payload), "application/json"))
                 ]
                 for index, media_url in enumerate(media_urls):
@@ -167,48 +282,152 @@ class RingCentralProvider:
                     files.append(
                         ("attachment", (f"attachment-{index + 1}", media.content, content_type))
                     )
-                response = await client.post(
+
+            if media_urls:
+                response = await self._request(
+                    client,
+                    "POST",
                     f"{self.server_url}/restapi/v1.0/account/~/extension/~/mms",
-                    headers=headers,
+                    stage="send",
                     files=files,
                 )
             else:
-                response = await client.post(
+                response = await self._request(
+                    client,
+                    "POST",
                     f"{self.server_url}/restapi/v1.0/account/~/extension/~/sms",
-                    headers=headers,
+                    stage="send",
                     json=payload,
                 )
-            response.raise_for_status()
             return str(response.json()["id"])
 
     async def create_sms_webhook_subscription(
         self,
         address: str,
-        validation_token: str,
         *,
         expires_in: int = 604799,
     ) -> Mapping[str, object]:
         """Create an inbound-SMS webhook subscription after explicit ops invocation."""
-        token = await self._bearer_token()
+        validation_token = settings.ringcentral_webhook_validation_token.get_secret_value()
+        if not validation_token:
+            raise ValueError("RingCentral webhook validation token is required")
         async with httpx.AsyncClient(timeout=30, transport=self.transport) as client:
-            response = await client.post(
+            response = await self._request(
+                client,
+                "POST",
                 f"{self.server_url}/restapi/v1.0/subscription",
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                stage="subscription",
                 json={
                     "eventFilters": [RINGCENTRAL_SMS_EVENT_FILTER],
                     "deliveryMode": {
                         "transportType": "WebHook",
                         "address": address,
-                        "validationToken": validation_token,
+                        "verificationToken": validation_token,
                     },
                     "expiresIn": expires_in,
                 },
             )
-            response.raise_for_status()
             payload = response.json()
         if not isinstance(payload, dict):
             raise ValueError("RingCentral returned an invalid subscription response")
         return payload
+
+    async def update_sms_webhook_subscription(
+        self,
+        subscription_id: str,
+        address: str,
+    ) -> Mapping[str, object]:
+        """Reconcile and renew one webhook with the configured validation token."""
+        if not subscription_id.strip():
+            raise ValueError("RingCentral subscription ID is required")
+        validation_token = settings.ringcentral_webhook_validation_token.get_secret_value()
+        if not validation_token:
+            raise ValueError("RingCentral webhook validation token is required")
+        safe_id = quote(subscription_id, safe="")
+        async with httpx.AsyncClient(timeout=30, transport=self.transport) as client:
+            response = await self._request(
+                client,
+                "PUT",
+                f"{self.server_url}/restapi/v1.0/subscription/{safe_id}",
+                stage="subscription",
+                json={
+                    "eventFilters": [RINGCENTRAL_SMS_EVENT_FILTER],
+                    "deliveryMode": {
+                        "transportType": "WebHook",
+                        "address": address,
+                        "verificationToken": validation_token,
+                    },
+                },
+            )
+            payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("RingCentral returned an invalid subscription update response")
+        return payload
+
+    async def list_subscriptions(self) -> list[Mapping[str, object]]:
+        """Return subscriptions visible to the authenticated extension."""
+        async with httpx.AsyncClient(timeout=30, transport=self.transport) as client:
+            response = await self._request(
+                client,
+                "GET",
+                f"{self.server_url}/restapi/v1.0/subscription",
+                stage="subscription",
+            )
+            payload = response.json()
+        records = payload.get("records") if isinstance(payload, dict) else None
+        if not isinstance(records, list) or not all(isinstance(item, dict) for item in records):
+            raise ValueError("RingCentral returned an invalid subscription list")
+        return records
+
+    async def list_inbound_messages(
+        self,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[Mapping[str, object]]:
+        """Return inbound SMS/MMS records for reconciliation, following pagination."""
+        records: list[Mapping[str, object]] = []
+        url = f"{self.server_url}/restapi/v1.0/account/~/extension/~/message-store"
+        params: dict[str, object] | None = {
+            "dateFrom": date_from.isoformat().replace("+00:00", "Z"),
+            "dateTo": date_to.isoformat().replace("+00:00", "Z"),
+            "messageType": "SMS",
+            "direction": "Inbound",
+            "perPage": 100,
+        }
+        async with httpx.AsyncClient(timeout=30, transport=self.transport) as client:
+            for _ in range(20):
+                response = await self._request(
+                    client,
+                    "GET",
+                    url,
+                    stage="message_store",
+                    params=params,
+                )
+                payload = response.json()
+                page_records = payload.get("records") if isinstance(payload, dict) else None
+                if not isinstance(page_records, list) or not all(
+                    isinstance(item, dict) for item in page_records
+                ):
+                    raise ValueError("RingCentral returned an invalid message-store response")
+                records.extend(page_records)
+                navigation = payload.get("navigation")
+                next_page = navigation.get("nextPage") if isinstance(navigation, dict) else None
+                next_uri = next_page.get("uri") if isinstance(next_page, dict) else None
+                if not isinstance(next_uri, str) or not next_uri:
+                    break
+                expected = urlsplit(self.server_url)
+                supplied = urlsplit(next_uri)
+                if (
+                    supplied.scheme != expected.scheme
+                    or supplied.netloc != expected.netloc
+                    or not supplied.path.startswith("/restapi/")
+                ):
+                    raise ValueError("RingCentral pagination URL is outside the configured API origin")
+                url = next_uri
+                params = None
+            else:
+                raise ValueError("RingCentral message-store pagination exceeded the safety limit")
+        return records
 
     def validate_signature(self, url: str, params: Mapping[str, str], signature: str) -> bool:
         # RingCentral notifications use subscription validation tokens, not the
@@ -224,10 +443,8 @@ class RingCentralProvider:
             or not supplied.path.startswith("/restapi/")
         ):
             raise ValueError("RingCentral media URL is outside the configured API origin")
-        token = await self._bearer_token()
         async with httpx.AsyncClient(timeout=20, transport=self.transport) as client:
-            response = await client.get(url, headers={"Authorization": f"Bearer {token}"})
-            response.raise_for_status()
+            response = await self._request(client, "GET", url, stage="media")
             return response.content
 
 

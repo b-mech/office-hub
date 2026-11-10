@@ -40,7 +40,7 @@ from app.services.minio_financing import get_financing_document, upload_financin
 from app.services.program_allocations import get_program_capacity
 
 
-DOCUMENT_BUCKET = "documents"
+DOCUMENT_BUCKET = settings.minio_bucket
 MONEY_FIELDS = ("approved_amount", "purchase_price", "down_payment")
 REQUIRED_EXTRACTION_FIELDS = ("approved_amount", "expiry_date", "document_type", "conditions")
 PACKAGE_ITEM_TYPES = ("appraisal", "stamped_plans", "otp_land", "otp_sale", "prelim_budget")

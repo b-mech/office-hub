@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -53,4 +53,5 @@ async def rotate_unit_token(db: AsyncSession, unit_id: int, created_by: UUID | N
 def rotate_work_order_token(work_order: MaintWorkOrder) -> str:
     raw = generate_token()
     work_order.access_token_hash = raw.digest
+    work_order.token_expires_at = datetime.now(timezone.utc) + timedelta(days=30)
     return raw.value

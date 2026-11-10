@@ -69,6 +69,8 @@ npm run build
 
 echo
 echo "5/7  Restarting Office Hub..."
+sudo systemctl restart officehub-worker
+sudo systemctl restart officehub-beat
 sudo systemctl restart officehub-backend
 sudo systemctl restart officehub-frontend
 
@@ -86,7 +88,7 @@ do
     fi
 done
 
-for service in officehub-backend officehub-frontend cloudflared
+for service in officehub-worker officehub-beat officehub-backend officehub-frontend cloudflared
 do
     if ! systemctl is-active --quiet "$service"; then
         echo "ERROR: $service is not running."
@@ -98,15 +100,18 @@ done
 echo
 echo "7/7  Running health checks..."
 
-# Give systemd a moment to initialize the processes.
-for attempt in {1..10}; do
+# The escalation heartbeat is written by a one-minute periodic task. Allow a
+# newly restarted beat/worker pair to complete its first scan.
+for attempt in {1..75}; do
     if curl -fsS http://127.0.0.1:8000/health >/dev/null; then
         break
     fi
 
-    if [[ "$attempt" == "10" ]]; then
+    if [[ "$attempt" == "75" ]]; then
         echo "ERROR: Backend health check failed."
         sudo journalctl -u officehub-backend -n 40 --no-pager
+        sudo journalctl -u officehub-worker -n 40 --no-pager
+        sudo journalctl -u officehub-beat -n 40 --no-pager
         exit 1
     fi
 

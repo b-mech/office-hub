@@ -2,7 +2,7 @@ import os
 from datetime import time
 from uuid import UUID
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,9 +10,11 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore", env_ignore_empty=True)
 
     database_url: str = Field(alias="DATABASE_URL")
+    database_null_pool: bool = Field(default=False, alias="DATABASE_NULL_POOL")
     minio_url: str = Field(alias="MINIO_URL")
     minio_root_user: str = Field(alias="MINIO_ROOT_USER")
     minio_root_password: str = Field(alias="MINIO_ROOT_PASSWORD")
+    minio_bucket: str = Field(default="documents", alias="MINIO_BUCKET")
     imap_host: str = Field(alias="IMAP_HOST")
     imap_user: str = Field(alias="IMAP_USER")
     imap_password: str = Field(alias="IMAP_PASSWORD")
@@ -121,13 +123,14 @@ class Settings(BaseSettings):
     )
     sms_signature: str = Field(default="— Connect Properties", alias="SMS_SIGNATURE")
     public_brand_name: str = Field(default="Connect Properties", alias="PUBLIC_BRAND_NAME")
-    sms_relay_hold_seconds: int = Field(default=30, ge=0, alias="SMS_RELAY_HOLD_SECONDS")
+    sms_relay_hold_seconds: int = Field(default=5, ge=0, alias="SMS_RELAY_HOLD_SECONDS")
     sms_automated_quiet_start: time = Field(default=time(21, 0), alias="SMS_AUTOMATED_QUIET_START")
     sms_automated_quiet_end: time = Field(default=time(8, 0), alias="SMS_AUTOMATED_QUIET_END")
     slack_bot_token: str = Field(default="", alias="SLACK_BOT_TOKEN")
-    slack_app_token: str = Field(default="", alias="SLACK_APP_TOKEN")
     slack_tickets_channel_id: str = Field(default="", alias="SLACK_TICKETS_CHANNEL_ID")
     slack_emergency_channel_id: str = Field(default="", alias="SLACK_EMERGENCY_CHANNEL_ID")
+    staging_slack_channel_id: str = Field(default="", alias="STAGING_SLACK_CHANNEL_ID")
+    staging_sms_allowlist: str = Field(default="", alias="STAGING_SMS_ALLOWLIST")
     public_base_url: str = Field(default="", alias="PUBLIC_BASE_URL")
     turnstile_site_key: str = Field(default="", alias="TURNSTILE_SITE_KEY")
     turnstile_secret_key: str = Field(default="", alias="TURNSTILE_SECRET_KEY")
@@ -157,6 +160,17 @@ class Settings(BaseSettings):
     entry_window_start: time = Field(default=time(8, 0), alias="ENTRY_WINDOW_START")
     entry_window_end: time = Field(default=time(20, 0), alias="ENTRY_WINDOW_END")
     celery_task_always_eager: bool = Field(default=False, alias="CELERY_TASK_ALWAYS_EAGER")
+
+    @model_validator(mode="after")
+    def validate_ringcentral_verification_token(self) -> "Settings":
+        if self.sms_provider.casefold() != "ringcentral":
+            return self
+        token_length = len(self.ringcentral_webhook_validation_token.get_secret_value())
+        if not 1 <= token_length <= 32:
+            raise ValueError(
+                "RINGCENTRAL_WEBHOOK_VALIDATION_TOKEN must be between 1 and 32 characters"
+            )
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -230,6 +244,27 @@ class Settings(BaseSettings):
             and self.ringcentral_jwt.get_secret_value()
             and self.ringcentral_from_number
         )
+
+    @property
+    def slack_configured(self) -> bool:
+        """Outbound Slack needs only a bot token and the two destination IDs."""
+        return bool(self.slack_bot_token and self.slack_tickets_destination and self.slack_emergency_destination)
+
+    @property
+    def is_staging(self) -> bool:
+        return self.environment.casefold() == "staging"
+
+    @property
+    def staging_sms_allowlist_values(self) -> frozenset[str]:
+        return frozenset(item.strip() for item in self.staging_sms_allowlist.split(",") if item.strip())
+
+    @property
+    def slack_tickets_destination(self) -> str:
+        return self.staging_slack_channel_id if self.is_staging else self.slack_tickets_channel_id
+
+    @property
+    def slack_emergency_destination(self) -> str:
+        return self.staging_slack_channel_id if self.is_staging else self.slack_emergency_channel_id
 
     @property
     def sms_from_number(self) -> str:

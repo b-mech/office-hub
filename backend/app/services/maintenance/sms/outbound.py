@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -21,11 +23,47 @@ from app.models.maintenance import (
 from app.models.rentals import RentalTenant
 from app.services.maintenance.media import create_signed_media_token
 from app.services.maintenance.notifier import MaintenanceNotifier
-from app.services.maintenance.sms.providers import SmsProvider
+from app.services.maintenance.sms.providers import (
+    SmsProvider,
+    SmsProviderHttpError,
+    StagingSmsRecipientBlocked,
+)
+from app.services.maintenance.state_machine import ActorContext
 
 
 class SmsOptedOutError(ValueError):
     pass
+
+
+logger = logging.getLogger("uvicorn.error")
+
+
+def sms_failure_reason(error_code: str | None) -> str | None:
+    if not error_code:
+        return None
+    if error_code == "staging_recipient_blocked":
+        return "The recipient is not approved for staging SMS."
+    match = re.fullmatch(
+        r"ringcentral_(authentication|send)_http_(\d{3})(?:_([a-z0-9_]+))?",
+        error_code,
+    )
+    if match:
+        stage, status, code = match.groups()
+        reference = f", {code.upper().replace('_', '-')}" if code else ""
+        if status == "429":
+            return f"RingCentral temporarily rate-limited the SMS (HTTP 429{reference}). Retry shortly."
+        if status.startswith("5"):
+            return f"RingCentral was temporarily unavailable (HTTP {status}{reference}). Retry shortly."
+        if stage == "authentication" or status == "401":
+            return (
+                f"RingCentral authentication failed (HTTP {status}{reference}). "
+                "Retry the message; contact an administrator if it fails again."
+            )
+        return (
+            f"RingCentral rejected the SMS (HTTP {status}{reference}). "
+            "Check the recipient and message, then retry."
+        )
+    return "The SMS provider could not send this message. Retry it or contact an administrator."
 
 
 def normalized_delivery_status(provider_status: str) -> str | None:
@@ -84,9 +122,9 @@ async def queue_sms(
     automated: bool,
     emergency: bool = False,
     actor_party: MaintParty = MaintParty.SYSTEM,
+    actor_user_id: UUID | None = None,
     now: datetime | None = None,
-    slack_channel_id: str | None = None,
-    slack_ts: str | None = None,
+    append_signature: bool = True,
 ) -> MaintSmsMessage:
     if await is_opted_out(db, to):
         raise SmsOptedOutError("Recipient has opted out of text messages")
@@ -110,7 +148,7 @@ async def queue_sms(
                 MaintSmsMessage.status.notin_(["cancelled", "failed"]),
             ).limit(1)
         )
-        if recent is None and settings.sms_signature.strip():
+        if append_signature and recent is None and settings.sms_signature.strip():
             outgoing = f"{outgoing} {settings.sms_signature.strip()}"
         if settings.sms_relay_hold_seconds:
             hold_until = now + timedelta(seconds=settings.sms_relay_hold_seconds)
@@ -126,8 +164,6 @@ async def queue_sms(
         is_automated=automated,
         hold_until=hold_until,
         status=status,
-        slack_channel_id=slack_channel_id,
-        slack_ts=slack_ts,
         created_at=now,
         updated_at=now,
     )
@@ -139,16 +175,102 @@ async def queue_sms(
                 ticket_id=ticket_id,
                 work_order_id=work_order_id,
                 event_type="message",
-                channel=MaintEventChannel.SMS if automated else MaintEventChannel.SLACK,
+                channel=MaintEventChannel.SMS if automated else MaintEventChannel.WEB,
                 visibility=MaintVisibility.EXTERNAL,
                 direction=MaintDirection.OUTBOUND,
                 actor_party=actor_party,
+                actor_user_id=actor_user_id,
                 body=outgoing,
                 sms_message_id=message.id,
                 created_at=now,
             )
         )
         await db.flush()
+    return message
+
+
+async def cancel_held_sms(
+    db: AsyncSession,
+    message_id: UUID,
+    actor: ActorContext,
+    *,
+    now: datetime | None = None,
+) -> MaintSmsMessage:
+    message = await db.scalar(
+        select(MaintSmsMessage).where(MaintSmsMessage.id == message_id).with_for_update()
+    )
+    if message is None:
+        raise ValueError("SMS message was not found")
+    if (
+        message.direction != MaintDirection.OUTBOUND
+        or message.status != "held"
+        or message.cancelled_at is not None
+        or message.provider_sid is not None
+    ):
+        raise ValueError("SMS message is no longer cancellable")
+    cancelled_at = now or datetime.now(timezone.utc)
+    message.cancelled_at = cancelled_at
+    message.status = "cancelled"
+    message.updated_at = cancelled_at
+    if message.ticket_id:
+        db.add(
+            MaintEvent(
+                ticket_id=message.ticket_id,
+                work_order_id=message.work_order_id,
+                event_type="sms_cancelled",
+                channel=MaintEventChannel.WEB,
+                visibility=MaintVisibility.INTERNAL,
+                direction=MaintDirection.NONE,
+                actor_party=actor.party,
+                actor_user_id=actor.user_id,
+                sms_message_id=message.id,
+                created_at=cancelled_at,
+            )
+        )
+    await db.flush()
+    return message
+
+
+async def retry_failed_sms(
+    db: AsyncSession,
+    message_id: UUID,
+    actor: ActorContext,
+    *,
+    now: datetime | None = None,
+) -> MaintSmsMessage:
+    message = await db.scalar(
+        select(MaintSmsMessage).where(MaintSmsMessage.id == message_id).with_for_update()
+    )
+    if message is None:
+        raise ValueError("SMS message was not found")
+    if (
+        message.direction != MaintDirection.OUTBOUND
+        or message.status != "failed"
+        or message.cancelled_at is not None
+        or message.provider_sid is not None
+    ):
+        raise ValueError("SMS message is not retryable")
+    retried_at = now or datetime.now(timezone.utc)
+    message.status = "pending"
+    message.error_code = None
+    message.hold_until = None
+    message.updated_at = retried_at
+    if message.ticket_id:
+        db.add(
+            MaintEvent(
+                ticket_id=message.ticket_id,
+                work_order_id=message.work_order_id,
+                event_type="sms_retry_queued",
+                channel=MaintEventChannel.WEB,
+                visibility=MaintVisibility.INTERNAL,
+                direction=MaintDirection.NONE,
+                actor_party=actor.party,
+                actor_user_id=actor.user_id,
+                sms_message_id=message.id,
+                created_at=retried_at,
+            )
+        )
+    await db.flush()
     return message
 
 
@@ -182,30 +304,62 @@ async def send_due_messages(
             f"{create_signed_media_token(item, settings.secret_key)}"
             for item in message.media_attachment_ids
         ]
+        failure_metadata: dict[str, object] = {}
         try:
             message.provider_sid = await provider.send(message.to_e164, message.body or "", media_urls)
             message.status = "queued"
             message.error_code = None
+        except StagingSmsRecipientBlocked:
+            message.status = "cancelled"
+            message.cancelled_at = now
+            message.error_code = "staging_recipient_blocked"
+        except SmsProviderHttpError as exc:
+            message.status = "failed"
+            message.error_code = exc.machine_code
+            failure_metadata = {
+                "provider_status_code": exc.status_code,
+                "provider_error_code": exc.provider_code or None,
+                "provider_message": exc.provider_message or None,
+            }
+            logger.warning(
+                "SMS provider rejected message %s: %s; provider_message=%s",
+                message.id,
+                exc,
+                exc.provider_message or "not supplied",
+            )
         except Exception as exc:
             message.status = "failed"
             message.error_code = type(exc).__name__
+            logger.exception("SMS provider failed for message %s", message.id)
         message.updated_at = now
         if message.ticket_id:
+            failure_reason = sms_failure_reason(message.error_code)
             db.add(
                 MaintEvent(
                     ticket_id=message.ticket_id,
                     work_order_id=message.work_order_id,
-                    event_type="sms_send_failed" if message.status == "failed" else "sms_send_queued",
+                    event_type=(
+                        "sms_staging_dropped"
+                        if message.error_code == "staging_recipient_blocked"
+                        else "sms_send_failed"
+                        if message.status == "failed"
+                        else "sms_send_queued"
+                    ),
                     channel=MaintEventChannel.SYSTEM,
                     visibility=MaintVisibility.INTERNAL,
                     direction=MaintDirection.NONE,
                     actor_party=MaintParty.SYSTEM,
                     sms_message_id=message.id,
-                    payload={"status": message.status, "error_code": message.error_code},
+                    payload={
+                        "status": message.status,
+                        "error_code": message.error_code,
+                        **({"failure_reason": failure_reason} if failure_reason else {}),
+                        **failure_metadata,
+                    },
                     created_at=now,
                 )
             )
-        await notifier.sms_status_changed(message)
+        await notifier.sms_status_changed(db, message)
     await db.flush()
     return processed
 

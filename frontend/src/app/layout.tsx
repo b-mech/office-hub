@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Cog } from "lucide-react";
 import MobileNavigation from "./MobileNavigation";
+import PublicMaintenanceShell from "@/components/PublicMaintenanceShell";
 import "./globals.css";
 
 const USER_NAME = process.env.USER_NAME || "Nicholas";
@@ -25,6 +26,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full antialiased">
       <body className="theme-monocle min-h-full bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)]">
+        <PublicMaintenanceShell publicContent={children}>
         <div className="flex min-h-screen">
           <aside className="hidden w-56 shrink-0 flex-col border-r border-[var(--ch-sidebar-border)] bg-[var(--ch-sidebar-bg)] px-4 py-5 lg:flex">
             <Link href="/documents" className="flex items-center gap-2">
@@ -104,6 +106,7 @@ export default function RootLayout({
               >
                 Lease Import
               </Link>
+              <Link href="/rentals/maintenance" className="ml-3 rounded-lg border-l border-[var(--ch-sidebar-border)] px-3 py-1.5 text-xs text-[var(--ch-sidebar-text-muted)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]">Maintenance</Link>
               <Link href="/rentals/inspections" className="ml-3 rounded-lg border-l border-[var(--ch-sidebar-border)] px-3 py-1.5 text-xs text-[var(--ch-sidebar-text-muted)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]">Inspections</Link>
               <Link href="/rentals/reports" className="ml-3 rounded-lg border-l border-[var(--ch-sidebar-border)] px-3 py-1.5 text-xs text-[var(--ch-sidebar-text-muted)] transition hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]">Inspection Reports</Link>
             </nav>
@@ -125,6 +128,7 @@ export default function RootLayout({
             {children}
           </div>
         </div>
+        </PublicMaintenanceShell>
       </body>
     </html>
   );

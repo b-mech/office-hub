@@ -50,6 +50,8 @@ class TicketCreate:
     entry_permission: str = "not_asked"
     entry_notes: str | None = None
     inspection_id: int | None = None
+    is_emergency: bool = False
+    confirmation_sms_opt_in: bool | None = None
 
 
 async def create_ticket(
@@ -68,7 +70,7 @@ async def create_ticket(
     if data.entry_permission not in {"granted", "denied", "not_asked"}:
         raise ValueError("Invalid entry permission")
     created_at = now or datetime.now(timezone.utc)
-    is_emergency = data.category in EMERGENCY_CATEGORIES
+    is_emergency = data.is_emergency or data.priority == MaintPriority.EMERGENCY or data.category in EMERGENCY_CATEGORIES
     priority = MaintPriority.EMERGENCY if is_emergency else data.priority
     ticket = MaintTicket(
         property_id=data.property_id,
@@ -106,7 +108,7 @@ async def create_ticket(
             actor_user_id=actor.user_id,
             actor_vendor_id=actor.vendor_id,
             actor_phone_e164=actor.phone_e164,
-            payload={"source": data.source},
+            payload={"source": data.source, **({"confirmation_sms_opt_in": data.confirmation_sms_opt_in} if data.confirmation_sms_opt_in is not None else {})},
             created_at=created_at,
         )
     )
@@ -124,6 +126,7 @@ async def triage_ticket(
     is_emergency: bool,
     title: str,
     staff_summary: str | None = None,
+    channel: MaintEventChannel = MaintEventChannel.WEB,
     now: datetime | None = None,
     sla_targets: SlaTargets = DEFAULT_SLA_TARGETS,
 ) -> MaintTicket:
@@ -137,7 +140,91 @@ async def triage_ticket(
         MaintStatus.TRIAGED,
         actor,
         staff_summary,
+        channel=channel,
         now=now,
         sla_targets=sla_targets,
     )
     return ticket
+
+
+async def acknowledge_emergency(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    actor: ActorContext,
+    *,
+    channel: MaintEventChannel = MaintEventChannel.WEB,
+    now: datetime | None = None,
+) -> bool:
+    if not ticket.is_emergency:
+        raise ValueError("Only emergency tickets can be acknowledged")
+    if actor.user_id is None:
+        raise ValueError("Emergency acknowledgement requires a staff user")
+    if ticket.emergency_acked_at is not None:
+        return False
+    acknowledged_at = now or datetime.now(timezone.utc)
+    ticket.emergency_acked_by = actor.user_id
+    ticket.emergency_acked_at = acknowledged_at
+    ticket.updated_at = acknowledged_at
+    db.add(
+        MaintEvent(
+            ticket_id=ticket.id,
+            event_type="emergency_acknowledged",
+            channel=channel,
+            visibility=MaintVisibility.INTERNAL,
+            direction=MaintDirection.NONE,
+            actor_party=actor.party,
+            actor_user_id=actor.user_id,
+            created_at=acknowledged_at,
+        )
+    )
+    await db.flush()
+    return True
+
+
+async def cancel_ticket(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    actor: ActorContext,
+    *,
+    reason: str,
+    channel: MaintEventChannel = MaintEventChannel.WEB,
+    now: datetime | None = None,
+) -> MaintTicket:
+    if not reason.strip():
+        raise ValueError("A cancellation reason is required")
+    return await transition(
+        db,
+        ticket,
+        MaintStatus.CANCELLED,
+        actor,
+        reason.strip(),
+        channel=channel,
+        now=now,
+    )
+
+
+async def mark_duplicate(
+    db: AsyncSession,
+    ticket: MaintTicket,
+    canonical: MaintTicket,
+    actor: ActorContext,
+    *,
+    reason: str | None = None,
+    channel: MaintEventChannel = MaintEventChannel.WEB,
+    now: datetime | None = None,
+) -> MaintTicket:
+    if ticket.id == canonical.id:
+        raise ValueError("A ticket cannot be a duplicate of itself")
+    if MaintStatus(canonical.status) in {MaintStatus.CANCELLED, MaintStatus.DUPLICATE}:
+        raise ValueError("The canonical ticket cannot be cancelled or duplicate")
+    ticket.duplicate_of = canonical.id
+    detail = reason.strip() if reason and reason.strip() else f"Duplicate of {canonical.number}"
+    return await transition(
+        db,
+        ticket,
+        MaintStatus.DUPLICATE,
+        actor,
+        detail,
+        channel=channel,
+        now=now,
+    )

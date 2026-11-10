@@ -16,6 +16,7 @@ const routine = [
 
 type Config = { enabled:boolean;brand_name:string;emergency_phone:string;manitoba_hydro_emergency_phone:string;turnstile_site_key:string;emergency_messages:{gas_smell:string;default:string} };
 type Context = { property_display_name:string;unit_label:string };
+type Success = { ticket_number:string;phone:string;photo_upload_token?:string };
 
 export default function IntakePage({ params }: { params: Promise<{token:string}> }) {
   const { token } = use(params);
@@ -26,7 +27,8 @@ export default function IntakePage({ params }: { params: Promise<{token:string}>
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState<{ticket_number:string;phone:string}|null>(null);
+  const [success, setSuccess] = useState<Success|null>(null);
+  const [photoNotice, setPhotoNotice] = useState("");
 
   useEffect(() => {
     async function load() {
@@ -51,6 +53,13 @@ export default function IntakePage({ params }: { params: Promise<{token:string}>
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(""); setSubmitting(true);
     const body = new FormData(event.currentTarget);
+    const photos = body.getAll("photos").filter((item): item is File => item instanceof File && item.size > 0);
+    if (photos.length > 5 || photos.some((photo) => photo.size > 10 * 1024 * 1024)) {
+      setError("Choose no more than 5 photos, each 10 MB or smaller.");
+      setSubmitting(false);
+      return;
+    }
+    body.delete("photos");
     body.set("category", category);
     body.set("entry_permission", entry);
     try {
@@ -58,6 +67,26 @@ export default function IntakePage({ params }: { params: Promise<{token:string}>
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || "We couldn't submit your request. Please try again.");
       setSuccess(result);
+      if (photos.length && result.photo_upload_token) {
+        setPhotoNotice("Your request is submitted. Uploading photos…");
+        const photoBody = new FormData();
+        photos.forEach((photo) => photoBody.append("photos", photo));
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 90_000);
+        try {
+          const photoResponse = await fetch(
+            `${BASE}/api/public/intake/photos/${encodeURIComponent(result.photo_upload_token)}`,
+            { method:"POST", body:photoBody, signal:controller.signal },
+          );
+          const photoResult = await photoResponse.json().catch(() => ({}));
+          if (!photoResponse.ok) throw new Error(photoResult.detail || "Photo upload failed");
+          setPhotoNotice(`${photos.length} ${photos.length === 1 ? "photo" : "photos"} uploaded.`);
+        } catch {
+          setPhotoNotice("Your request was submitted, but the photos did not upload. You can reply to our text for help.");
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Submission failed"); }
     finally { setSubmitting(false); }
   }
@@ -72,7 +101,7 @@ export default function IntakePage({ params }: { params: Promise<{token:string}>
       <header>{brand ? <p className="font-bold text-teal-800">{brand}</p> : null}<h1 className="mt-2 text-3xl font-extrabold">Report a maintenance issue</h1>{context ? <p className="mt-2 text-slate-600">{context.property_display_name} · {context.unit_label}</p> : null}</header>
       {loading ? <p className="mt-8">Loading…</p> : null}
       {!loading && (!context || !config?.enabled) ? <section className="mt-8 rounded-2xl bg-slate-100 p-5"><h2 className="font-bold">This link isn&apos;t available</h2><p className="mt-2">Please contact {brand || "the property office"}{config?.emergency_phone ? ` at ${config.emergency_phone}` : ""}.</p></section> : null}
-      {success ? <section className="mt-8 rounded-2xl bg-emerald-50 p-6"><h2 className="text-2xl font-bold">Got it — {success.ticket_number}.</h2><p className="mt-3">We&apos;ll text you at {success.phone}. Reply to that text anytime.</p></section> : null}
+      {success ? <section className="mt-8 rounded-2xl bg-emerald-50 p-6"><h2 className="text-2xl font-bold">Got it — {success.ticket_number}.</h2><p className="mt-3">We&apos;ll text you at {success.phone}. Reply to that text anytime.</p>{photoNotice ? <p className="mt-3 font-semibold">{photoNotice}</p> : null}</section> : null}
       {context && config?.enabled && !success ? <form onSubmit={submit} className="mt-8 space-y-7">
         <div className="grid gap-4 sm:grid-cols-2"><label className="font-semibold">Your name<input name="name" required className="mt-2 w-full rounded-xl border p-4 font-normal" autoComplete="name" /></label><label className="font-semibold">Mobile number<input name="phone" required inputMode="tel" className="mt-2 w-full rounded-xl border p-4 font-normal" autoComplete="tel" /></label></div>
         <fieldset><legend className="text-lg font-bold">What&apos;s the problem?</legend><p className="mt-3 text-sm font-bold uppercase tracking-wide text-red-700">Emergency issues</p><div className="mt-2 grid grid-cols-2 gap-2">{emergency.map(([value,label]) => <button type="button" key={value} onClick={() => setCategory(value)} className={`min-h-16 rounded-xl border-2 p-3 text-left font-bold ${category===value?"border-red-700 bg-red-100":"border-red-200 bg-red-50"}`}>{label}</button>)}</div><div className="mt-3 grid grid-cols-2 gap-2">{routine.map(([value,label]) => <button type="button" key={value} onClick={() => setCategory(value)} className={`min-h-14 rounded-xl border p-3 text-left ${category===value?"border-teal-700 bg-teal-50 font-bold":""}`}>{label}</button>)}</div><input required tabIndex={-1} aria-hidden className="h-px w-px opacity-0" value={category} onChange={() => undefined} /></fieldset>

@@ -1,0 +1,15 @@
+[Unit]
+Description=Office Hub staging Next.js frontend
+After=officehub-staging-backend.service
+Requires=officehub-staging-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/officehub/office-hub-maint/frontend
+EnvironmentFile=/home/officehub/office-hub-maint/.env.staging
+ExecStart=/usr/bin/npm start -- --hostname 127.0.0.1 --port 3001
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

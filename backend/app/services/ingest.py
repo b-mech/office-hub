@@ -43,7 +43,7 @@ from app.services.extraction.service import get_extraction_service
 from app.services.ocr.extractor import PDFExtractor
 
 
-DOCUMENTS_BUCKET = "documents"
+DOCUMENTS_BUCKET = settings.minio_bucket
 logger = logging.getLogger(__name__)
 
 

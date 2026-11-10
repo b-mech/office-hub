@@ -9,7 +9,7 @@ from botocore.client import Config
 from app.core.config import settings
 
 
-FINANCING_BUCKET = "documents"
+FINANCING_BUCKET = settings.minio_bucket
 
 
 def financing_key(lender_type: str, filename: str, address: str | None = None) -> str:

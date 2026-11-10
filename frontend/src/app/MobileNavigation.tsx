@@ -19,6 +19,7 @@ const links = [
   ["Lenders", "/financing/lenders"],
   ["Rentals", "/rentals"],
   ["Lease Import", "/rentals/lease-import"],
+  ["Maintenance", "/rentals/maintenance"],
   ["Inspections", "/rentals/inspections"],
   ["Inspection Reports", "/rentals/reports"],
 ] as const;

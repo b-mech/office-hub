@@ -22,17 +22,31 @@ from app.services.maintenance.sla import DEFAULT_SLA_TARGETS, SlaTargets, sla_du
 
 
 ALLOWED_TRANSITIONS: dict[MaintStatus, frozenset[MaintStatus]] = {
-    MaintStatus.NEW: frozenset({MaintStatus.TRIAGED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}),
-    MaintStatus.TRIAGED: frozenset({MaintStatus.ASSIGNED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}),
-    MaintStatus.ASSIGNED: frozenset({MaintStatus.SCHEDULED, MaintStatus.IN_PROGRESS, MaintStatus.TRIAGED, MaintStatus.CANCELLED}),
-    MaintStatus.SCHEDULED: frozenset({MaintStatus.IN_PROGRESS, MaintStatus.ASSIGNED, MaintStatus.CANCELLED}),
+    MaintStatus.NEW: frozenset(
+        {MaintStatus.TRIAGED, MaintStatus.RESOLVED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}
+    ),
+    MaintStatus.TRIAGED: frozenset(
+        {MaintStatus.ASSIGNED, MaintStatus.RESOLVED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}
+    ),
+    MaintStatus.ASSIGNED: frozenset(
+        {
+            MaintStatus.SCHEDULED,
+            MaintStatus.IN_PROGRESS,
+            MaintStatus.TRIAGED,
+            MaintStatus.RESOLVED,
+            MaintStatus.CANCELLED,
+        }
+    ),
+    MaintStatus.SCHEDULED: frozenset(
+        {MaintStatus.IN_PROGRESS, MaintStatus.ASSIGNED, MaintStatus.RESOLVED, MaintStatus.CANCELLED}
+    ),
     MaintStatus.IN_PROGRESS: frozenset({MaintStatus.AWAITING_PARTS, MaintStatus.AWAITING_TENANT, MaintStatus.RESOLVED}),
     MaintStatus.AWAITING_PARTS: frozenset({MaintStatus.IN_PROGRESS, MaintStatus.SCHEDULED, MaintStatus.RESOLVED}),
     MaintStatus.AWAITING_TENANT: frozenset({MaintStatus.IN_PROGRESS, MaintStatus.SCHEDULED, MaintStatus.RESOLVED}),
     MaintStatus.RESOLVED: frozenset({MaintStatus.CLOSED, MaintStatus.IN_PROGRESS}),
     MaintStatus.CLOSED: frozenset({MaintStatus.IN_PROGRESS}),
-    MaintStatus.CANCELLED: frozenset(),
-    MaintStatus.DUPLICATE: frozenset(),
+    MaintStatus.CANCELLED: frozenset({MaintStatus.IN_PROGRESS}),
+    MaintStatus.DUPLICATE: frozenset({MaintStatus.IN_PROGRESS}),
 }
 
 
@@ -51,8 +65,12 @@ TransitionHook = Callable[[MaintTicket, MaintStatus, MaintStatus], Awaitable[Non
 def validate_transition(current: MaintStatus, target: MaintStatus, *, is_admin: bool = False) -> None:
     if target not in ALLOWED_TRANSITIONS[current]:
         raise InvalidTransitionError(f"Cannot move a maintenance ticket from {current.value} to {target.value}")
-    if current == MaintStatus.CLOSED and target == MaintStatus.IN_PROGRESS and not is_admin:
-        raise InvalidTransitionError("Only a maintenance admin can reopen a closed ticket")
+    if (
+        current in {MaintStatus.CLOSED, MaintStatus.CANCELLED, MaintStatus.DUPLICATE}
+        and target == MaintStatus.IN_PROGRESS
+        and not is_admin
+    ):
+        raise InvalidTransitionError("Only a maintenance admin can reopen a terminal ticket")
 
 
 async def transition(
@@ -84,10 +102,17 @@ async def transition(
     elif target == MaintStatus.CLOSED:
         ticket.closed_at = changed_at
         ticket.close_reason = reason
-    elif target == MaintStatus.IN_PROGRESS and current in {MaintStatus.RESOLVED, MaintStatus.CLOSED}:
+    elif target == MaintStatus.IN_PROGRESS and current in {
+        MaintStatus.RESOLVED,
+        MaintStatus.CLOSED,
+        MaintStatus.CANCELLED,
+        MaintStatus.DUPLICATE,
+    }:
         ticket.resolved_at = None
         ticket.closed_at = None
         ticket.close_reason = None
+        if current == MaintStatus.DUPLICATE:
+            ticket.duplicate_of = None
 
     db.add(
         MaintEvent(

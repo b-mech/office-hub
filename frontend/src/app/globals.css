@@ -61,10 +61,39 @@
   --ch-sidebar-text-secondary: rgba(255, 255, 255, 0.6);
   --ch-sidebar-text-muted: rgba(255, 255, 255, 0.45);
   --ch-sidebar-user-bg: rgb(23 105 140);
+  --ch-overlay: rgb(0 0 0 / 45%);
+  --ch-calendar-routine: #2563EB;
+  --ch-calendar-routine-border: #1D4ED8;
+  --ch-calendar-consent: #7C3AED;
+  --ch-calendar-consent-border: #6D28D9;
+  --ch-calendar-emergency: #DC2626;
+  --ch-calendar-emergency-border: #B91C1C;
+  --ch-calendar-completed: #64748B;
+  --ch-calendar-completed-border: #475569;
   --background: var(--ch-page-bg);
   --foreground: var(--ch-text-primary);
   --font-sans-app: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
   --font-mono-app: "SFMono-Regular", "Menlo", "Consolas", monospace;
+}
+
+.fc .entry-window-slot {
+  background: color-mix(in srgb, var(--ch-success-bg) 55%, transparent);
+}
+
+.fc .visit-routine { background: var(--ch-calendar-routine); border-color: var(--ch-calendar-routine-border); }
+.fc .visit-tenant_consent { background: var(--ch-calendar-consent); border-color: var(--ch-calendar-consent-border); }
+.fc .visit-emergency { background: var(--ch-calendar-emergency); border-color: var(--ch-calendar-emergency-border); }
+.fc .visit-completed { background: var(--ch-calendar-completed); border-color: var(--ch-calendar-completed-border); opacity: .62; text-decoration: line-through; }
+.fc .fc-event { cursor: pointer; }
+.fc .fc-event-dragging { cursor: grabbing; }
+
+@media (max-width: 767px) {
+  .fc .fc-list-table { table-layout: fixed; width: 100%; }
+  .fc .fc-list-event-time { width: 6.5rem; white-space: nowrap; }
+  .fc .fc-list-event-graphic { width: 1.25rem; }
+  .fc .fc-list-event-title { overflow: hidden; }
+  .fc .calendar-event-heading { align-items: flex-start; flex-wrap: wrap; }
+  .fc .calendar-event-location { white-space: normal; overflow: visible; text-overflow: clip; }
 }
 
 @theme inline {
