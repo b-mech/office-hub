@@ -153,10 +153,10 @@ git -C "$PLAN" worktree add --detach "$RELEASE" "$COMBINED_SHA"
 /home/officehub/.pyenv/versions/3.12.11/bin/python -m venv "$RELEASE/.venv"
 "$RELEASE/.venv/bin/pip" install -r "$RELEASE/backend/requirements.txt"
 (cd "$RELEASE/frontend" && npm ci)
-(cd "$RELEASE/frontend" && NEXT_TELEMETRY_DISABLED=1 \
- BACKEND_INTERNAL_URL=http://127.0.0.1:8001 NEXT_PUBLIC_API_URL=/backend-api \
- NODE_OPTIONS="--require $RELEASE/ops/staging-integration/build_no_network.cjs" \
- node node_modules/next/dist/bin/next build --webpack && node scripts/check-client-api-urls.mjs)
+"$RELEASE/.venv/bin/python" "$RELEASE/ops/staging-integration/build_frontend.py" \
+ --frontend "$RELEASE/frontend" \
+ --env /home/officehub/office-hub-lease-agreements/.env.lease-test \
+ --log "$RB/frontend-build.log"
 ```
 Run `"$RELEASE/.venv/bin/python" "$RELEASE/ops/staging-integration/release_checks.py" transport` BEFORE any service stop. It checks reviewed package pins and invokes Kombu's actual Redis version guard without opening a connection.
 Run tsc/tests again with isolated test deps as above, and assert generated routes-manifest
@@ -334,3 +334,14 @@ real renewal/scheduler metadata in fresh Redis; do not disable the staging healt
 Fresh verified prestop dumps must be taken immediately before stopping the four units,
 then take frozen final dumps. Generate merged protected envs before migrating.
 Staging deployment requires the owner's specific approval; production remains excluded.
+
+## Browser map build configuration
+
+Runtime frontend env is not sufficient for NEXT_PUBLIC values: Next inlines them
+during compilation. The previous manual build omitted NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
+causing a blank rentals map even though the runtime key was present. The guarded
+builder forwards ONLY that reviewed public browser key, retains the TCP guard,
+refuses live/fallback build directories and checks the built artifact. Never forward
+the backend Google key or a whole deployed environment into a frontend build.
+See rentals-map-build.md for the frontend-only deploy/rollback plan. Preparing
+this branch does not apply an environment fix or deploy a map fix.

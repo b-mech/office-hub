@@ -185,3 +185,40 @@ def test_stable_gate_rejects_failed_or_restarted_service(field, value):
     op.assert_running(baseline, baseline)
     with pytest.raises(ValueError):
         op.assert_running(dict(baseline, **{field:value}), baseline)
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_frontend_build_refuses_missing_browser_map_key(value):
+    op = load_operator("build_frontend")
+    with pytest.raises(ValueError):
+        op.build_environment({}, {op.KEY: value})
+
+def test_frontend_build_only_forwards_reviewed_public_browser_key():
+    op = load_operator("build_frontend")
+    env = op.build_environment({"PATH": "/bin", "DATABASE_URL": "dummy-private", "GOOGLE_MAPS_BACKEND_API_KEY": "dummy-private", op.KEY: "stale-parent-key"}, {op.KEY: "browser-key-fixture", "IMAP_PASSWORD": "dummy-private"})
+    assert env[op.KEY] == "browser-key-fixture"
+    assert not {"DATABASE_URL", "GOOGLE_MAPS_BACKEND_API_KEY", "IMAP_PASSWORD"}.intersection(env)
+    assert env["NEXT_PUBLIC_API_URL"] == "/backend-api"
+    assert env["BACKEND_INTERNAL_URL"] == "http://127.0.0.1:8001"
+    assert env["NODE_OPTIONS"].endswith("ops/staging-integration/build_no_network.cjs")
+
+def test_frontend_build_cannot_touch_live_or_fallback_frontend(tmp_path):
+    op = load_operator("build_frontend")
+    for target in [Path("/home/officehub/office-hub/frontend"), Path("/home/officehub/office-hub-lease-agreements/frontend"), tmp_path / "live"]:
+        with pytest.raises(ValueError):
+            op.assert_isolated(target, tmp_path / "live")
+    op.assert_isolated(tmp_path / "candidate", tmp_path / "live")
+
+def test_frontend_build_requires_inlined_key_and_no_missing_banner(tmp_path):
+    op = load_operator("build_frontend")
+    static = tmp_path / ".next/static/chunks";static.mkdir(parents=True)
+    html = tmp_path / ".next/server/app/rentals.html";html.parent.mkdir(parents=True)
+    (static / "map.js").write_text("browser-key-fixture")
+    html.write_text("Rentals")
+    assert op.verify_output(tmp_path, "browser-key-fixture")["browser_map_key_inlined"]
+    html.write_text("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is not configured")
+    with pytest.raises(ValueError):
+        op.verify_output(tmp_path, "browser-key-fixture")
+    html.write_text("Rentals")
+    with pytest.raises(ValueError):
+        op.verify_output(tmp_path, "missing-fixture")
