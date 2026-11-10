@@ -198,6 +198,11 @@ class SyncResult(BaseModel):
     stale_deleted: int = 0
     errors: list[str]
     sync_conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    dry_run: bool = False
+    delete_missing: bool = False
+    warnings: list[str] = Field(default_factory=list)
+    manifest: list[dict[str, Any]] = Field(default_factory=list)
+    bank_column: str | None = None
 
 
 class DocumentUploadOut(BaseModel):

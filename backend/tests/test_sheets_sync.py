@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 from uuid import uuid4
@@ -10,25 +11,85 @@ from app.services import financing
 from app.services.sheets_sync import SYNC_CONFLICT
 from app.services.sheets_sync import _conflicting_stage_keys
 from app.services.sheets_sync import _parse_stage_rows
+from app.services.sheets_sync import _parse_stage_table
 from app.services.sheets_sync import _stage_value
+from app.services.sheets_sync import classify_sheet_lender
+from app.services.sheets_sync import resolve_lender_fields
+from app.services.sheets_sync import resolve_sheet_sync_options
 from app.services.sheets_sync import sync_from_sheet
+
+
+# Real tracker layout: A address_key, B Address, C Build Start, D Client Possession,
+# E Banker (Robert), F Banker (Nicholas — source of truth), G Sold or Spec.
+TRACKER_HEADERS = [
+    "address_key",
+    "Address",
+    "Build Start",
+    "Client Possession",
+    "Banker ",
+    "Banker ",
+    "Sold or Spec",
+    "LAST UPDATE JULY 8TH",
+]
+
+
+def _tracker_row(
+    address: str,
+    *,
+    address_key: str = "",
+    build: str = "2026-06-22",
+    possession: str = "2027-04-01",
+    banker_e: str = "",
+    banker_f: str = "",
+    sold: str = "SPEC",
+    stage: str = "FRAME",
+) -> list[str]:
+    return [
+        address_key or address,
+        address,
+        build,
+        possession,
+        banker_e,
+        banker_f,
+        sold,
+        stage,
+    ]
+
+
+def _sheet(*data_rows: list[str], headers: list[str] | None = None) -> list[list[str]]:
+    return [
+        ["", "", "", "", "Robert ONLY", "NICHOLAS ONLY", "", ""],
+        list(headers or TRACKER_HEADERS),
+        *data_rows,
+    ]
 
 
 class _Result:
     def __init__(self, value: object = None) -> None:
         self.value = value
+        rows = value if isinstance(value, list) else ([] if value is None else [value])
+        self.rowcount = len(rows) if isinstance(value, list) else (0 if value is None else 1)
 
-    def mappings(self) -> _Result:
+    def mappings(self) -> "_Result":
         return self
 
     def one_or_none(self) -> object:
+        if isinstance(self.value, list):
+            return self.value[0] if self.value else None
         return self.value
 
     def scalar_one_or_none(self) -> object:
-        return self.value
+        value = self.one_or_none()
+        if isinstance(value, dict):
+            return next(iter(value.values()))
+        return value
 
     def all(self) -> object:
-        return self.value
+        if self.value is None:
+            return []
+        if isinstance(self.value, list):
+            return self.value
+        return [self.value]
 
 
 class _AsyncContext:
@@ -37,6 +98,39 @@ class _AsyncContext:
 
     async def __aexit__(self, *_args: object) -> bool:
         return False
+
+
+class FakeDB:
+    def __init__(self, existing_rows: list[dict[str, Any]] | None = None, missing: list[Any] | None = None):
+        self.existing_rows = existing_rows or []
+        self.missing = missing or []
+        self.calls: list[tuple[str, Any]] = []
+        self.writes: list[tuple[str, Any]] = []
+
+    def begin(self) -> _AsyncContext:
+        return _AsyncContext()
+
+    def begin_nested(self) -> _AsyncContext:
+        return _AsyncContext()
+
+    async def execute(self, stmt: Any, params: Any = None) -> _Result:
+        sql = str(getattr(stmt, "text", stmt))
+        self.calls.append((sql, params))
+        upper = sql.upper()
+        if any(keyword in upper for keyword in ("INSERT", "UPDATE", "DELETE")):
+            self.writes.append((sql, params))
+        if "FROM documents.construction_stage_sync" in sql and "DELETE" not in upper:
+            if "NOT IN" in upper:
+                missing_rows = [
+                    item if isinstance(item, (list, tuple)) else (item,)
+                    for item in self.missing
+                ]
+                # _missing_sync_addresses reads row[0]
+                return _Result([(item[0] if isinstance(item, (list, tuple)) else item,) if not isinstance(item, dict) else item for item in self.missing])
+            return _Result(self.existing_rows)
+        if "DELETE" in upper and "RETURNING" in upper:
+            return _Result([(address,) for address in self.missing])
+        return _Result([])
 
 
 class SheetsSyncTest(unittest.TestCase):
@@ -100,6 +194,117 @@ class SheetsSyncTest(unittest.TestCase):
 
         self.assertEqual({"104 LYNNE LANE"}, _conflicting_stage_keys(rows))
         self.assertEqual(SYNC_CONFLICT, "SYNC_CONFLICT")
+
+    def test_duplicate_banker_headers_read_column_f_not_e(self) -> None:
+        values = _sheet(
+            _tracker_row("10 Oak Street", banker_e="SCU", banker_f="Pro Auto"),
+        )
+        rows, warnings = _parse_stage_table(values)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["banker_raw"], "Pro Auto")
+        self.assertFalse(warnings)
+
+    def test_renamed_f_header_still_reads_f(self) -> None:
+        headers = list(TRACKER_HEADERS)
+        headers[5] = "NICHOLAS ONLY"
+        values = _sheet(
+            _tracker_row("10 Oak Street", banker_e="Robert bank", banker_f="Stride"),
+            headers=headers,
+        )
+        rows, warnings = _parse_stage_table(values)
+        self.assertEqual(rows[0]["banker_raw"], "Stride")
+        self.assertFalse(warnings)
+
+    def test_renamed_f_header_warns_when_it_does_not_look_like_bank(self) -> None:
+        headers = list(TRACKER_HEADERS)
+        headers[5] = "Misc Notes"
+        values = _sheet(
+            _tracker_row("10 Oak Street", banker_e="SCU", banker_f="ProAuto"),
+            headers=headers,
+        )
+        rows, warnings = _parse_stage_table(values)
+        self.assertEqual(rows[0]["banker_raw"], "ProAuto")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("column F", warnings[0])
+        self.assertIn("Misc Notes", warnings[0])
+
+    def test_never_falls_back_to_column_e_when_f_is_blank(self) -> None:
+        values = _sheet(
+            _tracker_row("10 Oak Street", banker_e="SCU", banker_f=""),
+            ["11 Oak Street", "11 Oak Street", "2026-06-22", "2027-04-01", "PRO"],
+        )
+        rows, _warnings = _parse_stage_table(values)
+        by_address = {row["address_raw"]: row for row in rows}
+        self.assertEqual(by_address["10 Oak Street"]["banker_raw"], "")
+        self.assertEqual(by_address["11 Oak Street"]["banker_raw"], "")
+
+
+class LenderClassificationTests(unittest.TestCase):
+    def test_question_marks_are_uncertain_and_not_classified_as_scu(self) -> None:
+        raw, lender_type, kind = classify_sheet_lender("??STRIDE??  SCU??")
+        self.assertEqual(raw, "??STRIDE??  SCU??")
+        self.assertIsNone(lender_type)
+        self.assertEqual(kind, "uncertain")
+
+    def test_pro_auto_spellings_normalize_to_pro(self) -> None:
+        for value in ("Pro Auto", "ProAuto", "pro auto", "PRO"):
+            _raw, lender_type, kind = classify_sheet_lender(value)
+            self.assertEqual(kind, "confirmed", value)
+            self.assertEqual(lender_type, "PRO", value)
+
+    def test_blank_f_does_not_overwrite_existing_lender(self) -> None:
+        resolved = resolve_lender_fields("", existing_raw="ProAuto", existing_type="PRO")
+        self.assertEqual(resolved["resolution"], "preserved")
+        self.assertEqual(resolved["banker_raw"], "ProAuto")
+        self.assertEqual(resolved["lender_type"], "PRO")
+        self.assertFalse(resolved["changed"])
+
+    def test_uncertain_f_does_not_overwrite_existing_lender(self) -> None:
+        resolved = resolve_lender_fields(
+            "??STRIDE??  SCU??",
+            existing_raw="SCU",
+            existing_type="SCU",
+        )
+        self.assertEqual(resolved["resolution"], "preserved")
+        self.assertEqual(resolved["banker_raw"], "SCU")
+        self.assertEqual(resolved["lender_type"], "SCU")
+        self.assertFalse(resolved["changed"])
+
+    def test_uncertain_f_on_new_row_is_lender_to_confirm(self) -> None:
+        resolved = resolve_lender_fields("--> STRIDE?", existing_raw=None, existing_type=None)
+        self.assertEqual(resolved["resolution"], "lender_to_confirm")
+        self.assertEqual(resolved["banker_raw"], "--> STRIDE?")
+        self.assertIsNone(resolved["lender_type"])
+        self.assertTrue(resolved["changed"])
+
+    def test_confirmed_f_records_a_change(self) -> None:
+        resolved = resolve_lender_fields("Pro Auto", existing_raw="SCU", existing_type="SCU")
+        self.assertEqual(resolved["resolution"], "updated")
+        self.assertEqual(resolved["banker_raw"], "Pro Auto")
+        self.assertEqual(resolved["lender_type"], "PRO")
+        self.assertTrue(resolved["changed"])
+
+
+class SheetSyncOptionTests(unittest.TestCase):
+    def test_api_defaults_dry_run_true_and_deletes_off(self) -> None:
+        options = resolve_sheet_sync_options()
+        self.assertTrue(options["dry_run"])
+        self.assertFalse(options["delete_missing"])
+        self.assertIsNone(options["address_keys"])
+        self.assertEqual(options["bank_column"], "F")
+
+    def test_query_overrides_body(self) -> None:
+        options = resolve_sheet_sync_options(
+            query_dry_run=False,
+            body={"dry_run": True, "delete_missing": True, "address_keys": ["10 Oak Street"]},
+        )
+        self.assertFalse(options["dry_run"])
+        self.assertTrue(options["delete_missing"])
+        self.assertIn("10 Oak Street", options["address_keys"] or [])
+
+    def test_body_can_set_dry_run_false_when_query_omitted(self) -> None:
+        options = resolve_sheet_sync_options(body={"dry_run": False})
+        self.assertFalse(options["dry_run"])
 
 
 class SheetsSyncAsyncTest(unittest.IsolatedAsyncioTestCase):
@@ -172,29 +377,177 @@ class SheetsSyncAsyncTest(unittest.IsolatedAsyncioTestCase):
         get_property.assert_not_awaited()
 
     async def test_failed_row_uses_savepoint_and_does_not_cancel_later_rows(self) -> None:
-        rows = [
-            {"Address": "1 Test Way", "Stage": "FOUNDATION"},
-            {"Address": "2 Test Way", "Stage": "LOCKUP"},
-            {"Address": "3 Test Way", "Stage": "DRYWALL"},
-        ]
-        db = SimpleNamespace(
-            begin=lambda: _AsyncContext(),
-            begin_nested=lambda: _AsyncContext(),
-            execute=AsyncMock(return_value=SimpleNamespace(rowcount=0)),
+        values = _sheet(
+            _tracker_row("1 Test Way", banker_f="PRO", stage="FOUNDATION"),
+            _tracker_row("2 Test Way", banker_f="SCU", stage="LOCKUP"),
+            _tracker_row("3 Test Way", banker_f="CLIENT", stage="DRYWALL"),
         )
+        db = FakeDB()
 
         with (
-            patch("app.services.sheets_sync._fetch_rows", AsyncMock(return_value=rows)),
+            patch("app.services.sheets_sync._fetch_sheet_values", AsyncMock(return_value=values)),
             patch(
                 "app.services.sheets_sync.upsert_stage_row",
-                AsyncMock(side_effect=[True, ValueError("bad grouped row"), False]),
+                AsyncMock(side_effect=[(True, False), ValueError("bad grouped row"), (False, False)]),
             ),
         ):
-            result = await sync_from_sheet(db)  # type: ignore[arg-type]
+            result = await sync_from_sheet(db, dry_run=False)  # type: ignore[arg-type]
 
         self.assertEqual(2, result["synced"])
         self.assertEqual(1, result["created_properties"])
-        self.assertEqual(["Row 3: bad grouped row"], result["errors"])
+        self.assertEqual(["Row 4: bad grouped row"], result["errors"])
+        self.assertFalse(result["dry_run"])
+
+    async def test_dry_run_writes_nothing_and_returns_manifest(self) -> None:
+        values = _sheet(_tracker_row("10 Oak Street", banker_f="Pro Auto", sold="SPEC"))
+        db = FakeDB()
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=AsyncMock(side_effect=AssertionError("upsert during dry_run"))),
+            patch("app.services.sheets_sync.get_or_create_stage_target", new=AsyncMock(return_value=(None, None, True))),
+            patch("app.services.sheets_sync.activate_from_construction_stage", new=AsyncMock(return_value=True)),
+        ):
+            result = await sync_from_sheet(db)  # default dry_run=True
+
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(result["synced"], 1)
+        self.assertEqual(result["created_properties"], 1)
+        self.assertEqual(result["stale_deleted"], 0)
+        # A brand-new property has no id yet, so activation is not previewed here.
+        self.assertEqual([item["kind"] for item in result["manifest"]], ["insert", "create_property"])
+        self.assertEqual(db.writes, [])
+        self.assertTrue(all("DELETE" not in sql.upper() for sql, _params in db.calls))
+
+    async def test_dry_run_includes_activation_when_property_already_exists(self) -> None:
+        values = _sheet(_tracker_row("10 Oak Street", banker_f="Pro Auto", sold="SPEC"))
+        db = FakeDB()
+        property_id = uuid4()
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=AsyncMock(side_effect=AssertionError("upsert during dry_run"))),
+            patch("app.services.sheets_sync.get_or_create_stage_target", new=AsyncMock(return_value=(property_id, None, False))),
+            patch("app.services.sheets_sync.activate_from_construction_stage", new=AsyncMock(return_value=True)),
+        ):
+            result = await sync_from_sheet(db, dry_run=True)
+
+        self.assertTrue(result["dry_run"])
+        self.assertEqual([item["kind"] for item in result["manifest"]], ["insert", "activate"])
+        self.assertEqual(db.writes, [])
+
+    async def test_allowlist_limits_rows(self) -> None:
+
+        values = _sheet(
+            _tracker_row("10 Oak Street", banker_f="Pro Auto"),
+            _tracker_row("20 Pine Avenue", banker_f="SCU"),
+        )
+        upsert = AsyncMock(return_value=(False, False))
+        db = FakeDB()
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=upsert),
+        ):
+            result = await sync_from_sheet(db, dry_run=False, address_keys=["10 Oak Street"])
+
+        self.assertEqual(result["synced"], 1)
+        upsert.assert_awaited_once()
+        self.assertEqual(upsert.await_args.args[1]["address_raw"], "10 Oak Street")
+        self.assertEqual({item["address_raw"] for item in result["manifest"]}, {"10 Oak Street"})
+
+    async def test_deletes_are_disabled_by_default(self) -> None:
+        values = _sheet(_tracker_row("10 Oak Street", banker_f="Pro Auto"))
+        db = FakeDB(
+            existing_rows=[{"address_raw": "99 Missing Road", "banker_raw": "SCU", "lender_type": "SCU"}],
+            missing=["99 Missing Road"],
+        )
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=AsyncMock(return_value=(False, False))),
+        ):
+            result = await sync_from_sheet(db, dry_run=False)
+
+        self.assertFalse(result["delete_missing"])
+        self.assertEqual(result["stale_deleted"], 0)
+        self.assertTrue(all("DELETE" not in sql.upper() for sql, _params in db.writes))
+        self.assertTrue(all(item["kind"] != "delete" for item in result["manifest"]))
+
+    async def test_delete_missing_only_when_requested(self) -> None:
+        values = _sheet(_tracker_row("10 Oak Street", banker_f="Pro Auto"))
+        db = FakeDB(missing=["99 Missing Road"])
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=AsyncMock(return_value=(False, False))),
+        ):
+            result = await sync_from_sheet(db, dry_run=False, delete_missing=True)
+
+        self.assertTrue(result["delete_missing"])
+        self.assertEqual(result["stale_deleted"], 1)
+        self.assertTrue(any("DELETE" in sql.upper() for sql, _params in db.writes))
+        self.assertTrue(any(item["kind"] == "delete" and item["address_raw"] == "99 Missing Road" for item in result["manifest"]))
+
+    async def test_allowlist_skips_deletes_even_when_requested(self) -> None:
+        values = _sheet(
+            _tracker_row("10 Oak Street", banker_f="Pro Auto"),
+            _tracker_row("20 Pine Avenue", banker_f="SCU"),
+        )
+        db = FakeDB(missing=["99 Missing Road"])
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=AsyncMock(return_value=(False, False))),
+        ):
+            result = await sync_from_sheet(
+                db,
+                dry_run=False,
+                delete_missing=True,
+                address_keys=["10 Oak Street"],
+            )
+
+        self.assertFalse(result["delete_missing"])
+        self.assertEqual(result["stale_deleted"], 0)
+        self.assertTrue(any("allowlist" in warning for warning in result["warnings"]))
+        self.assertTrue(all("DELETE" not in sql.upper() for sql, _params in db.writes))
+
+    async def test_apply_preserves_existing_lender_when_f_is_blank(self) -> None:
+        values = _sheet(_tracker_row("10 Oak Street", banker_f=""))
+        existing = {
+            "address_raw": "10 Oak Street",
+            "banker_raw": "ProAuto",
+            "lender_type": "PRO",
+            "property_id": None,
+            "build_group_id": None,
+        }
+        db = FakeDB(existing_rows=[existing])
+        upsert = AsyncMock(return_value=(False, False))
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=upsert),
+        ):
+            await sync_from_sheet(db, dry_run=False)
+
+        payload = upsert.await_args.args[1]
+        self.assertEqual(payload["banker_raw"], "ProAuto")
+        self.assertEqual(payload["lender_type"], "PRO")
+
+    async def test_dry_run_uncertain_f_manifest_marks_lender_preserved(self) -> None:
+        values = _sheet(_tracker_row("10 Oak Street", banker_f="??  SCU??"))
+        existing = {
+            "address_raw": "10 Oak Street",
+            "banker_raw": "Steinbach Credit Union",
+            "lender_type": "SCU",
+        }
+        db = FakeDB(existing_rows=[existing])
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=AsyncMock(side_effect=AssertionError("upsert"))),
+            patch("app.services.sheets_sync.get_or_create_stage_target", new=AsyncMock(return_value=(None, None, False))),
+            patch("app.services.sheets_sync.activate_from_construction_stage", new=AsyncMock(return_value=False)),
+        ):
+            result = await sync_from_sheet(db, dry_run=True)
+
+        update = next(item for item in result["manifest"] if item["kind"] == "update")
+        self.assertEqual(update["lender_resolution"], "preserved")
+        self.assertEqual(update["banker_raw"], "Steinbach Credit Union")
+        self.assertEqual(update["lender_type"], "SCU")
+        self.assertEqual(db.writes, [])
 
 
 if __name__ == "__main__":

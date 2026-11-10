@@ -24,10 +24,11 @@ def construction_trigger(sold_or_spec: str | None, address: str) -> LotTriggerTy
     return None
 
 
-def maybe_activate_lot(lot: Lot, trigger: LotTriggerType) -> bool:
+def maybe_activate_lot(lot: Lot, trigger: LotTriggerType, *, dry_run: bool = False) -> bool:
     if lot.trigger_type is not None or lot.cancelled or lot.property_id is None:
         return False
-    lot.trigger_type = trigger
+    if not dry_run:
+        lot.trigger_type = trigger
     return True
 
 
@@ -37,6 +38,7 @@ async def activate_from_construction_stage(
     property_id: UUID | None,
     address: str,
     sold_or_spec: str | None,
+    dry_run: bool = False,
 ) -> bool:
     trigger = construction_trigger(sold_or_spec, address)
     if trigger is None or property_id is None:
@@ -61,7 +63,10 @@ async def activate_from_construction_stage(
     if len(lots) != 1:
         return False
 
-    lot = (await db.scalars(select(Lot).where(Lot.id == lots[0].id).with_for_update())).one()
+    if dry_run:
+        lot = lots[0]
+    else:
+        lot = (await db.scalars(select(Lot).where(Lot.id == lots[0].id).with_for_update())).one()
     if lot.trigger_type is not None or lot.cancelled:
         return False
 
@@ -88,8 +93,13 @@ async def activate_from_construction_stage(
         )
         if linked_lot_id is not None and linked_lot_id != lot.id:
             return False
-        lot.property_id = property_id
+        if not dry_run:
+            lot.property_id = property_id
+        elif lot.property_id is None:
+            return not lot.cancelled and lot.trigger_type is None
     elif lot.property_id != property_id:
         return False
 
-    return maybe_activate_lot(lot, trigger)
+    if dry_run and lot.property_id is None:
+        return False
+    return maybe_activate_lot(lot, trigger, dry_run=dry_run)

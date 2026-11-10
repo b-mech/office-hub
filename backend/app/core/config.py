@@ -41,6 +41,7 @@ class Settings(BaseSettings):
         default="~/.secrets/office-hub-google-token.json",
         alias="GOOGLE_OAUTH_TOKEN_PATH",
     )
+    sheet_sync_bank_column: str = Field(default="F", alias="SHEET_SYNC_BANK_COLUMN")
     google_auth_client_id: str = Field(default="", alias="GOOGLE_AUTH_CLIENT_ID")
     google_auth_client_secret: str = Field(default="", alias="GOOGLE_AUTH_CLIENT_SECRET")
     google_auth_redirect_uri: str = Field(

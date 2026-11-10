@@ -31,7 +31,7 @@ def _row_stage(row: dict[str, str]) -> str:
 async def main() -> None:
     async with AsyncSessionLocal() as db:
         rows = await _fetch_rows()
-        sync_result = await sync_from_sheet(db)
+        sync_result = await sync_from_sheet(db, dry_run=False)
 
         db_rows = (
             await db.execute(

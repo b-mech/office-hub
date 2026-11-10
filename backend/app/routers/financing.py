@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import json
 import logging
 import re
 from pydantic import BaseModel
@@ -12,6 +13,8 @@ from fastapi import Depends
 from fastapi import File
 from fastapi import Form
 from fastapi import HTTPException
+from fastapi import Query
+from fastapi import Request
 from fastapi import UploadFile
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,6 +59,7 @@ from app.services.document_extractor import requires_review
 from app.services.minio_financing import FINANCING_BUCKET
 from app.services.minio_financing import financing_key
 from app.services.minio_financing import upload_financing_document
+from app.services.sheets_sync import resolve_sheet_sync_options
 from app.services.sheets_sync import sync_from_sheet
 
 
@@ -68,8 +72,32 @@ class LinkFacilityRequest(BaseModel):
 
 
 @router.post("/sync-from-sheet", response_model=SyncResult)
-async def sync_sheet(db: AsyncSession = Depends(get_db)) -> SyncResult:
-    return SyncResult(**await sync_from_sheet(db))
+async def sync_sheet(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    dry_run: bool | None = Query(default=None),
+    delete_missing: bool | None = Query(default=None),
+    address_keys: list[str] | None = Query(default=None),
+    bank_column: str | None = Query(default=None),
+) -> SyncResult:
+    payload = None
+    raw = await request.body()
+    if raw:
+        try:
+            loaded = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+        if loaded is not None and not isinstance(loaded, dict):
+            raise HTTPException(status_code=400, detail="JSON body must be an object")
+        payload = loaded
+    options = resolve_sheet_sync_options(
+        query_dry_run=dry_run,
+        query_delete_missing=delete_missing,
+        query_address_keys=address_keys,
+        query_bank_column=bank_column,
+        body=payload,
+    )
+    return SyncResult(**await sync_from_sheet(db, **options))
 
 
 @router.get("/dashboard", response_model=FinancingDashboardOut)

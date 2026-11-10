@@ -116,7 +116,7 @@ def normalize_lender_type(value: str | None) -> str:
     return "OTHER"
 
 
-async def get_or_create_property(db: AsyncSession, address: str) -> tuple[UUID, bool]:
+async def get_or_create_property(db: AsyncSession, address: str, *, create: bool = True) -> tuple[UUID | None, bool]:
     normalized = normalize_address(address)
     canonical = normalize_canonical_address(address)
     result = await db.execute(
@@ -135,6 +135,8 @@ async def get_or_create_property(db: AsyncSession, address: str) -> tuple[UUID, 
     existing = result.scalar_one_or_none()
     if existing:
         return existing, False
+    if not create:
+        return None, True
 
     created = await db.execute(
         text(
@@ -157,15 +159,19 @@ async def get_or_create_property(db: AsyncSession, address: str) -> tuple[UUID, 
 async def get_or_create_stage_target(
     db: AsyncSession,
     address: str,
+    *,
+    create: bool = True,
+    for_update: bool = True,
 ) -> tuple[UUID | None, UUID | None, bool]:
+    lock_clause = " FOR UPDATE" if for_update else ""
     existing_target = (
         await db.execute(
             text(
-                """
+                f"""
                 SELECT property_id, build_group_id
                 FROM documents.construction_stage_sync
                 WHERE address_raw = :address_raw
-                FOR UPDATE
+                {lock_clause}
                 """
             ),
             {"address_raw": address},
@@ -196,11 +202,11 @@ async def get_or_create_stage_target(
     if matching_groups:
         return None, matching_groups[0], False
 
-    property_id, created = await get_or_create_property(db, address)
+    property_id, created = await get_or_create_property(db, address, create=create)
     return property_id, None, created
 
 
-async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
+async def upsert_stage_row(db: AsyncSession, row: dict[str, Any], *, return_activation: bool = False) -> bool | tuple[bool, bool]:
     property_id, build_group_id, created = await get_or_create_stage_target(db, row["address_raw"])
 
     await record_stage_change(
@@ -265,12 +271,14 @@ async def upsert_stage_row(db: AsyncSession, row: dict[str, Any]) -> bool:
             ),
             {"property_id": property_id, "build_group_id": build_group_id, "stage": next_stage},
         )
-    await activate_from_construction_stage(
+    activated = await activate_from_construction_stage(
         db,
         property_id=property_id,
         address=row["address_raw"],
         sold_or_spec=row.get("sold_or_spec"),
     )
+    if return_activation:
+        return created, bool(activated)
     return created
 
 

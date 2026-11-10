@@ -56,8 +56,19 @@ export function getFinancingDashboard(): Promise<FinancingDashboard> {
   return apiFetch<FinancingDashboard>("/api/v1/financing/dashboard");
 }
 
-export function refreshFinancingFromSheet(): Promise<{ synced: number; created_properties: number; errors: string[] }> {
-  return apiFetch("/api/v1/financing/sync-from-sheet", { method: "POST" });
+export function refreshFinancingFromSheet(): Promise<{
+  synced: number;
+  created_properties: number;
+  errors: string[];
+  stale_deleted?: number;
+  dry_run?: boolean;
+  warnings?: string[];
+  manifest?: Record<string, unknown>[];
+}> {
+  return apiFetch("/api/v1/financing/sync-from-sheet", {
+    method: "POST",
+    body: JSON.stringify({ dry_run: false }),
+  });
 }
 
 export function getFinancingProperty(id: string): Promise<FinancingProperty> {
