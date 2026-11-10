@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     )
     docusign_base_url: str = Field(default="https://demo.docusign.net", alias="DOCUSIGN_BASE_URL")
     docusign_private_key: str = Field(default="", alias="DOCUSIGN_PRIVATE_KEY")
+    docusign_private_key_path: str = Field(default="", alias="DOCUSIGN_PRIVATE_KEY_PATH")
     docusign_webhook_secret: str = Field(default="", alias="DOCUSIGN_WEBHOOK_SECRET")
     docusign_auth_server: str = Field(default="account-d.docusign.com", alias="DOCUSIGN_AUTH_SERVER")
     docusign_base_path: str = Field(default="https://demo.docusign.net/restapi", alias="DOCUSIGN_BASE_PATH")
@@ -179,7 +180,7 @@ class Settings(BaseSettings):
             self.docusign_integration_key
             and self.docusign_user_id
             and self.docusign_account_id
-            and self.docusign_private_key
+            and (self.docusign_private_key_path or self.docusign_private_key)
         )
 
     @property

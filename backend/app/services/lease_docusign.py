@@ -11,6 +11,19 @@ from docusign_esign import ListItem, Recipients, SignHere, Signer, Tabs, Text
 from app.core.config import settings
 from app.services.docusign import get_docusign_client
 
+PHONE_PATTERN = r"^(?=(?:[^0-9]*[0-9]){10}[^0-9]*$)[0-9 ()\[\]-]+$"
+EMAIL_PATTERN = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+
+
+def _text_validation(field: str) -> dict[str, str]:
+    if field == "phone":
+        return {"validation_pattern": PHONE_PATTERN,
+                "validation_message": "Enter a 10-digit phone number"}
+    if field == "email":
+        return {"validation_pattern": EMAIL_PATTERN,
+                "validation_message": "Enter a valid email address"}
+    return {}
+
 
 def _api() -> EnvelopesApi:
     client = get_docusign_client()
@@ -35,9 +48,8 @@ def _tabs(signer: int, *, landlord: bool = False) -> Tabs:
     if not landlord:
         for suffix, width in (("phone", 85), ("email", 154)):
             name = f"{prefix}_{suffix}"
-            validation = ({"validation_pattern": r"^[^\s@]+@[^\s@]+\.[^\s@]+$",
-                           "validation_message": "Enter a valid email address"} if suffix == "email" else {})
-            texts.append(Text(**_anchor(name), tab_label=name, required=True, width=width, **validation))
+            texts.append(Text(**_anchor(name), tab_label=name, required=True, width=width,
+                              **_text_validation(suffix)))
         name = f"{prefix}_pref"
         lists.append(ListTab(**_anchor(name), tab_label=name, required=True, width=85,
                              list_items=[ListItem(text=x, value=x) for x in ("Phone", "Text", "Email")]))
@@ -46,11 +58,16 @@ def _tabs(signer: int, *, landlord: bool = False) -> Tabs:
                                        ("ec", 2, [140, 90, 90, 144]),
                                        ("vh", 2, [140, 80, 90, 154]),
                                        ("pt", 2, [140, 80, 90, 154])):
+                fields = {"oc": ("name", "relationship", "adult_child", "phone", "email"),
+                          "ec": ("name", "relationship", "phone", "email"),
+                          "vh": ("make_model", "colour", "licence_plate", "owner_driver"),
+                          "pt": ("type_breed", "name", "approx_weight", "notes")}[grid]
                 for row in range(1, rows + 1):
                     for col, width in enumerate(widths, 1):
                         name = f"{grid}_r{row}_c{col}"
                         required = grid == "ec" and row == 1 and col in (1, 3)
-                        texts.append(Text(**_anchor(name), tab_label=name, required=required, width=width))
+                        texts.append(Text(**_anchor(name), tab_label=name, required=required,
+                                          width=width, **_text_validation(fields[col - 1])))
     return Tabs(sign_here_tabs=sign, date_signed_tabs=dates, text_tabs=texts, list_tabs=lists)
 
 

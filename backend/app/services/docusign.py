@@ -32,13 +32,15 @@ _token_cache = _TokenCache()
 
 def get_docusign_client() -> ApiClient | None:
     if not settings.docusign_configured:
-        logger.warning("DocuSign is not configured; DOCUSIGN_PRIVATE_KEY is required.")
+        logger.warning("DocuSign is not configured; a private key path or inline key is required.")
         return None
 
     try:
         private_key = _private_key_bytes()
-    except ValueError as exc:
-        logger.error("DocuSign private key is malformed: %s", exc)
+    except (OSError, ValueError) as exc:
+        # Missing/unreadable files are configuration failures, just like a bad
+        # inline key. Do not expose filesystem paths or key details in logs.
+        logger.error("DocuSign private key unavailable or malformed (%s).", type(exc).__name__)
         return None
 
     api_client = ApiClient()
@@ -175,6 +177,13 @@ def _rest_api_base_path() -> str:
 
 def _private_key_bytes() -> bytes:
     import os
+    if settings.docusign_private_key_path.strip():
+        try:
+            with open(settings.docusign_private_key_path.strip(), "rb") as key_file:
+                return key_file.read()
+        except OSError:
+            if not settings.docusign_private_key.strip():
+                raise
     pem_path = os.path.join(
         os.path.dirname(__file__), 
         "../../docusign_private_key.pem"

@@ -5,9 +5,9 @@ The approved template is `backend/app/templates/leases/residential_tenancy_agree
 ## Deployment settings
 
 - Install LibreOffice Writer, Liberation Serif, and FreeSerif on every rendering worker. The template uses Liberation Serif for body text and FreeSerif for checkbox glyphs. Verify `fc-match -f '%{family}' 'Liberation Serif'` and `fc-match -f '%{family}' 'FreeSerif'` report those families.
-- Set `LEASE_LANDLORD_SIGNER_NAME="Robert Wieler"` in every environment.
+- Set `LEASE_LANDLORD_SIGNER_NAME="Robert Wieler"` for production signing. The lease test instance uses `Nicholas` with the internal test signer email.
 - Set `LEASE_LANDLORD_SIGNER_EMAIL="robert@connectionhomes.ca"` only in production. Set `LEASE_LANDLORD_SIGNER_EMAIL="nicholas@connectionhomes.ca"` and `LEASE_NONPRODUCTION_SIGNER_EMAIL="nicholas@connectionhomes.ca"` in development, test, and staging. The service requires both nonproduction settings to match, so an accidental production address cannot be used for a test envelope.
-- Configure the existing DocuSign JWT, Box OAuth, MinIO, and Redis worker. `BOX_RENTAL_PROPERTIES_FOLDER_ID` must identify the existing `PRIVI/Rentals` folder; the service creates `{unit_address}/Leases` beneath it.
+- Configure the existing DocuSign JWT, Box OAuth, MinIO, and Redis worker. `BOX_RENTAL_PROPERTIES_FOLDER_ID` identifies the existing rental-property folder; the service creates `{unit_address}/Leases` beneath it. The current Box folder is `CH - Production/Production/_Rental Properties/_Rental Properties` (ID `194280154572`). The repeated names are two real nested Box folders (parent ID `194279676969`), not a path-building error.
 - Run Alembic revision `20261102_0055` and restart the backend, Celery worker, and beat. The beat schedule polls open envelopes every 15 minutes. The existing Change Orders DocuSign Connect webhook also queues completed lease processing.
 
 ## Schema additions
@@ -17,5 +17,5 @@ The approved template is `backend/app/templates/leases/residential_tenancy_agree
 ## Manual acceptance before production merge
 
 1. Open the Leases tab for 166 Clubhouse Drive and confirm municipality `Lorette`. Create a draft, preview the PDF, and verify the page layout and all DocuSign tabs with two internal test tenants.
-2. With the nonproduction landlord signer set to Nicholas, send a test envelope. Verify no tenant receives it before landlord signature. Complete the envelope and verify the combined PDF and certificate under `PRIVI/Rentals/{unit_address}/Leases`.
+2. With the nonproduction landlord signer set to Nicholas, send a test envelope. Verify no tenant receives it before landlord signature. Complete the envelope and verify the combined PDF and certificate under the configured rental-property folder at `{unit_address}/Leases`.
 3. Check `contact_form_data`, review before applying it to tenant records, and verify the Plooto PAD staff task. Void a separate open test envelope and verify resend only reaches pending recipients.
