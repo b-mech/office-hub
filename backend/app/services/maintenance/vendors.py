@@ -10,7 +10,7 @@ class DuplicateVendorPhone(ValueError): pass
 def vendor_view(vendor):
     return {"id":vendor.id,"name":vendor.name,"phone_e164":vendor.phone_e164,
         "trades":vendor.trades,"insurance_expiry":vendor.insurance_expiry,"wcb_expiry":vendor.wcb_expiry,
-        "notes":vendor.notes,"is_active":vendor.is_active}
+        "notes":vendor.notes,"is_active":vendor.is_active,"sms_opted_out":bool(vendor.sms_opted_out)}
 
 
 async def save_vendor(db,values,*,vendor=None,actor_user_id=None):
@@ -19,6 +19,16 @@ async def save_vendor(db,values,*,vendor=None,actor_user_id=None):
     if "phone_e164" in values: values["phone_e164"]=normalize_phone(values["phone_e164"])
     phone=values.get("phone_e164",vendor.phone_e164 if vendor else None)
     active=values.get("is_active",vendor.is_active if vendor else True)
+    phone_changed=vendor is not None and phone != vendor.phone_e164
+    if phone_changed and vendor.sms_opted_out:
+        raise ValueError("This contact opted out. Deactivate and create a new vendor to preserve the original opt-out history")
+    if vendor is None or phone_changed:
+        # Creating a replacement for an inactive contact must not silently
+        # turn a previous STOP into consent. Only the existing SMS START flow
+        # can opt a contact back in; vendor admin never edits this flag.
+        previous_stop=await db.scalar(select(MaintVendor.id).where(
+            MaintVendor.phone_e164==phone,MaintVendor.sms_opted_out.is_(True)).limit(1))
+        values["sms_opted_out"]=previous_stop is not None
     if active:
         query=select(MaintVendor.id).where(MaintVendor.phone_e164==phone,MaintVendor.is_active.is_(True))
         if vendor is not None: query=query.where(MaintVendor.id!=vendor.id)

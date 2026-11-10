@@ -100,3 +100,8 @@ Cloudflare/tunnel settings were changed during this development task.
 The isolated Next build exposed two pre-existing invalid named Page exports.
 Reusable ChangeOrderForm and LotWorkspace were moved into components without
 behavior changes, keeping their Page entry points export-compatible with Next.
+
+Vendor admin exposes SMS opt-out read-only. Replacement records inherit a prior
+STOP for the same phone, including inactive records. An opted-out vendor's phone
+cannot be overwritten (deactivate/create instead), preserving the old contact's
+opt-out history. Admin cannot clear opt-out; only the existing SMS START flow can.

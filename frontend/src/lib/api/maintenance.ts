@@ -255,8 +255,8 @@ export const vendorPhotoUrl = (token:string,id:string) => `${BASE}${vendorPath(t
 export function uploadVendorPhotos(token:string,photos:File[]){ const body=new FormData();photos.forEach(p=>body.append("photos",p));return request<{uploaded:number}>(`${vendorPath(token)}/photos`,{method:"POST",body});}
 
 
-export type MaintenanceVendor={id:string;name:string;phone_e164:string;trades:TicketCategory[];insurance_expiry:string|null;wcb_expiry:string|null;notes:string|null;is_active:boolean};
-export type MaintenanceVendorInput=Omit<MaintenanceVendor,"id">;
+export type MaintenanceVendor={id:string;name:string;phone_e164:string;trades:TicketCategory[];insurance_expiry:string|null;wcb_expiry:string|null;notes:string|null;is_active:boolean;sms_opted_out:boolean};
+export type MaintenanceVendorInput=Omit<MaintenanceVendor,"id"|"sms_opted_out">;
 export const listMaintenanceVendors=(includeInactive=false)=>request<MaintenanceVendor[]>(`/api/maintenance/vendors?include_inactive=${includeInactive}`);
 export const createMaintenanceVendor=(body:MaintenanceVendorInput)=>jsonRequest<MaintenanceVendor>("/api/maintenance/vendors","POST",body);
 export const updateMaintenanceVendor=(id:string,body:Partial<MaintenanceVendorInput>)=>jsonRequest<MaintenanceVendor>(`/api/maintenance/vendors/${id}`,"PATCH",body);

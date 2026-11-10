@@ -28,6 +28,7 @@ class FakeDb:
   self.queries.append(q);params=q.compile().params
   if q.column_descriptions[0]["expr"] is MaintVendor:return next((v for v in self.vendors if v.id in params.values()),None)
   phone=next((p for p in params.values() if isinstance(p,str) and p.startswith("+")),None)
+  if "sms_opted_out IS true" in str(q):return next((v.id for v in self.vendors if v.phone_e164==phone and v.sms_opted_out),None)
   return next((v.id for v in self.vendors if v.is_active and v.phone_e164==phone and v.id not in params.values()),None)
  async def scalars(self,q):
   self.queries.append(q)
@@ -114,3 +115,19 @@ async def test_inactive_vendor_cannot_be_assigned(admin):
  admin[1].vendors=[vendor]
  with pytest.raises(ValueError,match="Active vendor not found"):
   await assign_vendor_work_order(admin[1],SimpleNamespace(id=uuid4()),ActorContext(MaintParty.STAFF),vendor_id=vendor.id,scope="Test scope")
+
+
+@pytest.mark.asyncio
+async def test_replacement_vendor_inherits_inactive_contacts_stop(admin):
+    prior=MaintVendor(id=uuid4(),name="Previous contact",phone_e164="+12045551234",is_active=False,sms_opted_out=True)
+    admin[1].vendors=[prior]
+    response=await request(admin,"POST",json=data())
+    assert response.status_code==201 and response.json()["sms_opted_out"] is True
+    assert (await request(admin,"PATCH","/"+response.json()["id"],json={"sms_opted_out":False})).status_code==422
+
+
+@pytest.mark.asyncio
+async def test_phone_edit_cannot_discard_optout_history(admin):
+    response=await request(admin,"POST",json=data());vendor=admin[1].vendors[0];vendor.sms_opted_out=True
+    changed=await request(admin,"PATCH","/"+response.json()["id"],json={"phone_e164":"+12045555678"})
+    assert changed.status_code==422 and vendor.phone_e164=="+12045551234" and vendor.sms_opted_out is True
