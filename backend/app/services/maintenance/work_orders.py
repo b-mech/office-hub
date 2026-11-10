@@ -56,6 +56,7 @@ def is_future_scheduled_visit(
     work_order: MaintWorkOrder,
     *,
     now: datetime | None = None,
+    channel: MaintEventChannel = MaintEventChannel.SYSTEM,
 ) -> bool:
     checked_at = now or datetime.now(timezone.utc)
     return bool(
@@ -105,6 +106,7 @@ async def create_work_order(
         scope=scope.strip(),
         cost_estimate=cost_estimate,
         access_token_hash=token_hash,
+        token_expires_at=datetime.now(timezone.utc) + timedelta(days=30) if token_hash else None,
         created_by=actor.user_id,
     )
     db.add(work_order)
@@ -336,6 +338,7 @@ async def complete_work_order(
     completion_notes: str,
     cost_actual: Decimal | None = None,
     now: datetime | None = None,
+    channel: MaintEventChannel = MaintEventChannel.SYSTEM,
 ) -> bool:
     completed_at = now or datetime.now(timezone.utc)
     work_order.status = MaintWorkOrderStatus.COMPLETED
@@ -347,7 +350,7 @@ async def complete_work_order(
             ticket_id=ticket.id,
             work_order_id=work_order.id,
             event_type="work_order_completed",
-            channel=MaintEventChannel.SYSTEM,
+            channel=channel,
             visibility=MaintVisibility.INTERNAL,
             direction=MaintDirection.NONE,
             actor_party=actor.party,

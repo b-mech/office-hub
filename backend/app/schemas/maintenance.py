@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 from app.models.maintenance import MaintCategory, MaintPriority
 
@@ -77,3 +77,21 @@ class StaffTicketCreate(BaseModel):
     sms_opt_in: bool = False
     entry_permission: Literal["granted", "denied", "not_asked"] = "not_asked"
     entry_notes: str | None = Field(default=None, max_length=2000)
+
+
+class VendorPortalAction(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    action: Literal["accept", "decline", "propose_schedule", "confirm_schedule", "start", "complete"]
+    notes: str | None = Field(default=None, max_length=4000)
+    start: AwareDatetime | None = None
+    end: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def required_details(self):
+        if self.action in {"decline", "complete"} and not self.notes:
+            raise ValueError("Notes are required for declining or completing work")
+        if self.action == "propose_schedule" and (not self.start or not self.end):
+            raise ValueError("A start and end time with timezone are required")
+        if self.action != "propose_schedule" and (self.start is not None or self.end is not None):
+            raise ValueError("Only a proposal may specify times; staff schedules the actual visit")
+        return self

@@ -239,3 +239,17 @@ export async function createStaffTicket(data: StaffTicketInput, photos: File[]) 
   return request<{ id: string; number: string; status: string; sla_due_at: string; confirmation: string }>(
     "/api/maintenance/tickets", { method: "POST", body });
 }
+
+
+export type VendorPortalOrder = {
+  number: string; status: string; vendor_name: string; scope: string; address: string; unit: string|null;
+  entry_notes: string|null; entry_permission: string; scheduled_start: string|null; scheduled_end: string|null;
+  cost_estimate: string|null; completion_notes: string|null; is_emergency: boolean; emergency_acknowledged: boolean;
+  photos: {id:string;label:string}[];
+};
+export type VendorPortalAction = "accept"|"decline"|"propose_schedule"|"confirm_schedule"|"start"|"complete";
+const vendorPath = (token:string) => `/api/public/work-orders/${encodeURIComponent(token)}`;
+export const getVendorPortal = (token:string) => request<VendorPortalOrder>(vendorPath(token));
+export const actOnVendorOrder = (token:string,body:{action:VendorPortalAction;notes?:string;start?:string;end?:string}) => jsonRequest<{status:string;link_revoked:boolean}>(`${vendorPath(token)}/actions`,"POST",body);
+export const vendorPhotoUrl = (token:string,id:string) => `${BASE}${vendorPath(token)}/photos/${encodeURIComponent(id)}`;
+export function uploadVendorPhotos(token:string,photos:File[]){ const body=new FormData();photos.forEach(p=>body.append("photos",p));return request<{uploaded:number}>(`${vendorPath(token)}/photos`,{method:"POST",body});}

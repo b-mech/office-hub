@@ -33,6 +33,8 @@ from app.models.maintenance import (
     MaintTicket,
     MaintUnitToken,
     MaintVisibility,
+    MaintVendor,
+    MaintWorkOrder,
 )
 from app.models.rentals import RentalLease, RentalLeaseTenant, RentalProperty, RentalTenant, RentalUnit
 from app.services.maintenance.errors import InvalidMediaError
@@ -63,6 +65,9 @@ from app.services.maintenance.sms.providers import get_sms_provider
 from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext
 from app.services.maintenance.staff_tickets import create_staff_ticket
+from app.services.maintenance.tokens import hash_token
+from app.services.maintenance.vendor_portal import (InvalidVendorLink, VendorActionConflict,
+    apply_vendor_action, portal_view, resolve_vendor_link, upload_vendor_photos)
 from app.services.maintenance.tickets import TicketCreate, create_ticket
 from app.services.maintenance.turnstile import TurnstileError, verify_turnstile
 from app.services.maintenance.webhook_alerts import alert_ringcentral_webhook_failure
@@ -85,6 +90,7 @@ from app.services.maintenance.workspace import (
     ticket_detail_view,
 )
 from app.schemas.maintenance import (
+    VendorPortalAction,
     StaffTicketCreate,
     AssignmentRequest,
     CompleteWorkOrderRequest,
@@ -949,3 +955,86 @@ async def maintenance_acknowledge(
         await db.rollback()
         raise HTTPException(422, str(exc)) from exc
     return {"ok": True, "acknowledged": acknowledged}
+
+
+PORTAL_HEADERS = {"Cache-Control": "no-store, private", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow"}
+
+
+async def _vendor_context(request, db, token, *, write=False):
+    _require_enabled()
+    try:
+        context = await resolve_vendor_link(db, token, lock=write)
+        await get_rate_limiter().vendor_portal(hash_token(token), request.client.host if request.client else "unknown", write=write)
+        return context
+    except InvalidVendorLink:
+        raise HTTPException(404, "This work-order link is invalid, expired or revoked", headers=PORTAL_HEADERS)
+    except RateLimitExceeded as exc:
+        raise HTTPException(429, str(exc), headers=PORTAL_HEADERS) from exc
+    except RedisError as exc:
+        raise HTTPException(503, "Please try again shortly", headers=PORTAL_HEADERS) from exc
+
+
+@router.get("/api/public/work-orders/{token}")
+async def vendor_work_order(token: str, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    order,ticket,vendor = await _vendor_context(request,db,token)
+    response.headers.update(PORTAL_HEADERS)
+    return await portal_view(db,order,ticket,vendor)
+
+
+@router.post("/api/public/work-orders/{token}/actions")
+async def vendor_work_order_action(token: str, data: VendorPortalAction, request: Request,
+                                  response: Response, db: AsyncSession = Depends(get_db)):
+    order,ticket,vendor = await _vendor_context(request,db,token,write=True)
+    try:
+        await apply_vendor_action(db,order,ticket,vendor,data)
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(409 if isinstance(exc,VendorActionConflict) else 422,str(exc),headers=PORTAL_HEADERS) from exc
+    response.headers.update(PORTAL_HEADERS)
+    return {"status":order.status,"action":data.action,"link_revoked":data.action=="decline"}
+
+
+@router.post("/api/public/work-orders/{token}/photos",status_code=201)
+async def vendor_work_order_photos(token: str, request: Request, response: Response,
+                                   photos: Annotated[list[UploadFile],File()], db: AsyncSession = Depends(get_db)):
+    order,ticket,vendor = await _vendor_context(request,db,token,write=True)
+    try:
+        validate_file_count(len(photos),party=MaintParty.VENDOR)
+        files=[]
+        for photo in photos:
+            content=await photo.read(MAX_FILE_BYTES+1)
+            await asyncio.to_thread(process_media,content)
+            files.append((photo.filename,content))
+        await upload_vendor_photos(db,order,ticket,vendor,files)
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(409 if isinstance(exc,VendorActionConflict) else 422,str(exc),headers=PORTAL_HEADERS) from exc
+    response.headers.update(PORTAL_HEADERS)
+    return {"uploaded":len(files)}
+
+
+@router.get("/api/public/work-orders/{token}/photos/{attachment_id}")
+async def vendor_work_order_photo(token: str, attachment_id: UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    order,ticket,vendor = await _vendor_context(request,db,token)
+    photo=await db.get(MaintAttachment,attachment_id)
+    if photo is None or photo.work_order_id!=order.id or photo.uploaded_by_party!=MaintParty.VENDOR or photo.kind!="photo":
+        raise HTTPException(404,"Photo not found",headers=PORTAL_HEADERS)
+    content=await asyncio.to_thread(download_attachment,photo.minio_key)
+    return Response(content,media_type=photo.content_type,headers={**PORTAL_HEADERS,"X-Content-Type-Options":"nosniff"})
+
+
+@router.post("/api/maintenance/work-orders/{work_order_id}/revoke-link")
+async def revoke_vendor_link(work_order_id: UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    user=_staff(request,"assign")
+    order=await db.get(MaintWorkOrder,work_order_id)
+    if order is None or order.assignee_type!="vendor": raise HTTPException(404,"Work order not found")
+    await _ticket_or_404(db,order.ticket_id)
+    order.access_token_hash=None
+    order.token_expires_at=datetime.now(timezone.utc)
+    db.add(MaintEvent(ticket_id=order.ticket_id,work_order_id=order.id,event_type="vendor_link_revoked",
+        channel=MaintEventChannel.WEB,visibility=MaintVisibility.INTERNAL,direction=MaintDirection.NONE,
+        actor_party=MaintParty.STAFF,actor_user_id=user.id if user else None))
+    await _commit_workspace(db)
+    return {"revoked":True}
