@@ -156,7 +156,7 @@ git -C "$PLAN" worktree add --detach "$RELEASE" "$COMBINED_SHA"
 (cd "$RELEASE/frontend" && NEXT_TELEMETRY_DISABLED=1 \
  BACKEND_INTERNAL_URL=http://127.0.0.1:8001 NEXT_PUBLIC_API_URL=/backend-api \
  NODE_OPTIONS="--require $RELEASE/ops/staging-integration/build_no_network.cjs" \
- npm run build && node scripts/check-client-api-urls.mjs)
+ node node_modules/next/dist/bin/next build --webpack && node scripts/check-client-api-urls.mjs)
 ```
 Run tsc/tests again with isolated test deps as above, and assert generated routes-manifest
 contains `/api/webhooks/:path*` -> `http://127.0.0.1:8001/api/webhooks/:path*`. Stop on any
@@ -192,13 +192,26 @@ Confirm source revisions still 0055/0051 and expected counts before proceeding.
 
 ### 3. Freeze writes, take FINAL dumps, migrate and import
 
+Operational finding from the first real attempt: the combined Settings validator rejects
+`$LEASE/.env.lease-test` because its RingCentral webhook validation token is absent.
+The worker env has that token. This failed BEFORE Alembic/DDL; import/overrides were not
+reached. The canonical DB was restored from its final dump and all original staging units
+were restarted; original data digests, health and public validation echo were verified.
+The outage/recovery window was 8.32 seconds. Production was untouched.
+
+The corrected order below prepares the merged protected env BEFORE invoking Alembic and
+uses it for both migration and import. Read-only validation confirmed that candidate env
+passes all Settings guards; **the corrected ordering has NOT been retried on real staging**.
+Do not remove the token guard or paste token values into commands/logs. The explicit guarded
+Webpack build passed; only the original environment ordering blocked migration.
+
 ```
 systemctl --user stop officehub-staging-beat officehub-staging-worker officehub-staging-backend officehub-staging-frontend
 "$PY" "$OPS/db_ops.py" dump --env "$LEASE/.env.lease-test" --expect-db officehub_lease_agreements_test --file "$RB/backend-final.dump"
 "$PY" "$OPS/db_ops.py" dump --env "$MAINT/.env.staging" --expect-db officehub_staging --file "$RB/worker-final.dump"
-"$PY" "$OPS/db_ops.py" migrate --env "$LEASE/.env.lease-test" --expect-db officehub_lease_agreements_test --revision head --allow-live-target
-"$PY" "$OPS/copy_worker_history.py" --source-env "$MAINT/.env.staging" --target-env "$LEASE/.env.lease-test" --target-db officehub_lease_agreements_test --allow-live-target --import-disabled-actors
 "$PY" "$OPS/prepare_env.py" --lease-env "$LEASE/.env.lease-test" --worker-env "$MAINT/.env.staging" --out-dir "$RB/new-env"
+"$PY" "$OPS/db_ops.py" migrate --env "$RB/new-env/backend.env" --expect-db officehub_lease_agreements_test --revision head --allow-live-target
+"$PY" "$OPS/copy_worker_history.py" --source-env "$MAINT/.env.staging" --target-env "$RB/new-env/backend.env" --target-db officehub_lease_agreements_test --allow-live-target --import-disabled-actors
 ```
 The worker source DB is READ ONLY and is NOT migrated. Repeat the count/digest checks,
 confirm only head0062, and verify no dispatchable imported SMS/pending Slack. No new
