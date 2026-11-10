@@ -1,7 +1,7 @@
 "use client";
 
 import { getProjects } from "@/lib/api/costbook";
-import { LotWorkspace } from "@/app/lots/page";
+import { LotWorkspace } from "@/components/lots/LotWorkspace";
 
 export default function ProjectsPage() {
   return (
