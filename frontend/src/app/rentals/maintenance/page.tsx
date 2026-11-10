@@ -66,6 +66,7 @@ export default function MaintenanceTicketsPage() {
             <p className="mt-2 text-sm text-[var(--ch-text-muted)]">Conversations, SLA risk, and field work in one queue.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Link href="/rentals/maintenance/new" className="rounded-xl bg-[var(--ch-accent)] px-4 py-3 text-sm font-semibold text-white">+ New ticket</Link>
             <div className="flex rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-1" aria-label="Open ticket view">
               <button type="button" onClick={() => changeView("list")} className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold ${view === "list" ? "bg-[var(--ch-accent)] text-white" : ""}`}><List size={16} /> List</button>
               <button type="button" onClick={() => changeView("calendar")} className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-semibold ${view === "calendar" ? "bg-[var(--ch-accent)] text-white" : ""}`}><CalendarDays size={16} /> Calendar</button>

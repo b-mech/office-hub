@@ -61,3 +61,19 @@ class MoreActionRequest(BaseModel):
     action: Literal["cancel", "duplicate", "reopen", "toggle_chargeback"]
     reason: str | None = Field(default=None, max_length=2000)
     canonical_ticket_id: UUID | None = None
+
+
+class StaffTicketCreate(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    property_id: int = Field(gt=0)
+    unit_id: int | None = Field(default=None, gt=0)
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=10, max_length=10000)
+    category: MaintCategory
+    priority: MaintPriority = MaintPriority.ROUTINE
+    is_emergency: bool = False
+    reporter_name: str | None = Field(default=None, max_length=150)
+    reporter_phone: str | None = Field(default=None, max_length=50)
+    sms_opt_in: bool = False
+    entry_permission: Literal["granted", "denied", "not_asked"] = "not_asked"
+    entry_notes: str | None = Field(default=None, max_length=2000)

@@ -220,3 +220,22 @@ export function download(blob: Blob, filename: string) {
   anchor.click();
   URL.revokeObjectURL(url);
 }
+
+
+export type StaffTicketOptions = {
+  properties: { id: number; name: string; address: string }[];
+  units: { id: number; property_id: number; label: string }[];
+};
+export type StaffTicketInput = {
+  property_id: number; unit_id: number | null; title: string; description: string;
+  category: TicketCategory; priority: TicketPriority; is_emergency: boolean;
+  reporter_name: string | null; reporter_phone: string | null; sms_opt_in: boolean;
+  entry_permission: "granted" | "denied" | "not_asked"; entry_notes: string | null;
+};
+export const getStaffTicketOptions = () => request<StaffTicketOptions>("/api/maintenance/create-options");
+export async function createStaffTicket(data: StaffTicketInput, photos: File[]) {
+  const body = new FormData(); body.set("data", JSON.stringify(data));
+  photos.forEach((photo) => body.append("photos", photo));
+  return request<{ id: string; number: string; status: string; sla_due_at: string; confirmation: string }>(
+    "/api/maintenance/tickets", { method: "POST", body });
+}

@@ -50,6 +50,8 @@ class TicketCreate:
     entry_permission: str = "not_asked"
     entry_notes: str | None = None
     inspection_id: int | None = None
+    is_emergency: bool = False
+    confirmation_sms_opt_in: bool | None = None
 
 
 async def create_ticket(
@@ -68,7 +70,7 @@ async def create_ticket(
     if data.entry_permission not in {"granted", "denied", "not_asked"}:
         raise ValueError("Invalid entry permission")
     created_at = now or datetime.now(timezone.utc)
-    is_emergency = data.category in EMERGENCY_CATEGORIES
+    is_emergency = data.is_emergency or data.priority == MaintPriority.EMERGENCY or data.category in EMERGENCY_CATEGORIES
     priority = MaintPriority.EMERGENCY if is_emergency else data.priority
     ticket = MaintTicket(
         property_id=data.property_id,
@@ -106,7 +108,7 @@ async def create_ticket(
             actor_user_id=actor.user_id,
             actor_vendor_id=actor.vendor_id,
             actor_phone_e164=actor.phone_e164,
-            payload={"source": data.source},
+            payload={"source": data.source, **({"confirmation_sms_opt_in": data.confirmation_sms_opt_in} if data.confirmation_sms_opt_in is not None else {})},
             created_at=created_at,
         )
     )

@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from redis.exceptions import RedisError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,8 @@ from app.models.maintenance import (
 from app.models.rentals import RentalLease, RentalLeaseTenant, RentalProperty, RentalTenant, RentalUnit
 from app.services.maintenance.errors import InvalidMediaError
 from app.services.maintenance.media import (
+    MAX_FILE_BYTES,
+    process_media,
     create_ticket_upload_token,
     download_attachment,
     store_attachment,
@@ -60,6 +62,7 @@ from app.services.maintenance.sms.outbound import SmsOptedOutError, normalized_d
 from app.services.maintenance.sms.providers import get_sms_provider
 from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext
+from app.services.maintenance.staff_tickets import create_staff_ticket
 from app.services.maintenance.tickets import TicketCreate, create_ticket
 from app.services.maintenance.turnstile import TurnstileError, verify_turnstile
 from app.services.maintenance.webhook_alerts import alert_ringcentral_webhook_failure
@@ -82,6 +85,7 @@ from app.services.maintenance.workspace import (
     ticket_detail_view,
 )
 from app.schemas.maintenance import (
+    StaffTicketCreate,
     AssignmentRequest,
     CompleteWorkOrderRequest,
     MoreActionRequest,
@@ -584,6 +588,40 @@ async def print_property_qrs(property_id: int, request: Request, db: AsyncSessio
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="maintenance-property-{property_id}.pdf"'},
     )
+
+
+@router.get("/api/maintenance/create-options")
+async def staff_create_options(request: Request, db: AsyncSession = Depends(get_db)):
+    _staff(request, "triage")
+    properties = list((await db.scalars(select(RentalProperty).order_by(RentalProperty.street_address))).all())
+    units = list((await db.scalars(select(RentalUnit).order_by(RentalUnit.unit_label))).all())
+    return {"properties": [{"id": p.id, "name": _property_label(p), "address": p.street_address} for p in properties],
+            "units": [{"id": u.id, "property_id": u.property_id, "label": _unit_label(u)} for u in units]}
+
+
+@router.post("/api/maintenance/tickets", status_code=201)
+async def staff_create_ticket(request: Request, data: Annotated[str, Form()],
+                              photos: Annotated[list[UploadFile] | None, File()] = None,
+                              db: AsyncSession = Depends(get_db)):
+    user = _staff(request, "triage")
+    try:
+        values = StaffTicketCreate.model_validate_json(data)
+        validate_file_count(len(photos or []), party=MaintParty.STAFF)
+        files = []
+        for photo in photos or []:
+            content = await photo.read(MAX_FILE_BYTES + 1)
+            await asyncio.to_thread(process_media, content)
+            files.append((photo.filename, content))
+        ticket, confirmation = await create_staff_ticket(db, values, actor_for(user), files=files)
+        await _commit_workspace(db)
+    except ValidationError as exc:
+        await db.rollback()
+        raise HTTPException(422, "Check required ticket fields and their formats") from exc
+    except (InvalidMediaError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"id": ticket.id, "number": ticket.number, "status": ticket.status,
+            "sla_due_at": ticket.sla_due_at, "needs_reply": False, "confirmation": confirmation}
 
 
 @router.get("/api/maintenance/tickets")
