@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
         source: "/backend-api/:path*",
         destination: `${process.env.BACKEND_INTERNAL_URL || "http://127.0.0.1:8000"}/:path*`,
       },
+      {
+        source: "/api/webhooks/:path*",
+        destination: `${process.env.BACKEND_INTERNAL_URL || "http://127.0.0.1:8000"}/api/webhooks/:path*`,
+      },
     ];
   },
 };
