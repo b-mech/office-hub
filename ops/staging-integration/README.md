@@ -1,9 +1,9 @@
-# Combined lease + maintenance staging: TRIAL RESULTS / NOT DEPLOYED
+# Combined lease + maintenance: controlled staging release runbook
 
-**Approval boundary:** this branch and the database copies may be built/tested/pushed.
-Real staging deployment, DB migration, service env changes and restarts require a NEW
-Nicholas approval. Production is excluded from every command below. No Cloudflare
-change, SMS, Slack message or DocuSign call was made by this validation.
+**Approval boundary:** Nicholas authorized the corrected staging-only retry in card t109s458.
+Stop and fully roll back on any failure; do not improvise around a new failure class.
+Production is excluded. No Cloudflare change, SMS, DocuSign call or extra Slack post
+is authorized. Earlier trial results below are historical evidence, not a live-deploy claim.
 
 ## Findings and canonical database
 
@@ -158,6 +158,7 @@ git -C "$PLAN" worktree add --detach "$RELEASE" "$COMBINED_SHA"
  NODE_OPTIONS="--require $RELEASE/ops/staging-integration/build_no_network.cjs" \
  node node_modules/next/dist/bin/next build --webpack && node scripts/check-client-api-urls.mjs)
 ```
+Run `"$RELEASE/.venv/bin/python" "$RELEASE/ops/staging-integration/release_checks.py" transport` BEFORE any service stop. It checks reviewed package pins and invokes Kombu's actual Redis version guard without opening a connection.
 Run tsc/tests again with isolated test deps as above, and assert generated routes-manifest
 contains `/api/webhooks/:path*` -> `http://127.0.0.1:8001/api/webhooks/:path*`. Stop on any
 failure; do not migrate/restart. No source maps/envs/secrets should be committed.
@@ -201,7 +202,8 @@ The outage/recovery window was 8.32 seconds. Production was untouched.
 
 The corrected order below prepares the merged protected env BEFORE invoking Alembic and
 uses it for both migration and import. Read-only validation confirmed that candidate env
-passes all Settings guards; **the corrected ordering has NOT been retried on real staging**.
+passes all Settings guards; the corrected ordering passed migration/import on the second attempt, which then
+rolled back because of override precedence and incompatible Kombu dependencies.
 Do not remove the token guard or paste token values into commands/logs. The explicit guarded
 Webpack build passed; only the original environment ordering blocked migration.
 
@@ -220,7 +222,7 @@ do not activate/copy privileges or grant texting permission as an implicit migra
 
 ### 4. Point ONLY the four staging units at the release
 
-Create a new `90-lease-maint.conf` in each staging unit's `.service.d` directory. Do NOT
+Create a new `zz-lease-maint.conf` in each staging unit's `.service.d` directory. Do NOT
 change base units, production units, Cloudflare, Redis data or either old checkout.
 Backend contents (expand $RELEASE and $RB when writing):
 ```
@@ -249,10 +251,11 @@ Generate and install these four exact overrides (after approval):
 for s in backend frontend worker beat; do
  d="$HOME/.config/systemd/user/officehub-staging-$s.service.d"
  mkdir -p "$d"
- test ! -e "$d/90-lease-maint.conf" || { echo "Existing override: STOP"; exit 1; }
- install -m 600 "$RB/overrides/$s.conf" "$d/90-lease-maint.conf"
+ test ! -e "$d/zz-lease-maint.conf" || { echo "Existing override: STOP"; exit 1; }
+ install -m 600 "$RB/overrides/$s.conf" "$d/zz-lease-maint.conf"
 done
 systemctl --user daemon-reload
+"$PY" "$OPS/release_checks.py" effective --release "$RELEASE" --env-dir "$RB/new-env"
 systemctl --user restart officehub-staging-backend officehub-staging-frontend officehub-staging-worker officehub-staging-beat
 ```
 This restarts ONLY staging backend, frontend, worker,
@@ -260,6 +263,9 @@ beat. All code/dependencies now match one release; env values/allowlist/channel 
 are retained privately. No migration runs against officehub_staging or production.
 
 ### 5. Verification, without sends
+
+Run `"$PY" "$OPS/release_checks.py" stable --release "$RELEASE" --env-dir "$RB/new-env" --seconds 10` after HTTP readiness. This verifies all four running process cwd values, stable worker/beat PID/invocation/restart counts, and current-invocation worker/beat readiness logs. Abort and roll back on failure.
+
 
 - GET `http://127.0.0.1:8001/health` ->200; scheduler heartbeats may need their first tick.
 - GET `http://127.0.0.1:3001/rentals/maintenance` ->200 and New ticket visible.
@@ -288,7 +294,7 @@ canonical backend DB; original worker DB was not modified by migration/import.
 "$PY" "$OPS/db_ops.py" restore --env "$RB/backend.env" --expect-db officehub_lease_agreements_test --file "$RB/backend-final.dump" --allow-live-target
 ```
 Restore the saved four staging unit/drop-in configurations from `$RB/systemd-user` (do
-not blanket-replace unrelated units). Remove only the newly created 90-lease-maint.conf
+not blanket-replace unrelated units). Remove only the newly created zz-lease-maint.conf
 files, daemon-reload, and restart those four staging units with their old code/envs. Old
 checkouts and .next were never changed; the extra .next copy remains available if needed.
 Verify backend0055, worker0051, old health/lease API/public validation echo and original
@@ -296,7 +302,7 @@ routes hash. Do not drop databases or delete rollback backups. No production ope
 
 ## Remaining approvals / limitations
 
-- Real staging deployment and consolidation are NOT approved by this trial-only request.
+- Current corrected staging retry is specifically approved; no production operation is approved.
 - Staging Turnstile uses Cloudflare official PUBLIC test keys; this is intentional staging
   configuration, not a private-key leak. Reviewed against
   https://developers.cloudflare.com/turnstile/troubleshooting/testing/. Real protection
@@ -310,3 +316,21 @@ routes hash. Do not drop databases or delete rollback backups. No production ope
   deployment; diagnostic wrappers now suppress unsafe driver/settings tracebacks.
 - Screenshots prove rendering, not real mouse interaction, vendor scheduling, upload or
   actual external delivery. All external integrations stayed blocked during tests/trial use.
+
+## Retry fixes reviewed 2026-11-10
+
+The second real attempt migrated/imported correctly, then rolled back completely.
+Its frontend remained on the old build because `lease-test.conf` sorts AFTER the old
+`90-lease-maint.conf`. Use `zz-lease-maint.conf` (not a numeric prefix), explicit
+frontend ExecStart, and the effective-config gate BEFORE restarting.
+Fresh dependencies had Kombu5.7.0 with pinned redis5.2.0, raising VersionMismatch.
+Pin Kombu5.6.2, matching the working worker; do not upgrade shared environments in place.
+The release gate checks exact versions before freeze and stable worker/beat readiness.
+The correct loopback maintenance probe needs no Cloudflare login; require200 and
+New ticket. Log only status/redirect/timing on failures, not response bodies/secrets.
+Isolation with corrected dependency succeeded for pages, two tickets, three leases and
+a harmless private-queue beat/worker sentinel. Isolated health503 reflects missing
+real renewal/scheduler metadata in fresh Redis; do not disable the staging health guard.
+Fresh verified prestop dumps must be taken immediately before stopping the four units,
+then take frozen final dumps. Generate merged protected envs before migrating.
+Staging deployment requires the owner's specific approval; production remains excluded.

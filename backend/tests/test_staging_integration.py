@@ -139,3 +139,49 @@ def test_candidate_unit_overrides_use_only_staging_ports_and_preserve_beat_state
         assert "EnvironmentFile=\nEnvironmentFile=/protected-env/" in value
         assert "ExecStart=\nExecStart=/release/.venv/" in value
     assert "%S/officehub-staging/celerybeat-schedule" in op.contents("beat", "/release", "/protected-env")
+
+
+def effective_fixture(op, name):
+    import shlex
+    want = op.expected(name, "/release", "/env")
+    return {"WorkingDirectory": want["WorkingDirectory"], "EnvironmentFiles": want["EnvironmentFiles"][0] + " (ignore_errors=no)", "ExecStart": "{ path=" + want["argv"][0] + " ; argv[]=" + shlex.join(want["argv"]) + " ; ignore_errors=no ; }"}
+
+@pytest.mark.parametrize("name", ["backend", "frontend", "worker", "beat"])
+def test_release_effective_gate_accepts_exact_config(name):
+    op = load_operator("release_checks")
+    op.assert_effective(name, effective_fixture(op, name), "/release", "/env")
+
+@pytest.mark.parametrize("field,value", [("WorkingDirectory", "/old-checkout"), ("EnvironmentFiles", "/old.env (ignore_errors=no)"), ("ExecStart", "{ path=/old/bin ; argv[]=/old/bin ; }")])
+def test_release_effective_gate_rejects_old_lease_override(field, value):
+    op = load_operator("release_checks")
+    values = effective_fixture(op, "backend")
+    values[field] = value
+    with pytest.raises(ValueError):
+        op.assert_effective("backend", values, "/release", "/env")
+
+def test_override_name_sorts_after_lease_test_and_frontend_exec_is_explicit():
+    checks = load_operator("release_checks")
+    overrides = load_operator("make_overrides")
+    assert checks.OVERRIDE_NAME == overrides.OVERRIDE_NAME == "zz-lease-maint.conf"
+    assert checks.OVERRIDE_NAME > "lease-test.conf"
+    assert "ExecStart=\nExecStart=/usr/bin/npm start -- --hostname 127.0.0.1 --port 3001" in overrides.contents("frontend", "/release", "/env")
+
+def test_transport_gate_runs_real_version_guard_and_rejects_wrong_pins():
+    op = load_operator("release_checks")
+    calls = []
+    assert op.checked_transport(dict(op.PINNED), lambda arg: calls.append(arg.global_keyprefix)) == op.PINNED
+    assert calls == [""]
+    with pytest.raises(ValueError):
+        op.checked_transport(dict(op.PINNED, kombu="5.7.0"), lambda _: None)
+    def incompatible(_):
+        raise RuntimeError("dummy version mismatch")
+    with pytest.raises(RuntimeError):
+        op.checked_transport(dict(op.PINNED), incompatible)
+
+@pytest.mark.parametrize("field,value", [("MainPID", "0"), ("ActiveState", "failed"), ("SubState", "auto-restart"), ("NRestarts", "1"), ("InvocationID", "changed")])
+def test_stable_gate_rejects_failed_or_restarted_service(field, value):
+    op = load_operator("release_checks")
+    baseline = dict(ActiveState="active", SubState="running", MainPID="123", NRestarts="0", InvocationID="original")
+    op.assert_running(baseline, baseline)
+    with pytest.raises(ValueError):
+        op.assert_running(dict(baseline, **{field:value}), baseline)

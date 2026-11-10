@@ -9,6 +9,7 @@ python-multipart==0.0.12
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 celery==5.4.0
+kombu==5.6.2
 redis==5.2.0
 boto3==1.35.0
 anthropic==0.40.0

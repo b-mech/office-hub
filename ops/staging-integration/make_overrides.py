@@ -3,10 +3,12 @@
 import argparse
 from pathlib import Path
 
+OVERRIDE_NAME = "zz-lease-maint.conf"
+
 
 def contents(name, release, env_dir):
     if name == "frontend":
-        return f"[Service]\nWorkingDirectory={release}/frontend\nEnvironmentFile=\nEnvironmentFile={env_dir}/frontend.env\nEnvironment=BACKEND_INTERNAL_URL=http://127.0.0.1:8001\n"
+        return f"[Service]\nWorkingDirectory={release}/frontend\nEnvironmentFile=\nEnvironmentFile={env_dir}/frontend.env\nEnvironment=BACKEND_INTERNAL_URL=http://127.0.0.1:8001\nExecStart=\nExecStart=/usr/bin/npm start -- --hostname 127.0.0.1 --port 3001\n"
     env = "backend" if name == "backend" else "worker"
     commands = {
         "backend": f"{release}/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001",
