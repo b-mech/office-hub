@@ -253,3 +253,10 @@ export const getVendorPortal = (token:string) => request<VendorPortalOrder>(vend
 export const actOnVendorOrder = (token:string,body:{action:VendorPortalAction;notes?:string;start?:string;end?:string}) => jsonRequest<{status:string;link_revoked:boolean}>(`${vendorPath(token)}/actions`,"POST",body);
 export const vendorPhotoUrl = (token:string,id:string) => `${BASE}${vendorPath(token)}/photos/${encodeURIComponent(id)}`;
 export function uploadVendorPhotos(token:string,photos:File[]){ const body=new FormData();photos.forEach(p=>body.append("photos",p));return request<{uploaded:number}>(`${vendorPath(token)}/photos`,{method:"POST",body});}
+
+
+export type MaintenanceVendor={id:string;name:string;phone_e164:string;trades:TicketCategory[];insurance_expiry:string|null;wcb_expiry:string|null;notes:string|null;is_active:boolean};
+export type MaintenanceVendorInput=Omit<MaintenanceVendor,"id">;
+export const listMaintenanceVendors=(includeInactive=false)=>request<MaintenanceVendor[]>(`/api/maintenance/vendors?include_inactive=${includeInactive}`);
+export const createMaintenanceVendor=(body:MaintenanceVendorInput)=>jsonRequest<MaintenanceVendor>("/api/maintenance/vendors","POST",body);
+export const updateMaintenanceVendor=(id:string,body:Partial<MaintenanceVendorInput>)=>jsonRequest<MaintenanceVendor>(`/api/maintenance/vendors/${id}`,"PATCH",body);

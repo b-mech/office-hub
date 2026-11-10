@@ -15,6 +15,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ValidationError
 from redis.exceptions import RedisError
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -65,6 +66,7 @@ from app.services.maintenance.sms.providers import get_sms_provider
 from app.services.maintenance.sms.templates import render_template
 from app.services.maintenance.state_machine import ActorContext
 from app.services.maintenance.staff_tickets import create_staff_ticket
+from app.services.maintenance.vendors import DuplicateVendorPhone, save_vendor, vendor_view
 from app.services.maintenance.tokens import hash_token
 from app.services.maintenance.vendor_portal import (InvalidVendorLink, VendorActionConflict,
     apply_vendor_action, portal_view, resolve_vendor_link, upload_vendor_photos)
@@ -90,6 +92,8 @@ from app.services.maintenance.workspace import (
     ticket_detail_view,
 )
 from app.schemas.maintenance import (
+    VendorCreate,
+    VendorUpdate,
     VendorPortalAction,
     StaffTicketCreate,
     AssignmentRequest,
@@ -1038,3 +1042,43 @@ async def revoke_vendor_link(work_order_id: UUID, request: Request, db: AsyncSes
         actor_party=MaintParty.STAFF,actor_user_id=user.id if user else None))
     await _commit_workspace(db)
     return {"revoked":True}
+
+
+@router.get("/api/maintenance/vendors")
+async def maintenance_vendors(request:Request,include_inactive:bool=False,db:AsyncSession=Depends(get_db)):
+    _staff(request,"manage_vendors")
+    query=select(MaintVendor).order_by(MaintVendor.name)
+    if not include_inactive:query=query.where(MaintVendor.is_active.is_(True))
+    return [vendor_view(v) for v in (await db.scalars(query)).all()]
+
+
+async def _save_vendor_response(db,values,*,vendor=None,user=None):
+    try:
+        saved=await save_vendor(db,values,vendor=vendor,actor_user_id=user.id if user else None)
+        await _commit_workspace(db)
+        return vendor_view(saved)
+    except DuplicateVendorPhone as exc:
+        await db.rollback()
+        raise HTTPException(409,str(exc)) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        if "uq_maint_vendors_active_phone" in str(exc.orig):
+            raise HTTPException(409,"An active vendor already uses this phone") from exc
+        raise HTTPException(409,"Vendor could not be saved; refresh and try again") from exc
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422,str(exc)) from exc
+
+
+@router.post("/api/maintenance/vendors",status_code=201)
+async def maintenance_create_vendor(data:VendorCreate,request:Request,db:AsyncSession=Depends(get_db)):
+    user=_staff(request,"manage_vendors")
+    return await _save_vendor_response(db,data.model_dump(),user=user)
+
+
+@router.patch("/api/maintenance/vendors/{vendor_id}")
+async def maintenance_update_vendor(vendor_id:UUID,data:VendorUpdate,request:Request,db:AsyncSession=Depends(get_db)):
+    user=_staff(request,"manage_vendors")
+    vendor=await db.scalar(select(MaintVendor).where(MaintVendor.id==vendor_id).with_for_update())
+    if vendor is None:raise HTTPException(404,"Vendor not found")
+    return await _save_vendor_response(db,data.model_dump(exclude_unset=True),vendor=vendor,user=user)

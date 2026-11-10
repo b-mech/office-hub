@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -95,3 +95,25 @@ class VendorPortalAction(BaseModel):
         if self.action != "propose_schedule" and (self.start is not None or self.end is not None):
             raise ValueError("Only a proposal may specify times; staff schedules the actual visit")
         return self
+
+
+class VendorCreate(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    name: str = Field(min_length=1, max_length=200)
+    phone_e164: str = Field(min_length=8, max_length=50)
+    trades: list[MaintCategory] = Field(default_factory=list, max_length=15)
+    insurance_expiry: date | None = None
+    wcb_expiry: date | None = None
+    notes: str | None = Field(default=None, max_length=5000)
+    is_active: bool = True
+
+
+class VendorUpdate(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    phone_e164: str | None = Field(default=None, min_length=8, max_length=50)
+    trades: list[MaintCategory] | None = Field(default=None, max_length=15)
+    insurance_expiry: date | None = None
+    wcb_expiry: date | None = None
+    notes: str | None = Field(default=None, max_length=5000)
+    is_active: bool | None = None
