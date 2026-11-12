@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getRentalMap, type MapProperty } from "@/lib/api/rentals-map";
 import { RentalsLeafletMap } from "../components/RentalsLeafletMap";
@@ -80,8 +81,8 @@ export default function RentalsHome() {
               </div>
             </a>
             <div className="mt-2 flex flex-wrap gap-3 text-sm font-semibold">
-              <a href={maintenanceHrefForProperty(property.property_id)} className="text-[var(--ch-accent)]">Maintenance</a>
-              <a href={`/rentals/inspections?property_id=${property.property_id}`} className="text-[var(--ch-accent)]">Units &amp; QR</a>
+              <Link href={maintenanceHrefForProperty(property.property_id)} className="text-[var(--ch-accent)]">Maintenance</Link>
+              <Link href={`/rentals/inspections?property_id=${property.property_id}`} className="text-[var(--ch-accent)]">Units &amp; QR</Link>
             </div>
             </div>
           ))}
