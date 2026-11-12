@@ -28,7 +28,7 @@ export default function UnitMaintenancePage({ params }: { params: Promise<{unitI
   }
 
   return <main className="mx-auto max-w-2xl p-6">
-    <a href="/rentals/inspections" className="text-sm text-[var(--ch-accent)]">← Rental units</a>
+    <a href="/rentals/units" className="text-sm text-[var(--ch-accent)]">← Rental units</a>
     <h1 className="mt-3 text-3xl font-bold">Rental unit</h1>
     <nav className="mt-5 flex gap-2" aria-label="Unit tabs"><button onClick={() => setTab("maintenance")} className={`rounded-lg px-4 py-2 font-semibold ${tab === "maintenance" ? "bg-[var(--ch-accent)] text-white" : "border"}`}>Maintenance</button><button onClick={() => setTab("leases")} className={`rounded-lg px-4 py-2 font-semibold ${tab === "leases" ? "bg-[var(--ch-accent)] text-white" : "border"}`}>Leases</button></nav>
     {tab === "leases" ? <LeasesPanel unitId={unitId} /> : <>

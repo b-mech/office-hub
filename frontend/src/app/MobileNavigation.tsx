@@ -18,6 +18,7 @@ const links = [
   ["Contractors", "/contractors"],
   ["Lenders", "/financing/lenders"],
   ["Rentals", "/rentals"],
+  ["Rental Units", "/rentals/units"],
   ["Lease Import", "/rentals/lease-import"],
   ["Maintenance", "/rentals/maintenance"],
   ["Inspections", "/rentals/inspections"],
