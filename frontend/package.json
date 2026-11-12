@@ -8,7 +8,8 @@
     "check:client-api": "node scripts/check-client-api-urls.mjs",
     "start": "next start --port 3000",
     "lint": "eslint",
-    "test:calendar": "node --experimental-strip-types --test src/lib/maintenance-calendar.test.ts"
+    "test:calendar": "node --experimental-strip-types --test src/lib/maintenance-calendar.test.ts",
+    "test:unit": "node --experimental-strip-types --no-warnings --test src/lib/rentals-map-points.test.ts"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.21",
@@ -17,8 +18,9 @@
     "@fullcalendar/list": "^6.1.21",
     "@fullcalendar/react": "^6.1.21",
     "@fullcalendar/timegrid": "^6.1.21",
-    "@googlemaps/markerclusterer": "^2.6.2",
     "fabric": "^7.4.0",
+    "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3",
     "lucide-react": "^1.14.0",
     "next": "16.2.4",
     "pdfjs-dist": "^5.6.205",
@@ -27,6 +29,8 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.22",
+    "@types/leaflet.markercluster": "^1.5.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
