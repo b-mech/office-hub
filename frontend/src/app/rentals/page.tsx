@@ -46,6 +46,9 @@ export default function RentalsHome() {
           >
             {view === "map" ? "List" : "Map"}
           </button>
+          <Link href="/rentals/units" className="grid place-items-center rounded-xl border px-4 font-bold">
+            Units
+          </Link>
         </div>
         {error ? (
           <p className="mx-auto mt-2 max-w-6xl text-sm text-[var(--ch-error-text)]">{error}</p>

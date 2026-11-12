@@ -20,6 +20,9 @@ from app.services import rental_inspections, rental_inspection_reports
 from app.services.box import download_file
 from app.schemas.rentals import BulkApprovalOut, LeaseImportBatchOut, LeaseImportRowOut, LeaseImportRowPatch
 from app.services import rental_lease_imports
+from app.services import rental_units as unit_roster_service
+from app.models.core import User
+from app.routers.lease_agreements import viewer as rentals_viewer
 
 
 router = APIRouter(prefix="/api/rentals/lease-import", tags=["rentals"])
@@ -116,6 +119,12 @@ async def rental_units(q:str|None=Query(None),property_id:int|None=Query(None),d
         last=await db.scalar(select(RentalInspection).where(RentalInspection.unit_id==unit.id,RentalInspection.status=="submitted").order_by(RentalInspection.inspection_date.desc(),RentalInspection.id.desc()).limit(1))
         result.append({"id":unit.id,"property_id":prop.id,"street_address":prop.street_address,"group_name":prop.group_name,"unit_label":unit.unit_label,"maintenance_qr_rotation_recommended":unit.maintenance_qr_rotation_recommended_at is not None,"last_inspection":None if not last else {"id":last.id,"inspection_date":last.inspection_date,"inspection_type":last.inspection_type,"status":last.status}})
     return result
+
+@inspections_router.get("/units/roster")
+async def rental_unit_roster(property_id: int | None = Query(None), db: AsyncSession = Depends(get_db),
+                             user: User = Depends(rentals_viewer)) -> list[dict[str, object]]:
+    """Read-only list of every rental unit with occupancy, current lease, tenants and rent."""
+    return await unit_roster_service.unit_roster(db, property_id=property_id)
 
 @inspections_router.get("/properties/map")
 async def property_map(db:AsyncSession=Depends(get_db))->list[dict[str,object]]:

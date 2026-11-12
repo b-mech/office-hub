@@ -9,7 +9,7 @@
     "start": "next start --port 3000",
     "lint": "eslint",
     "test:calendar": "node --experimental-strip-types --test src/lib/maintenance-calendar.test.ts",
-    "test:unit": "node --experimental-strip-types --no-warnings --test src/lib/rentals-map-points.test.ts src/lib/maintenance-workflows.test.ts"
+    "test:unit": "node --experimental-strip-types --no-warnings --test src/lib/rentals-map-points.test.ts src/lib/maintenance-workflows.test.ts src/lib/rental-units.test.ts"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.21",
