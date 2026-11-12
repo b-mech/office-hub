@@ -7,6 +7,7 @@ import os
 import re
 from typing import Any
 from typing import Iterable
+from uuid import UUID
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -36,6 +37,31 @@ UNCERTAIN_LENDER_RE = re.compile(
     r"\?\?|\A\?+\Z|^\s*-->|\bletter from realtor\b|\bto confirm\b",
     re.IGNORECASE,
 )
+EXCEL_ERROR_RE = re.compile(
+    r"^#(?:REF|N/?A|VALUE|NAME|DIV/0|NULL|NUM|GETTING_DATA)!?$",
+    re.IGNORECASE,
+)
+JUNK_ADDRESS_RE = re.compile(
+    r"""
+    ^(?:
+        legend\b
+      | preproduction\s+planning
+      | \d+\s*\.?\s*$
+      | \d+\s*[-–]\s*(fully\s+confirmed|nicholas\s+suggestion|robert\s+agreed)\b
+    )
+    | \badd\s+\d+\s*\?+
+    | \bstatus\s+options\b
+    | \bcolumn\s+[a-z]\s+banker\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+# Canonical lenders for sheet-sync facility/lender UUID wiring.
+# Never retarget or merge the duplicate Pro Auto lender.
+CANONICAL_LENDER_IDS = {
+    "PRO": UUID("52642c0d-3af6-4d23-a3bd-734e84585ea1"),
+    "SCU": UUID("18c6d406-231c-41d9-8541-ef0044cba2d3"),
+}
+DUPLICATE_PRO_AUTO_LENDER_ID = UUID("eda3a4b0-d772-4dd3-92aa-8e7529194284")
 
 
 def _default_bank_column() -> str:
@@ -65,6 +91,36 @@ def is_uncertain_lender(value: str | None) -> bool:
     return bool(UNCERTAIN_LENDER_RE.search(text))
 
 
+def canonical_lender_id(lender_type: str | None) -> UUID | None:
+    """Return the canonical lender UUID for a confirmed lender_type, if any."""
+    if not lender_type:
+        return None
+    return CANONICAL_LENDER_IDS.get(str(lender_type).strip().upper())
+
+
+def is_plausible_street_address(address: str | None) -> bool:
+    """Return whether an Address-column value looks like a real civic address.
+
+    Rejects Excel errors, legend/instruction text, and rows with no street
+    number and street name. Notes on a real address (``??``, SPEC, dates) are
+    allowed.
+    """
+    text = (address or "").strip()
+    if not text:
+        return False
+    compact = re.sub(r"\s+", "", text)
+    if EXCEL_ERROR_RE.match(text) or EXCEL_ERROR_RE.match(compact):
+        return False
+    if JUNK_ADDRESS_RE.search(text):
+        return False
+    normalized = normalize_address(text)
+    if not normalized.street_number or not normalized.street_name:
+        return False
+    if not re.search(r"[A-Za-z]", normalized.street_name):
+        return False
+    return True
+
+
 def classify_sheet_lender(raw: str | None) -> tuple[str, str | None, str]:
     """Return (banker_raw, lender_type, kind) for a column-F value.
 
@@ -91,39 +147,56 @@ def resolve_lender_fields(
     existing_type_text = (existing_type or "").strip() or None
     has_existing = bool(existing_raw_text or existing_type_text)
 
-    if kind != "confirmed":
-        if has_existing:
-            return {
-                "banker_raw": existing_raw_text,
-                "lender_type": existing_type_text,
-                "kind": kind,
-                "resolution": "preserved",
-                "changed": False,
-            }
-        if kind == "uncertain":
-            return {
-                "banker_raw": banker_raw,
-                "lender_type": None,
-                "kind": kind,
-                "resolution": "lender_to_confirm",
-                "changed": True,
-            }
+    def _fields(
+        *,
+        banker_raw: str | None,
+        lender_type: str | None,
+        kind: str,
+        resolution: str,
+        changed: bool,
+    ) -> dict[str, Any]:
         return {
-            "banker_raw": None,
-            "lender_type": None,
+            "banker_raw": banker_raw,
+            "lender_type": lender_type,
+            "lender_id": canonical_lender_id(lender_type),
             "kind": kind,
-            "resolution": "blank",
-            "changed": False,
+            "resolution": resolution,
+            "changed": changed,
         }
 
+    if kind != "confirmed":
+        if has_existing:
+            return _fields(
+                banker_raw=existing_raw_text,
+                lender_type=existing_type_text,
+                kind=kind,
+                resolution="preserved",
+                changed=False,
+            )
+        if kind == "uncertain":
+            return _fields(
+                banker_raw=banker_raw,
+                lender_type=None,
+                kind=kind,
+                resolution="lender_to_confirm",
+                changed=True,
+            )
+        return _fields(
+            banker_raw=None,
+            lender_type=None,
+            kind=kind,
+            resolution="blank",
+            changed=False,
+        )
+
     changed = (banker_raw or None) != existing_raw_text or (lender_type or None) != existing_type_text
-    return {
-        "banker_raw": banker_raw,
-        "lender_type": lender_type,
-        "kind": kind,
-        "resolution": "updated" if changed else "unchanged",
-        "changed": changed,
-    }
+    return _fields(
+        banker_raw=banker_raw,
+        lender_type=lender_type,
+        kind=kind,
+        resolution="updated" if changed else "unchanged",
+        changed=changed,
+    )
 
 
 def resolve_sheet_sync_options(
@@ -197,8 +270,27 @@ def _has_values(row: dict[str, str]) -> bool:
 def _parse_date(value: str | None) -> date | None:
     if not value:
         return None
-    cleaned = re.sub(r"^\*+|\*+$", "", value.strip()).strip()
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%B %d, %Y", "%b %d, %Y", "%d-%b-%Y", "%d-%b-%y"):
+    cleaned = str(value).strip()
+    # Unwrap markdown/asterisk (and underscore) wrappers, including **date**.
+    cleaned = re.sub(r"^[*_]+|[*_]+$", "", cleaned).strip()
+    cleaned = cleaned.replace("*", "").replace("_", " ").strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    # "February 18,2026" and "February 18 ,2026" -> "February 18, 2026"
+    cleaned = re.sub(r"\s*,\s*", ", ", cleaned)
+    if not cleaned:
+        return None
+    for fmt in (
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%d/%m/%Y",
+        "%B %d, %Y",
+        "%b %d, %Y",
+        "%B %d %Y",
+        "%b %d %Y",
+        "%d-%b-%Y",
+        "%d-%b-%y",
+    ):
         try:
             return datetime.strptime(cleaned, fmt).date()
         except ValueError:
@@ -251,7 +343,7 @@ def _parsed_row_from_named(
     if not _has_values(source):
         return None
     address = _value(source, "Address", "address", "address_raw", "address_key")
-    if not address:
+    if not address or not is_plausible_street_address(address):
         return None
     possession_raw = _value(source, "Client Possession", "possession_date")
     return {
@@ -498,6 +590,151 @@ def _sync_conflicts_payload(parsed_rows: list[dict[str, Any]], conflict_keys: se
     ]
 
 
+def _unique_existing_rows(existing: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    for payload in existing.values():
+        address = (payload.get("address_raw") or "").strip()
+        if not address or address in seen:
+            continue
+        seen.add(address)
+        rows.append(payload)
+    return rows
+
+
+def _junk_existing_items(existing: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for payload in _unique_existing_rows(existing):
+        address = (payload.get("address_raw") or "").strip()
+        if is_plausible_street_address(address):
+            continue
+        property_id = payload.get("property_id")
+        items.append(
+            {
+                "kind": "junk_existing",
+                "address_raw": address,
+                "canonical_key": normalize_address(address).canonical_key,
+                "property_id": str(property_id) if property_id else None,
+                "banker_raw": payload.get("banker_raw"),
+                "lender_type": payload.get("lender_type"),
+            }
+        )
+    return items
+
+
+def _as_uuid(value: Any) -> UUID | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+async def _load_property_facilities(db: AsyncSession, property_id: UUID) -> list[dict[str, Any]]:
+    result = await db.execute(
+        text(
+            """
+            SELECT id, property_id, lot_id, lender_id, lender_type, lender_name, status
+            FROM core.lender_facilities
+            WHERE property_id = :property_id
+            """
+        ),
+        {"property_id": property_id},
+    )
+    return [dict(row) for row in result.mappings().all()]
+
+
+def plan_facility_lender_updates(
+    facilities: list[dict[str, Any]],
+    lender_type: str | None,
+) -> list[dict[str, Any]]:
+    """Plan facility lender_id writes for a confirmed PRO/SCU sync row.
+
+    Fills a null lender_id with the canonical UUID when the facility type
+    matches. Facilities already linked to the duplicate Pro Auto lender
+    ``eda3a4b0-...`` are left untouched and recorded as preserved. Other
+    existing lender_id values are not rewritten, and lender rows are never
+    merged.
+    """
+    canonical = canonical_lender_id(lender_type)
+    if not canonical or not lender_type:
+        return []
+    wanted_type = str(lender_type).strip().upper()
+    planned: list[dict[str, Any]] = []
+    for facility in facilities:
+        facility_id = facility.get("id")
+        if facility_id is None:
+            continue
+        facility_type = (facility.get("lender_type") or "").strip().upper()
+        if facility_type and facility_type != wanted_type:
+            continue
+        current_id = _as_uuid(facility.get("lender_id"))
+        if current_id == canonical:
+            continue
+        if current_id == DUPLICATE_PRO_AUTO_LENDER_ID:
+            planned.append(
+                {
+                    "kind": "lender_id_preserved_duplicate",
+                    "facility_id": str(facility_id),
+                    "property_id": str(facility["property_id"]) if facility.get("property_id") else None,
+                    "lender_type": wanted_type,
+                    "existing_lender_id": str(current_id),
+                    "canonical_lender_id": str(canonical),
+                }
+            )
+            continue
+        if current_id is not None:
+            continue
+        planned.append(
+            {
+                "kind": "set_lender_id",
+                "facility_id": str(facility_id),
+                "property_id": str(facility["property_id"]) if facility.get("property_id") else None,
+                "lender_type": wanted_type,
+                "lender_id": str(canonical),
+                "existing_lender_id": None,
+            }
+        )
+    return planned
+
+
+async def _facility_lender_items(
+    db: AsyncSession,
+    *,
+    property_id: Any,
+    lender_type: str | None,
+    dry_run: bool,
+) -> list[dict[str, Any]]:
+    resolved_property_id = _as_uuid(property_id)
+    if resolved_property_id is None:
+        return []
+    facilities = await _load_property_facilities(db, resolved_property_id)
+    planned = plan_facility_lender_updates(facilities, lender_type)
+    if dry_run:
+        return planned
+    applied: list[dict[str, Any]] = []
+    for item in planned:
+        if item.get("kind") != "set_lender_id":
+            applied.append(item)
+            continue
+        await db.execute(
+            text(
+                """
+                UPDATE core.lender_facilities
+                SET lender_id = :lender_id, updated_at = now()
+                WHERE id = :id
+                  AND lender_id IS NULL
+                """
+            ),
+            {"lender_id": item["lender_id"], "id": item["facility_id"]},
+        )
+        applied.append(item)
+    return applied
+
+
 def _manifest_item(kind: str, row: dict[str, Any], **extra: Any) -> dict[str, Any]:
     item = {
         "kind": kind,
@@ -618,6 +855,7 @@ async def sync_from_sheet(
             "address_raw": source["address_raw"],
             "banker_raw": lender["banker_raw"],
             "lender_type": lender["lender_type"],
+            "lender_id": lender.get("lender_id"),
             "sold_or_spec": source["sold_or_spec"],
             "stage_clean": SYNC_CONFLICT
             if source["canonical_key"] in conflict_keys
@@ -653,12 +891,14 @@ async def sync_from_sheet(
                 reason = str(exc).splitlines()[0]
                 errors.append(f"Row {source['row_number']}: {reason}")
                 continue
+            lender_id = lender.get("lender_id")
             manifest.append(
                 _manifest_item(
                     "insert" if is_insert else "update",
                     source,
                     banker_raw=lender["banker_raw"],
                     lender_type=lender["lender_type"],
+                    lender_id=str(lender_id) if lender_id else None,
                     lender_resolution=lender["resolution"],
                     lender_changed=lender["changed"],
                     sold_or_spec=source.get("sold_or_spec"),
@@ -670,13 +910,26 @@ async def sync_from_sheet(
                 manifest.append(_manifest_item("create_property", source))
             if would_activate:
                 manifest.append(_manifest_item("activate", source, sold_or_spec=source.get("sold_or_spec")))
+            facility_property_id = property_id or (current or {}).get("property_id")
+            manifest.extend(
+                await _facility_lender_items(
+                    db,
+                    property_id=facility_property_id,
+                    lender_type=lender["lender_type"],
+                    dry_run=True,
+                )
+            )
             synced += 1
             continue
         planned.append(payload)
 
     if dry_run:
         if delete_missing and current_addresses:
-            stale = await _missing_sync_addresses(db, current_addresses)
+            stale = [
+                address
+                for address in await _missing_sync_addresses(db, current_addresses)
+                if is_plausible_street_address(address)
+            ]
             stale_deleted = len(stale)
             for address in stale:
                 manifest.append(
@@ -686,6 +939,7 @@ async def sync_from_sheet(
                         "canonical_key": normalize_address(address).canonical_key,
                     }
                 )
+        manifest.extend(_junk_existing_items(existing))
         return _result(
             synced=synced,
             created_properties=created_properties,
@@ -702,7 +956,13 @@ async def sync_from_sheet(
 
     async with db.begin():
         if delete_missing and current_addresses:
-            deleted_addresses = await _delete_missing_rows(db, current_addresses)
+            # Never delete junk Address-column rows; they are reported as junk_existing.
+            current_and_junk = list(current_addresses) + [
+                (payload.get("address_raw") or "").strip()
+                for payload in _unique_existing_rows(existing)
+                if not is_plausible_street_address((payload.get("address_raw") or "").strip())
+            ]
+            deleted_addresses = await _delete_missing_rows(db, [addr for addr in current_and_junk if addr])
             stale_deleted = len(deleted_addresses)
             for address in deleted_addresses:
                 manifest.append(
@@ -721,12 +981,14 @@ async def sync_from_sheet(
                         return_activation=True,
                     )
                 synced += 1
+                lender_id = payload.get("lender_id")
                 manifest.append(
                     _manifest_item(
                         "insert" if _existing_for_row(payload, existing) is None else "update",
                         payload,
                         banker_raw=payload.get("banker_raw"),
                         lender_type=payload.get("lender_type"),
+                        lender_id=str(lender_id) if lender_id else None,
                         lender_resolution=payload.get("lender_resolution"),
                         lender_changed=payload.get("lender_changed"),
                         sold_or_spec=payload.get("sold_or_spec"),
@@ -740,11 +1002,22 @@ async def sync_from_sheet(
                     manifest.append(
                         _manifest_item("activate", payload, sold_or_spec=payload.get("sold_or_spec"))
                     )
+                current_row = _existing_for_row(payload, existing)
+                facility_property_id = (current_row or {}).get("property_id")
+                manifest.extend(
+                    await _facility_lender_items(
+                        db,
+                        property_id=facility_property_id,
+                        lender_type=payload.get("lender_type"),
+                        dry_run=False,
+                    )
+                )
             except Exception as exc:
                 logger.exception("Failed to sync construction stage row")
                 reason = str(exc).splitlines()[0]
                 errors.append(f"Row {payload['row_number']}: {reason}")
 
+    manifest.extend(_junk_existing_items(existing))
     return _result(
         synced=synced,
         created_properties=created_properties,

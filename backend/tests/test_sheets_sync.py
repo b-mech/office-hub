@@ -5,15 +5,22 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 from unittest.mock import patch
+from uuid import UUID
 from uuid import uuid4
 
 from app.services import financing
+from app.services.sheets_sync import CANONICAL_LENDER_IDS
+from app.services.sheets_sync import DUPLICATE_PRO_AUTO_LENDER_ID
 from app.services.sheets_sync import SYNC_CONFLICT
 from app.services.sheets_sync import _conflicting_stage_keys
+from app.services.sheets_sync import _parse_date
 from app.services.sheets_sync import _parse_stage_rows
 from app.services.sheets_sync import _parse_stage_table
 from app.services.sheets_sync import _stage_value
+from app.services.sheets_sync import canonical_lender_id
 from app.services.sheets_sync import classify_sheet_lender
+from app.services.sheets_sync import is_plausible_street_address
+from app.services.sheets_sync import plan_facility_lender_updates
 from app.services.sheets_sync import resolve_lender_fields
 from app.services.sheets_sync import resolve_sheet_sync_options
 from app.services.sheets_sync import sync_from_sheet
@@ -101,9 +108,15 @@ class _AsyncContext:
 
 
 class FakeDB:
-    def __init__(self, existing_rows: list[dict[str, Any]] | None = None, missing: list[Any] | None = None):
+    def __init__(
+        self,
+        existing_rows: list[dict[str, Any]] | None = None,
+        missing: list[Any] | None = None,
+        facilities: list[dict[str, Any]] | None = None,
+    ):
         self.existing_rows = existing_rows or []
         self.missing = missing or []
+        self.facilities = facilities or []
         self.calls: list[tuple[str, Any]] = []
         self.writes: list[tuple[str, Any]] = []
 
@@ -128,6 +141,22 @@ class FakeDB:
                 # _missing_sync_addresses reads row[0]
                 return _Result([(item[0] if isinstance(item, (list, tuple)) else item,) if not isinstance(item, dict) else item for item in self.missing])
             return _Result(self.existing_rows)
+        if "FROM core.lender_facilities" in sql and "DELETE" not in upper and "UPDATE" not in upper:
+            property_id = None
+            if isinstance(params, dict):
+                property_id = params.get("property_id")
+            rows = [
+                row
+                for row in self.facilities
+                if property_id is None or str(row.get("property_id")) == str(property_id)
+            ]
+            return _Result(rows)
+        if "UPDATE core.lender_facilities" in sql:
+            if isinstance(params, dict):
+                for row in self.facilities:
+                    if str(row.get("id")) == str(params.get("id")) and row.get("lender_id") is None:
+                        row["lender_id"] = params.get("lender_id")
+            return _Result([])
         if "DELETE" in upper and "RETURNING" in upper:
             return _Result([(address,) for address in self.missing])
         return _Result([])
@@ -548,6 +577,238 @@ class SheetsSyncAsyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["banker_raw"], "Steinbach Credit Union")
         self.assertEqual(update["lender_type"], "SCU")
         self.assertEqual(db.writes, [])
+
+
+class DateParsingTests(unittest.TestCase):
+    def test_markdown_asterisks_and_missing_comma_space(self) -> None:
+        expected = __import__("datetime").date(2026, 2, 18)
+        for raw in (
+            "**February 18,2026**",
+            "**February 18, 2026**",
+            "February 18,2026",
+            "*February 18, 2026*",
+            "  **February  18,2026**  ",
+        ):
+            self.assertEqual(expected, _parse_date(raw), raw)
+
+    def test_existing_date_formats_still_parse(self) -> None:
+        from datetime import date
+
+        self.assertEqual(date(2026, 11, 13), _parse_date("13-Nov-2026"))
+        self.assertEqual(date(2027, 5, 1), _parse_date("2027-05-01"))
+        self.assertEqual(date(2027, 8, 1), _parse_date("1-Aug-2027"))
+        self.assertEqual(date(2026, 10, 8), _parse_date("October 8, 2026"))
+
+
+class AddressJunkTests(unittest.TestCase):
+    def test_junk_address_rows_are_rejected(self) -> None:
+        junk = [
+            "#REF!",
+            "LEGEND - Column C status options:",
+            "LEGEND - Column E Banker",
+            "1.",
+            "2.",
+            "3.",
+            "1 - Fully Confirmed",
+            "2 - Nicholas Suggestion - Add 2 ??",
+            "3 - Robert Agreed - Add 1 ?",
+            "Nicholas Robert Bryce",
+            "PreProduction Planning",
+        ]
+        for address in junk:
+            self.assertFalse(is_plausible_street_address(address), address)
+
+        values = _sheet(*[_tracker_row(address, banker_f="SCU") for address in junk])
+        parsed, warnings = _parse_stage_table(values, bank_column="F")
+        self.assertEqual([], parsed)
+        self.assertEqual([], warnings)
+
+    def test_real_addresses_with_notes_are_kept(self) -> None:
+        keep = [
+            "87 Grove Crescent – SHOWHOME",
+            "48 Ash Cove. client doesnt want early possession??",
+            "14 Grove Cresent ( Fall 2027)",
+            "24-100 Grande Pointe Meadows",
+            "141/145 Ramona Gallos – SPEC",
+            "10 Oak Street",
+        ]
+        for address in keep:
+            self.assertTrue(is_plausible_street_address(address), address)
+
+
+class CanonicalLenderIdTests(unittest.TestCase):
+    def test_pro_auto_and_scu_map_to_canonical_lender_ids(self) -> None:
+        self.assertEqual(CANONICAL_LENDER_IDS["PRO"], UUID("52642c0d-3af6-4d23-a3bd-734e84585ea1"))
+        self.assertEqual(CANONICAL_LENDER_IDS["SCU"], UUID("18c6d406-231c-41d9-8541-ef0044cba2d3"))
+        for raw in ("Pro Auto", "ProAuto", "PRO"):
+            resolved = resolve_lender_fields(raw)
+            self.assertEqual("PRO", resolved["lender_type"])
+            self.assertEqual(CANONICAL_LENDER_IDS["PRO"], resolved["lender_id"])
+        resolved = resolve_lender_fields("SCU")
+        self.assertEqual("SCU", resolved["lender_type"])
+        self.assertEqual(CANONICAL_LENDER_IDS["SCU"], resolved["lender_id"])
+        self.assertIsNone(canonical_lender_id("OTHER"))
+        self.assertIsNone(canonical_lender_id("CLIENT"))
+
+    def test_duplicate_pro_auto_facility_is_not_retargeted(self) -> None:
+        facility_id = uuid4()
+        property_id = uuid4()
+        planned = plan_facility_lender_updates(
+            [
+                {
+                    "id": facility_id,
+                    "property_id": property_id,
+                    "lender_id": DUPLICATE_PRO_AUTO_LENDER_ID,
+                    "lender_type": "PRO",
+                }
+            ],
+            "PRO",
+        )
+        self.assertEqual(
+            [
+                {
+                    "kind": "lender_id_preserved_duplicate",
+                    "facility_id": str(facility_id),
+                    "property_id": str(property_id),
+                    "lender_type": "PRO",
+                    "existing_lender_id": str(DUPLICATE_PRO_AUTO_LENDER_ID),
+                    "canonical_lender_id": str(CANONICAL_LENDER_IDS["PRO"]),
+                }
+            ],
+            planned,
+        )
+
+    def test_null_matching_facility_is_assigned_canonical_id(self) -> None:
+        facility_id = uuid4()
+        property_id = uuid4()
+        planned = plan_facility_lender_updates(
+            [
+                {
+                    "id": facility_id,
+                    "property_id": property_id,
+                    "lender_id": None,
+                    "lender_type": "SCU",
+                }
+            ],
+            "SCU",
+        )
+        self.assertEqual("set_lender_id", planned[0]["kind"])
+        self.assertEqual(str(CANONICAL_LENDER_IDS["SCU"]), planned[0]["lender_id"])
+        self.assertIsNone(planned[0]["existing_lender_id"])
+
+
+class SheetsSyncFollowupAsyncTest(unittest.IsolatedAsyncioTestCase):
+    async def test_dry_run_lists_junk_existing_and_does_not_delete(self) -> None:
+        values = _sheet(_tracker_row("10 Oak Street", banker_f="SCU"))
+        existing = [
+            {"address_raw": "10 Oak Street", "banker_raw": "SCU", "lender_type": "SCU"},
+            {"address_raw": "#REF!", "banker_raw": None, "lender_type": None},
+            {
+                "address_raw": "2 - Nicholas Suggestion - Add 2 ??",
+                "banker_raw": None,
+                "lender_type": None,
+            },
+            {
+                "address_raw": "LEGEND - Column E Banker",
+                "banker_raw": None,
+                "lender_type": None,
+            },
+        ]
+        db = FakeDB(existing_rows=existing, missing=["#REF!", "LEGEND - Column E Banker"])
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=AsyncMock(side_effect=AssertionError("upsert"))),
+            patch("app.services.sheets_sync.get_or_create_stage_target", new=AsyncMock(return_value=(None, None, False))),
+            patch("app.services.sheets_sync.activate_from_construction_stage", new=AsyncMock(return_value=False)),
+        ):
+            result = await sync_from_sheet(db, dry_run=True, delete_missing=True)
+
+        junk = [item for item in result["manifest"] if item["kind"] == "junk_existing"]
+        deletes = [item for item in result["manifest"] if item["kind"] == "delete"]
+        self.assertEqual(
+            {
+                "#REF!",
+                "2 - Nicholas Suggestion - Add 2 ??",
+                "LEGEND - Column E Banker",
+            },
+            {item["address_raw"] for item in junk},
+        )
+        self.assertEqual([], deletes)
+        self.assertEqual(0, result["stale_deleted"])
+        self.assertEqual([], db.writes)
+        self.assertTrue(all("DELETE" not in sql.upper() for sql, _params in db.calls))
+
+    async def test_dry_run_plans_canonical_facility_lender_id(self) -> None:
+        values = _sheet(_tracker_row("10 Oak Street", banker_f="ProAuto"))
+        property_id = uuid4()
+        facility_id = uuid4()
+        existing = {
+            "address_raw": "10 Oak Street",
+            "banker_raw": "ProAuto",
+            "lender_type": "PRO",
+            "property_id": property_id,
+        }
+        db = FakeDB(
+            existing_rows=[existing],
+            facilities=[
+                {
+                    "id": facility_id,
+                    "property_id": property_id,
+                    "lender_id": None,
+                    "lender_type": "PRO",
+                }
+            ],
+        )
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=AsyncMock(side_effect=AssertionError("upsert"))),
+            patch(
+                "app.services.sheets_sync.get_or_create_stage_target",
+                new=AsyncMock(return_value=(property_id, None, False)),
+            ),
+            patch("app.services.sheets_sync.activate_from_construction_stage", new=AsyncMock(return_value=False)),
+        ):
+            result = await sync_from_sheet(db, dry_run=True)
+
+        update = next(item for item in result["manifest"] if item["kind"] == "update")
+        self.assertEqual(str(CANONICAL_LENDER_IDS["PRO"]), update["lender_id"])
+        assignment = next(item for item in result["manifest"] if item["kind"] == "set_lender_id")
+        self.assertEqual(str(facility_id), assignment["facility_id"])
+        self.assertEqual(str(CANONICAL_LENDER_IDS["PRO"]), assignment["lender_id"])
+        self.assertEqual([], db.writes)
+
+    async def test_apply_sets_null_facility_lender_id_to_canonical(self) -> None:
+        values = _sheet(_tracker_row("10 Oak Street", banker_f="SCU"))
+        property_id = uuid4()
+        facility_id = uuid4()
+        existing = {
+            "address_raw": "10 Oak Street",
+            "banker_raw": "SCU",
+            "lender_type": "SCU",
+            "property_id": property_id,
+        }
+        facilities = [
+            {
+                "id": facility_id,
+                "property_id": property_id,
+                "lender_id": None,
+                "lender_type": "SCU",
+            }
+        ]
+        db = FakeDB(existing_rows=[existing], facilities=facilities)
+        upsert = AsyncMock(return_value=(False, False))
+        with (
+            patch("app.services.sheets_sync._fetch_sheet_values", new=AsyncMock(return_value=values)),
+            patch("app.services.sheets_sync.upsert_stage_row", new=upsert),
+        ):
+            result = await sync_from_sheet(db, dry_run=False)
+
+        self.assertEqual(str(CANONICAL_LENDER_IDS["SCU"]), facilities[0]["lender_id"])
+        self.assertTrue(any("UPDATE core.lender_facilities" in sql for sql, _params in db.writes))
+        assignment = next(item for item in result["manifest"] if item["kind"] == "set_lender_id")
+        self.assertEqual(str(CANONICAL_LENDER_IDS["SCU"]), assignment["lender_id"])
+        payload = upsert.await_args.args[1]
+        self.assertEqual(CANONICAL_LENDER_IDS["SCU"], payload["lender_id"])
 
 
 if __name__ == "__main__":
