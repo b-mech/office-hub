@@ -7,6 +7,7 @@ import {
   OSM_MAX_NATIVE_ZOOM,
   OSM_MAX_ZOOM,
   OSM_TILE_URL,
+  asCoordinate,
   isLocatedProperty,
   locatedProperties,
 } from "./rentals-map-points.ts";
@@ -37,6 +38,20 @@ test("located properties keep finite coordinates and drop nulls", () => {
   assert.equal(located[0].property_id, 1);
   assert.equal(isLocatedProperty(rows[0]), true);
   assert.equal(isLocatedProperty(rows[1]), false);
+});
+
+test("string coordinates from the map API are treated as located", () => {
+  const rows = [
+    property({ property_id: 5, latitude: "49.8951" as unknown as number, longitude: "-97.1383" as unknown as number }),
+    property({ property_id: 6, latitude: "" as unknown as number, longitude: -97.1 }),
+  ];
+  const located = locatedProperties(rows);
+  assert.equal(located.length, 1);
+  assert.equal(located[0].property_id, 5);
+  assert.equal(located[0].latitude, 49.8951);
+  assert.equal(located[0].longitude, -97.1383);
+  assert.equal(asCoordinate("49.8951"), 49.8951);
+  assert.equal(asCoordinate(""), null);
 });
 
 test("OpenStreetMap tiles include required attribution and official tile host", () => {
