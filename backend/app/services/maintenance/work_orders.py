@@ -338,11 +338,18 @@ async def complete_work_order(
     cost_actual: Decimal | None = None,
     now: datetime | None = None,
     channel: MaintEventChannel = MaintEventChannel.SYSTEM,
+    cost_class: str | None = None,
 ) -> bool:
+    if cost_class is not None and cost_class not in {"repair", "capital"}:
+        raise ValueError("Cost class must be repair or capital")
+    if MaintWorkOrderStatus(work_order.status) in {MaintWorkOrderStatus.COMPLETED, MaintWorkOrderStatus.CANCELLED}:
+        raise ValueError("This work order is already closed")
     completed_at = now or datetime.now(timezone.utc)
     work_order.status = MaintWorkOrderStatus.COMPLETED
     work_order.completion_notes = completion_notes.strip() or None
     work_order.cost_actual = cost_actual
+    if cost_class is not None:
+        work_order.cost_class = cost_class
     work_order.completed_at = completed_at
     db.add(
         MaintEvent(
@@ -356,7 +363,11 @@ async def complete_work_order(
             actor_user_id=actor.user_id,
             actor_vendor_id=actor.vendor_id,
             body=work_order.completion_notes,
-            payload={"work_order": work_order.number},
+            payload={
+                "work_order": work_order.number,
+                **({"cost_actual": str(cost_actual)} if cost_actual is not None else {}),
+                **({"cost_class": cost_class} if cost_class else {}),
+            },
             created_at=completed_at,
         )
     )

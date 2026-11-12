@@ -12,7 +12,11 @@ export default function NewMaintenanceTicket() {
   const [emergency,setEmergency] = useState(false); const [photos,setPhotos] = useState<File[]>([]);
   const [busy,setBusy] = useState(false); const [ready,setReady] = useState(false); const [error,setError] = useState("");
   const [created,setCreated] = useState<Awaited<ReturnType<typeof createStaffTicket>>|null>(null);
-  useEffect(()=>{ getStaffTicketOptions().then(setOptions).catch(e=>setError(e.message)).finally(()=>setReady(true)); },[]);
+  useEffect(()=>{ getStaffTicketOptions().then((loaded)=>{ setOptions(loaded);
+    // Deep link from a unit/property page: /rentals/maintenance/new?property_id=1&unit_id=2
+    const params=new URLSearchParams(window.location.search); const p=Number(params.get("property_id")); const u=Number(params.get("unit_id"));
+    if(p&&loaded.properties.some(x=>x.id===p)){ setPropertyId(String(p)); if(u&&loaded.units.some(x=>x.id===u&&x.property_id===p)) setUnitId(String(u)); }
+  }).catch(e=>setError(e.message)).finally(()=>setReady(true)); },[]);
   const properties = useMemo(()=>options.properties.filter(p=>p.id===Number(propertyId)||`${p.name} ${p.address}`.toLowerCase().includes(propertySearch.toLowerCase())),[options.properties,propertySearch,propertyId]);
   const units = useMemo(()=>options.units.filter(u=>u.property_id===Number(propertyId)&&(u.id===Number(unitId)||u.label.toLowerCase().includes(unitSearch.toLowerCase()))),[options.units,propertyId,unitSearch,unitId]);
   async function submit(event:FormEvent<HTMLFormElement>) {
