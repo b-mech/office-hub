@@ -30,6 +30,7 @@ export default function UnitMaintenancePage({ params }: { params: Promise<{unitI
   return <main className="mx-auto max-w-2xl p-6">
     <a href="/rentals/inspections" className="text-sm text-[var(--ch-accent)]">← Rental units</a>
     <h1 className="mt-3 text-3xl font-bold">Rental unit</h1>
+    {status ? <p className="mt-2 flex flex-wrap gap-3 text-sm font-semibold"><a href={`/rentals/maintenance?property_id=${status.property_id}`} className="text-[var(--ch-accent)]">Open maintenance tickets</a><a href={`/rentals/maintenance/new?property_id=${status.property_id}&unit_id=${unitId}`} className="text-[var(--ch-accent)]">+ New ticket for this unit</a></p> : null}
     <nav className="mt-5 flex gap-2" aria-label="Unit tabs"><button onClick={() => setTab("maintenance")} className={`rounded-lg px-4 py-2 font-semibold ${tab === "maintenance" ? "bg-[var(--ch-accent)] text-white" : "border"}`}>Maintenance</button><button onClick={() => setTab("leases")} className={`rounded-lg px-4 py-2 font-semibold ${tab === "leases" ? "bg-[var(--ch-accent)] text-white" : "border"}`}>Leases</button></nav>
     {tab === "leases" ? <LeasesPanel unitId={unitId} /> : <>
     <section className="mt-6 rounded-2xl border bg-[var(--ch-surface)] p-5">

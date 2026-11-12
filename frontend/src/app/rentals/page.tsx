@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getRentalMap, type MapProperty } from "@/lib/api/rentals-map";
 import { RentalsLeafletMap } from "../components/RentalsLeafletMap";
 import { INSPECTION_COLORS, locatedProperties } from "@/lib/rentals-map-points";
+import { maintenanceHrefForProperty } from "@/lib/maintenance-workflows";
 
 export default function RentalsHome() {
   const [items, setItems] = useState<MapProperty[]>([]);
@@ -60,10 +61,10 @@ export default function RentalsHome() {
       ) : (
         <div className="mx-auto w-full max-w-3xl flex-1 overflow-auto p-4">
           {filtered.map((property) => (
+            <div key={property.property_id} className="mb-2 rounded-xl border bg-[var(--ch-surface)] p-4">
             <a
-              key={property.property_id}
               href={`/rentals/inspections?property_id=${property.property_id}`}
-              className="mb-2 block rounded-xl border bg-[var(--ch-surface)] p-4"
+              className="block"
             >
               <div className="flex items-center">
                 <strong>{property.street_address}</strong>
@@ -78,6 +79,11 @@ export default function RentalsHome() {
                 {property.group_name} · {property.unit_count} units · {property.last_inspection_date || "never inspected"}
               </div>
             </a>
+            <div className="mt-2 flex flex-wrap gap-3 text-sm font-semibold">
+              <a href={maintenanceHrefForProperty(property.property_id)} className="text-[var(--ch-accent)]">Maintenance</a>
+              <a href={`/rentals/inspections?property_id=${property.property_id}`} className="text-[var(--ch-accent)]">Units &amp; QR</a>
+            </div>
+            </div>
           ))}
         </div>
       )}

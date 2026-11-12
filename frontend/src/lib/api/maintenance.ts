@@ -26,7 +26,9 @@ export type TicketListItem = {
   number: string;
   title: string;
   property: string;
+  property_id: number;
   unit: string;
+  unit_id: number | null;
   category: TicketCategory | null;
   priority: TicketPriority | null;
   status: TicketStatus;
@@ -35,6 +37,18 @@ export type TicketListItem = {
   sla_status: "untriaged" | "on_track" | "warning" | "overdue" | "complete";
   sla_due_at: string | null;
   updated_at: string;
+  checklist: { total: number; done: number };
+};
+
+export type ChecklistItem = { id: string; text: string; done: boolean; position: number; done_at: string | null };
+export type PurchaseStatus = "needed" | "ordered" | "received" | "cancelled";
+export type Purchase = {
+  id: string; vendor: string; item: string; amount: string | null; status: PurchaseStatus;
+  reference: string | null; work_order_id: string | null; logged_at: string; updated_at: string;
+};
+export type RelatedTicket = {
+  id: string; number: string; title: string; status: TicketStatus; category: TicketCategory | null;
+  created_at: string; unit: string; same_unit: boolean;
 };
 
 export type TimelineAttachment = { id: string; filename: string | null; content_type: string; url: string };
@@ -73,6 +87,8 @@ export type WorkOrder = {
   scheduled_visit_status: "scheduled" | "completed" | "cancelled" | null;
   cost_estimate: string | null;
   cost_actual: string | null;
+  cost_class: "repair" | "capital" | null;
+  invoice_url: string | null;
   completion_notes: string | null;
   external_party: boolean;
 };
@@ -104,6 +120,10 @@ export type TicketDetail = TicketListItem & {
   timeline: TimelineItem[];
   staff_options: { id: string; name: string }[];
   vendor_options: { id: string; name: string }[];
+  duplicate_of: string | null;
+  checklist_items: ChecklistItem[];
+  purchases: Purchase[];
+  related_tickets: RelatedTicket[];
 };
 
 export type TicketFilters = {
@@ -111,6 +131,8 @@ export type TicketFilters = {
   status?: TicketStatus | "";
   priority?: TicketPriority | "";
   needs_reply?: boolean;
+  property_id?: number;
+  assignee_id?: string;
 };
 
 export type CalendarVisitType = "routine" | "tenant_consent" | "emergency";
@@ -157,6 +179,8 @@ export function listTickets(filters: TicketFilters = {}) {
   if (filters.status) query.set("status", filters.status);
   if (filters.priority) query.set("priority", filters.priority);
   if (filters.needs_reply) query.set("needs_reply", "true");
+  if (filters.property_id) query.set("property_id", String(filters.property_id));
+  if (filters.assignee_id) query.set("assignee_id", filters.assignee_id);
   const suffix = query.size ? `?${query.toString()}` : "";
   return request<TicketListItem[]>(`/api/maintenance/tickets${suffix}`);
 }
@@ -260,3 +284,51 @@ export type MaintenanceVendorInput=Omit<MaintenanceVendor,"id"|"sms_opted_out">;
 export const listMaintenanceVendors=(includeInactive=false)=>request<MaintenanceVendor[]>(`/api/maintenance/vendors?include_inactive=${includeInactive}`);
 export const createMaintenanceVendor=(body:MaintenanceVendorInput)=>jsonRequest<MaintenanceVendor>("/api/maintenance/vendors","POST",body);
 export const updateMaintenanceVendor=(id:string,body:Partial<MaintenanceVendorInput>)=>jsonRequest<MaintenanceVendor>(`/api/maintenance/vendors/${id}`,"PATCH",body);
+
+
+export type MaintenanceFilterOptions = {
+  properties: { id: number; name: string; address: string }[];
+  assignees: { id: string; name: string; type: "staff" | "vendor" }[];
+};
+export const getMaintenanceFilterOptions = () => request<MaintenanceFilterOptions>("/api/maintenance/filter-options");
+
+export type CompleteWorkOrderInput = { completion_notes: string; cost_actual: string | null; cost_class: "repair" | "capital" | null };
+export async function uploadWorkOrderInvoice(ticketId: string, workOrderId: string, invoice: File) {
+  const body = new FormData(); body.set("invoice", invoice);
+  return request<{ ok: true; attachment_id: string; url: string }>(`/api/maintenance/tickets/${ticketId}/work-orders/${workOrderId}/invoice`, { method: "POST", body });
+}
+export const recordWorkOrderCosts = (ticketId: string, workOrderId: string, body: { cost_actual: string | null; cost_class: "repair" | "capital" | null }) =>
+  jsonRequest<{ ok: true }>(`/api/maintenance/tickets/${ticketId}/work-orders/${workOrderId}/costs`, "POST", body);
+
+type ChecklistResponse = { items: ChecklistItem[]; progress: { total: number; done: number } };
+export const addChecklistItems = (ticketId: string, body: { items?: string[]; text?: string }) =>
+  jsonRequest<ChecklistResponse>(`/api/maintenance/tickets/${ticketId}/checklist`, "POST", body);
+export const updateChecklistItem = (ticketId: string, itemId: string, body: { done?: boolean; remove?: boolean }) =>
+  jsonRequest<ChecklistResponse>(`/api/maintenance/tickets/${ticketId}/checklist/${itemId}`, "POST", body);
+
+export type PurchaseInput = { vendor: string; item: string; amount: string | null; status: PurchaseStatus; reference: string | null; work_order_id: string | null };
+export const logPurchase = (ticketId: string, body: PurchaseInput) =>
+  jsonRequest<{ purchases: Purchase[] }>(`/api/maintenance/tickets/${ticketId}/purchases`, "POST", body);
+export const setPurchaseStatus = (ticketId: string, purchaseId: string, status: PurchaseStatus) =>
+  jsonRequest<{ purchases: Purchase[] }>(`/api/maintenance/tickets/${ticketId}/purchases/${purchaseId}`, "POST", { status });
+
+export type SpendRow = {
+  month: string; property_id: number; property: string; unit_id: number | null; unit: string | null; work_orders: number;
+  cost_estimate: string; cost_actual: string; repair_actual: string; capital_actual: string; unclassified_actual: string;
+};
+export type SpendReport = { rows: SpendRow[]; totals: { work_orders: number; cost_estimate: string; cost_actual: string; repair_actual: string; capital_actual: string }; basis: string };
+export type SpendQuery = { start?: string; end?: string; group_by?: "property" | "unit"; property_id?: number };
+function spendQuery(filters: SpendQuery, format: "json" | "csv") {
+  const query = new URLSearchParams({ format });
+  if (filters.start) query.set("start", filters.start);
+  if (filters.end) query.set("end", filters.end);
+  if (filters.group_by) query.set("group_by", filters.group_by);
+  if (filters.property_id) query.set("property_id", String(filters.property_id));
+  return `/api/maintenance/reports/spend?${query.toString()}`;
+}
+export const getSpendReport = (filters: SpendQuery) => request<SpendReport>(spendQuery(filters, "json"));
+export async function downloadSpendCsv(filters: SpendQuery) {
+  const response = await fetch(`${BASE}${spendQuery(filters, "csv")}`, { cache: "no-store" });
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || "Could not export CSV");
+  download(await response.blob(), `maintenance-spend-${filters.start || "all"}-${filters.end || "all"}.csv`);
+}

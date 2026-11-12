@@ -44,8 +44,42 @@ class ScheduleRequest(BaseModel):
 
 
 class CompleteWorkOrderRequest(BaseModel):
-    completion_notes: str = Field(default="", max_length=4000)
-    cost_actual: Decimal | None = Field(default=None, ge=0)
+    model_config = {"str_strip_whitespace": True}
+    completion_notes: str = Field(min_length=1, max_length=4000)
+    cost_actual: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
+    cost_class: Literal["repair", "capital"] | None = None
+
+
+class WorkOrderCostsRequest(BaseModel):
+    cost_actual: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
+    cost_class: Literal["repair", "capital"] | None = None
+
+
+class ChecklistAddRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    items: list[str] = Field(default_factory=list, max_length=50)
+    text: str | None = Field(default=None, max_length=10000)
+
+
+class ChecklistUpdateRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    done: bool | None = None
+    remove: bool = False
+
+
+class PurchaseCreate(BaseModel):
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
+    vendor: str = Field(min_length=1, max_length=200)
+    item: str = Field(min_length=1, max_length=500)
+    amount: Decimal | None = Field(default=None, ge=0, max_digits=15, decimal_places=2)
+    status: Literal["needed", "ordered", "received", "cancelled"] = "ordered"
+    reference: str | None = Field(default=None, max_length=500)
+    work_order_id: UUID | None = None
+
+
+class PurchaseStatusUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+    status: Literal["needed", "ordered", "received", "cancelled"]
 
 
 class ScheduledVisitRequest(BaseModel):

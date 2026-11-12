@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, CalendarDays, ChevronRight, List, MessageCircleMore, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronRight, ListChecks, List, MessageCircleMore, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { listTickets, type TicketFilters, type TicketListItem, type TicketPriority, type TicketStatus } from "@/lib/api/maintenance";
+import { getMaintenanceFilterOptions, listTickets, type MaintenanceFilterOptions, type TicketFilters, type TicketListItem, type TicketPriority, type TicketStatus } from "@/lib/api/maintenance";
+import { checklistLabel, filtersFromSearch, filtersToSearch } from "@/lib/maintenance-workflows";
 import MaintenanceCalendar from "@/components/maintenance/MaintenanceCalendar";
 
 const labels = (value: string | null) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Untriaged";
@@ -24,13 +25,25 @@ export default function MaintenanceTicketsPage() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [view, setView] = useState<"list" | "calendar">("list");
+  const [ready, setReady] = useState(false);
+  const [options, setOptions] = useState<MaintenanceFilterOptions>({ properties: [], assignees: [] });
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (window.localStorage.getItem("maintenance-open-tickets-view") === "calendar") setView("calendar");
+      const fromUrl = filtersFromSearch(window.location.search);
+      setFilters(fromUrl as TicketFilters);
+      if (!fromUrl.property_id && window.localStorage.getItem("maintenance-open-tickets-view") === "calendar") setView("calendar");
+      setReady(true);
     }, 0);
+    getMaintenanceFilterOptions().then(setOptions).catch(() => setOptions({ properties: [], assignees: [] }));
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const next = `${window.location.pathname}${filtersToSearch(filters)}`;
+    if (next !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(null, "", next);
+  }, [filters, ready]);
 
   const changeView = (next: "list" | "calendar") => {
     setView(next);
@@ -46,10 +59,10 @@ export default function MaintenanceTicketsPage() {
   }, [filters]);
 
   useEffect(() => {
-    if (view !== "list") return;
+    if (view !== "list" || !ready) return;
     const initial = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(initial);
-  }, [load, view]);
+  }, [load, view, ready]);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -66,6 +79,7 @@ export default function MaintenanceTicketsPage() {
             <p className="mt-2 text-sm text-[var(--ch-text-muted)]">Conversations, SLA risk, and field work in one queue.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Link href="/rentals/maintenance/spend" className="rounded-xl border border-[var(--ch-border)] px-4 py-3 text-sm font-semibold">Spend report</Link>
             <Link href="/rentals/maintenance/vendors" className="rounded-xl border border-[var(--ch-border)] px-4 py-3 text-sm font-semibold">Vendors</Link>
             <Link href="/rentals/maintenance/new" className="rounded-xl bg-[var(--ch-accent)] px-4 py-3 text-sm font-semibold text-white">+ New ticket</Link>
             <div className="flex rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-1" aria-label="Open ticket view">
@@ -78,7 +92,7 @@ export default function MaintenanceTicketsPage() {
           </div>
         </header>
 
-        {view === "calendar" ? <MaintenanceCalendar /> : <><section className="mt-5 grid gap-3 rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4 sm:grid-cols-2 lg:grid-cols-5" aria-label="Ticket filters">
+        {view === "calendar" ? <MaintenanceCalendar /> : <><section className="mt-5 grid gap-3 rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4 sm:grid-cols-2 lg:grid-cols-6" aria-label="Ticket filters">
           <label className="relative sm:col-span-2">
             <span className="sr-only">Search tickets</span>
             <Search size={17} className="pointer-events-none absolute left-3 top-3.5 text-[var(--ch-text-muted)]" />
@@ -92,16 +106,28 @@ export default function MaintenanceTicketsPage() {
             <option value="">All priorities</option>
             {["emergency", "urgent", "routine", "low"].map((priority) => <option key={priority} value={priority}>{labels(priority)}</option>)}
           </select>
+          <select aria-label="Property" value={filters.property_id ? String(filters.property_id) : ""} onChange={(event) => setFilters((current) => ({ ...current, property_id: event.target.value ? Number(event.target.value) : undefined }))} className="min-h-11 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 text-sm">
+            <option value="">All properties</option>
+            {filters.property_id && !options.properties.some((item) => item.id === filters.property_id) ? <option value={String(filters.property_id)}>Property #{filters.property_id}</option> : null}
+            {options.properties.map((item) => <option key={item.id} value={String(item.id)}>{item.name === item.address ? item.address : `${item.address} · ${item.name}`}</option>)}
+          </select>
+          <select aria-label="Assignee" value={filters.assignee_id || ""} onChange={(event) => setFilters((current) => ({ ...current, assignee_id: event.target.value || undefined }))} className="min-h-11 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 text-sm">
+            <option value="">Any assignee</option>
+            {options.assignees.filter((item) => item.type === "staff").length ? <optgroup label="Staff">{options.assignees.filter((item) => item.type === "staff").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup> : null}
+            {options.assignees.filter((item) => item.type === "vendor").length ? <optgroup label="Vendors">{options.assignees.filter((item) => item.type === "vendor").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup> : null}
+          </select>
           <label className="flex min-h-11 items-center gap-3 rounded-xl border border-[var(--ch-border)] px-3 text-sm font-medium">
             <input type="checkbox" checked={Boolean(filters.needs_reply)} onChange={(event) => setFilters((current) => ({ ...current, needs_reply: event.target.checked }))} className="h-4 w-4 accent-[var(--ch-accent)]" /> Needs reply
           </label>
-          <label className="flex min-h-11 items-center gap-3 rounded-xl border border-[var(--ch-border)] px-3 text-sm font-medium lg:col-start-5">
+          <label className="flex min-h-11 items-center gap-3 rounded-xl border border-[var(--ch-border)] px-3 text-sm font-medium">
             <input type="checkbox" checked={Boolean(filters.include_terminal)} onChange={(event) => setFilters((current) => ({ ...current, include_terminal: event.target.checked }))} className="h-4 w-4 accent-[var(--ch-accent)]" /> Include closed
           </label>
+          {filters.property_id || filters.assignee_id ? <button type="button" onClick={() => setFilters((current) => ({ ...current, property_id: undefined, assignee_id: undefined }))} className="min-h-11 rounded-xl border border-dashed border-[var(--ch-border-strong)] px-3 text-sm font-semibold text-[var(--ch-accent)]">Clear property / assignee</button> : null}
         </section>
 
         {error ? <p className="mt-4 rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] p-3 text-sm text-[var(--ch-error-text)]">{error}</p> : null}
         <div className="mt-5 space-y-3">
+          {busy && visible.length === 0 ? <div className="rounded-2xl border border-[var(--ch-border)] p-10 text-center text-sm text-[var(--ch-text-muted)]">Loading tickets…</div> : null}
           {!busy && visible.length === 0 ? <div className="rounded-2xl border border-dashed border-[var(--ch-border-strong)] p-10 text-center text-sm text-[var(--ch-text-muted)]">No tickets match these filters.</div> : null}
           {visible.map((ticket) => (
             <Link key={ticket.id} href={`/rentals/maintenance/${ticket.id}`} className="group block rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4 shadow-sm hover:border-[var(--ch-border-strong)] hover:bg-[var(--ch-surface-strong)] sm:p-5">
@@ -119,6 +145,7 @@ export default function MaintenanceTicketsPage() {
                     <span className="rounded-full border border-[var(--ch-border)] px-2 py-1">{labels(ticket.priority)}</span>
                     <span className="rounded-full border border-[var(--ch-border)] px-2 py-1">{labels(ticket.status)}</span>
                     <span className={`rounded-full border px-2 py-1 font-semibold ${slaClass[ticket.sla_status]}`}>SLA {labels(ticket.sla_status)}</span>
+                    {checklistLabel(ticket.checklist) ? <span className="inline-flex items-center gap-1 rounded-full border border-[var(--ch-border)] px-2 py-1 font-semibold"><ListChecks size={12} /> {checklistLabel(ticket.checklist)}</span> : null}
                   </div>
                 </div>
                 <ChevronRight size={20} className="mt-2 shrink-0 text-[var(--ch-text-muted)] group-hover:text-[var(--ch-accent)]" />

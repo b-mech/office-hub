@@ -25,8 +25,16 @@ from app.models.maintenance import (
     MaintVendor,
     MaintVisibility,
     MaintWorkOrder,
+    MaintWorkOrderStatus,
 )
 from app.models.rentals import RentalProperty, RentalUnit
+from app.services.maintenance.extras import (
+    checklist_progress,
+    checklist_progress_by_ticket,
+    related_tickets,
+    ticket_checklist,
+    ticket_purchases,
+)
 from app.services.maintenance.media import store_attachment, validate_file_count
 from app.services.maintenance.phones import format_phone
 from app.services.maintenance.sms.outbound import (
@@ -176,6 +184,12 @@ async def _work_order_views(db: AsyncSession, ticket_id: UUID) -> list[dict[str,
                 "scheduled_visit_status": order.scheduled_visit_status,
                 "cost_estimate": str(order.cost_estimate) if order.cost_estimate is not None else None,
                 "cost_actual": str(order.cost_actual) if order.cost_actual is not None else None,
+                "cost_class": order.cost_class,
+                "invoice_url": (
+                    f"/api/maintenance/attachments/{order.invoice_attachment_id}"
+                    if order.invoice_attachment_id
+                    else None
+                ),
                 "completion_notes": order.completion_notes,
                 "external_party": order.assignee_type == "vendor",
             }
@@ -191,6 +205,7 @@ async def list_ticket_views(
     priority: MaintPriority | None = None,
     property_id: int | None = None,
     needs_reply_only: bool = False,
+    assignee_id: UUID | None = None,
 ) -> list[dict[str, object]]:
     statement = select(MaintTicket)
     if status is not None:
@@ -201,6 +216,15 @@ async def list_ticket_views(
         statement = statement.where(MaintTicket.priority == priority)
     if property_id is not None:
         statement = statement.where(MaintTicket.property_id == property_id)
+    if assignee_id is not None:
+        assigned = (
+            select(MaintWorkOrder.ticket_id)
+            .where(
+                (MaintWorkOrder.assignee_user_id == assignee_id) | (MaintWorkOrder.vendor_id == assignee_id),
+                MaintWorkOrder.status != MaintWorkOrderStatus.CANCELLED,
+            )
+        )
+        statement = statement.where(MaintTicket.id.in_(assigned))
     tickets = list(
         (
             await db.scalars(
@@ -209,6 +233,7 @@ async def list_ticket_views(
         ).all()
     )
     result: list[dict[str, object]] = []
+    progress = await checklist_progress_by_ticket(db, [ticket.id for ticket in tickets])
     for ticket in tickets:
         needs_reply = await ticket_needs_reply(db, ticket.id)
         if needs_reply_only and not needs_reply:
@@ -220,7 +245,9 @@ async def list_ticket_views(
                 "number": ticket.number,
                 "title": ticket.title,
                 "property": property_label,
+                "property_id": ticket.property_id,
                 "unit": unit_label,
+                "unit_id": ticket.unit_id,
                 "category": value(ticket.category),
                 "priority": value(ticket.priority),
                 "status": value(ticket.status),
@@ -229,6 +256,7 @@ async def list_ticket_views(
                 "sla_status": sla_status(ticket),
                 "sla_due_at": ticket.sla_due_at,
                 "updated_at": ticket.updated_at,
+                "checklist": progress.get(ticket.id, {"total": 0, "done": 0}),
             }
         )
     return result
@@ -540,13 +568,17 @@ async def ticket_detail_view(db: AsyncSession, ticket_id: UUID) -> dict[str, obj
             )
         ).all()
     )
+    checklist = await ticket_checklist(db, ticket.id)
     return {
         "id": ticket.id,
         "number": ticket.number,
         "title": ticket.title,
         "description": ticket.description,
         "property": property_label,
+        "property_id": ticket.property_id,
         "unit": unit_label,
+        "unit_id": ticket.unit_id,
+        "duplicate_of": ticket.duplicate_of,
         "category": value(ticket.category),
         "priority": value(ticket.priority),
         "status": value(ticket.status),
@@ -563,6 +595,10 @@ async def ticket_detail_view(db: AsyncSession, ticket_id: UUID) -> dict[str, obj
         "timeline": await _timeline(db, ticket.id),
         "staff_options": [{"id": item.id, "name": item.full_name} for item in users],
         "vendor_options": [{"id": item.id, "name": item.name} for item in vendors],
+        "checklist_items": checklist,
+        "checklist": checklist_progress(checklist),
+        "purchases": await ticket_purchases(db, ticket.id),
+        "related_tickets": await related_tickets(db, ticket),
     }
 
 
@@ -1203,6 +1239,7 @@ async def complete_order(
     work_order_id: UUID,
     completion_notes: str,
     cost_actual: Decimal | None,
+    cost_class: str | None = None,
 ) -> tuple[bool, list[dict[str, object]]]:
     order = await db.get(MaintWorkOrder, work_order_id)
     if order is None or order.ticket_id != ticket.id:
@@ -1214,6 +1251,7 @@ async def complete_order(
         actor,
         completion_notes=completion_notes,
         cost_actual=cost_actual,
+        cost_class=cost_class,
     )
     future_visits = [_visit_view(order)] if is_future_scheduled_visit(order) else []
     return all_complete, future_visits

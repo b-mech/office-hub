@@ -6,6 +6,7 @@ import hmac
 import json
 import logging
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from io import BytesIO
 from typing import Annotated, Literal
 from uuid import UUID
@@ -73,6 +74,19 @@ from app.services.maintenance.vendor_portal import (InvalidVendorLink, VendorAct
 from app.services.maintenance.tickets import TicketCreate, create_ticket
 from app.services.maintenance.turnstile import TurnstileError, verify_turnstile
 from app.services.maintenance.webhook_alerts import alert_ringcentral_webhook_failure
+from app.services.maintenance.extras import (
+    add_checklist_items,
+    aggregate_spend,
+    attach_invoice,
+    checklist_progress,
+    log_purchase,
+    parse_checklist_lines,
+    record_work_order_costs,
+    set_purchase_status,
+    spend_csv,
+    spend_lines,
+    update_checklist_item,
+)
 from app.services.maintenance.workspace import (
     acknowledge_ticket,
     actor_for,
@@ -97,8 +111,13 @@ from app.schemas.maintenance import (
     VendorPortalAction,
     StaffTicketCreate,
     AssignmentRequest,
+    ChecklistAddRequest,
+    ChecklistUpdateRequest,
     CompleteWorkOrderRequest,
     MoreActionRequest,
+    PurchaseCreate,
+    PurchaseStatusUpdate,
+    WorkOrderCostsRequest,
     ResolveRequest,
     ScheduleRequest,
     ScheduledVisitRequest,
@@ -642,6 +661,7 @@ async def maintenance_tickets(
     priority: MaintPriority | None = None,
     property_id: int | None = None,
     needs_reply: bool = False,
+    assignee_id: UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, object]]:
     _staff(request, "view")
@@ -652,7 +672,54 @@ async def maintenance_tickets(
         priority=priority,
         property_id=property_id,
         needs_reply_only=needs_reply,
+        assignee_id=assignee_id,
     )
+
+
+@router.get("/api/maintenance/filter-options")
+async def maintenance_filter_options(request: Request, db: AsyncSession = Depends(get_db)) -> dict[str, object]:
+    _staff(request, "view")
+    properties = list((await db.scalars(select(RentalProperty).order_by(RentalProperty.street_address))).all())
+    users = list((await db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.full_name))).all())
+    vendors = list((await db.scalars(
+        select(MaintVendor).where(MaintVendor.is_active.is_(True)).order_by(MaintVendor.name))).all())
+    return {
+        "properties": [{"id": p.id, "name": _property_label(p), "address": p.street_address} for p in properties],
+        "assignees": [{"id": u.id, "name": u.full_name, "type": "staff"} for u in users]
+        + [{"id": v.id, "name": v.name, "type": "vendor"} for v in vendors],
+    }
+
+
+@router.get("/api/maintenance/reports/spend")
+async def maintenance_spend_report(
+    request: Request,
+    start: date | None = None,
+    end: date | None = None,
+    group_by: Literal["property", "unit"] = "property",
+    property_id: int | None = None,
+    format: Literal["json", "csv"] = "json",
+    db: AsyncSession = Depends(get_db),
+):
+    _staff(request, "view")
+    if start and end and end < start:
+        raise HTTPException(422, "End date must be on or after the start date")
+    rows = aggregate_spend(await spend_lines(db, property_id=property_id), group_by=group_by, start=start, end=end)
+    if format == "csv":
+        name = f"maintenance-spend-{start or 'all'}-{end or 'all'}.csv"
+        return Response(spend_csv(rows), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+    totals = aggregate_spend(await spend_lines(db, property_id=property_id), group_by="property", start=start, end=end)
+    return {
+        "rows": rows,
+        "totals": {
+            "work_orders": sum(int(row["work_orders"]) for row in totals),
+            "cost_estimate": str(sum((Decimal(str(row["cost_estimate"])) for row in totals), Decimal("0.00"))),
+            "cost_actual": str(sum((Decimal(str(row["cost_actual"])) for row in totals), Decimal("0.00"))),
+            "repair_actual": str(sum((Decimal(str(row["repair_actual"])) for row in totals), Decimal("0.00"))),
+            "capital_actual": str(sum((Decimal(str(row["capital_actual"])) for row in totals), Decimal("0.00"))),
+        },
+        "basis": "Non-cancelled work orders; month = completion date (or creation date if not completed), America/Winnipeg.",
+    }
 
 
 @router.get("/api/maintenance/calendar")
@@ -959,6 +1026,131 @@ async def maintenance_acknowledge(
         await db.rollback()
         raise HTTPException(422, str(exc)) from exc
     return {"ok": True, "acknowledged": acknowledged}
+
+
+async def _order_on_ticket(db: AsyncSession, ticket: MaintTicket, work_order_id: UUID) -> MaintWorkOrder:
+    order = await db.get(MaintWorkOrder, work_order_id)
+    if order is None or order.ticket_id != ticket.id:
+        raise HTTPException(404, "Work order not found")
+    return order
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/work-orders/{work_order_id}/invoice", status_code=201)
+async def maintenance_attach_invoice(
+    ticket_id: UUID,
+    work_order_id: UUID,
+    request: Request,
+    invoice: Annotated[UploadFile, File()],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    user = _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    order = await _order_on_ticket(db, ticket, work_order_id)
+    content = await invoice.read(MAX_FILE_BYTES + 1)
+    try:
+        attachment_id = await attach_invoice(db, ticket, order, actor_for(user), content=content,
+                                             filename=invoice.filename)
+        await _commit_workspace(db)
+    except (InvalidMediaError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True, "attachment_id": attachment_id, "url": f"/api/maintenance/attachments/{attachment_id}"}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/work-orders/{work_order_id}/costs")
+async def maintenance_work_order_costs(
+    ticket_id: UUID,
+    work_order_id: UUID,
+    data: WorkOrderCostsRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    user = _staff(request, "assign")
+    ticket = await _ticket_or_404(db, ticket_id)
+    order = await _order_on_ticket(db, ticket, work_order_id)
+    try:
+        await record_work_order_costs(db, ticket, order, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/checklist")
+async def maintenance_add_checklist(
+    ticket_id: UUID,
+    data: ChecklistAddRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    user = _staff(request, "triage")
+    ticket = await _ticket_or_404(db, ticket_id)
+    texts = list(data.items) + (parse_checklist_lines(data.text) if data.text else [])
+    try:
+        items = await add_checklist_items(db, ticket, actor_for(user), texts)
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"items": items, "progress": checklist_progress(items)}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/checklist/{item_id}")
+async def maintenance_update_checklist(
+    ticket_id: UUID,
+    item_id: UUID,
+    data: ChecklistUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    user = _staff(request, "triage")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        items = await update_checklist_item(db, ticket, actor_for(user), str(item_id), done=data.done,
+                                            remove=data.remove)
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"items": items, "progress": checklist_progress(items)}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/purchases", status_code=201)
+async def maintenance_log_purchase(
+    ticket_id: UUID,
+    data: PurchaseCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    user = _staff(request, "triage")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        purchases = await log_purchase(db, ticket, actor_for(user), **data.model_dump())
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"purchases": purchases}
+
+
+@router.post("/api/maintenance/tickets/{ticket_id}/purchases/{purchase_id}")
+async def maintenance_purchase_status(
+    ticket_id: UUID,
+    purchase_id: UUID,
+    data: PurchaseStatusUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    user = _staff(request, "triage")
+    ticket = await _ticket_or_404(db, ticket_id)
+    try:
+        purchases = await set_purchase_status(db, ticket, actor_for(user), str(purchase_id), data.status)
+        await _commit_workspace(db)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(422, str(exc)) from exc
+    return {"purchases": purchases}
 
 
 PORTAL_HEADERS = {"Cache-Control": "no-store, private", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow"}

@@ -48,6 +48,14 @@ function popupContent(property: MapProperty): HTMLElement {
   link.style.color = "#1A527A";
   link.style.fontWeight = "bold";
   root.appendChild(link);
+
+  const maintenance = document.createElement("a");
+  maintenance.href = `/rentals/maintenance?property_id=${property.property_id}`;
+  maintenance.textContent = "Maintenance";
+  maintenance.style.color = "#1A527A";
+  maintenance.style.fontWeight = "bold";
+  maintenance.style.marginLeft = "12px";
+  root.appendChild(maintenance);
   return root;
 }
 
