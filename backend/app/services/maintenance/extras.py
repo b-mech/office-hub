@@ -92,6 +92,12 @@ def replay_checklist(events: Iterable[MaintEvent]) -> list[dict[str, object]]:
     items: dict[str, dict[str, object]] = {}
     for event in events:
         payload = event.payload or {}
+        if event.event_type == CHECKLIST_ADDED and isinstance(payload.get("items"), list):
+            for entry in payload["items"]:  # bulk add: one audit event for a pasted punch list
+                if isinstance(entry, dict) and entry.get("item_id"):
+                    items[str(entry["item_id"])] = {"id": str(entry["item_id"]), "text": str(entry.get("text") or ""),
+                                                    "done": False, "position": len(items), "done_at": None}
+            continue
         item_id = str(payload.get("item_id") or "")
         if not item_id:
             continue
@@ -152,9 +158,13 @@ async def add_checklist_items(db: AsyncSession, ticket: MaintTicket, actor: Acto
     current = await ticket_checklist(db, ticket.id)
     if len(current) + len(cleaned) > MAX_CHECKLIST_ITEMS:
         raise ValueError(f"A ticket can have at most {MAX_CHECKLIST_ITEMS} checklist items")
-    for text in cleaned:
-        db.add(_event(ticket, actor, CHECKLIST_ADDED, f"Checklist item added: {text}",
-                      {"item_id": str(uuid4()), "text": text}, now=now))
+    if len(cleaned) == 1:
+        db.add(_event(ticket, actor, CHECKLIST_ADDED, f"Checklist item added: {cleaned[0]}",
+                      {"item_id": str(uuid4()), "text": cleaned[0]}, now=now))
+    else:
+        body = f"Checklist: {len(cleaned)} items added\n" + "\n".join(f"• {text}" for text in cleaned)
+        db.add(_event(ticket, actor, CHECKLIST_ADDED, body,
+                      {"items": [{"item_id": str(uuid4()), "text": text} for text in cleaned]}, now=now))
     await db.flush()
     return await ticket_checklist(db, ticket.id)
 

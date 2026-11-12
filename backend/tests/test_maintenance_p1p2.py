@@ -75,7 +75,7 @@ def test_replay_checklist_tracks_add_done_reopen_remove_in_order() -> None:
     items = replay_checklist([
         ev(extras.CHECKLIST_ADDED, {"item_id": "a", "text": "Replace bathroom fan"}),
         ev(extras.CHECKLIST_ADDED, {"item_id": "b", "text": "Patch hallway drywall"}, 1),
-        ev(extras.CHECKLIST_ADDED, {"item_id": "c", "text": "Rekey front door"}, 2),
+        ev(extras.CHECKLIST_ADDED, {"items": [{"item_id": "c", "text": "Rekey front door"}, {"item_id": "d", "text": "Caulk tub"}]}, 2),
         ev(extras.CHECKLIST_UPDATED, {"item_id": "b", "done": True}, 3),
         ev(extras.CHECKLIST_UPDATED, {"item_id": "a", "done": True}, 4),
         ev(extras.CHECKLIST_UPDATED, {"item_id": "a", "done": False}, 5),
@@ -83,8 +83,9 @@ def test_replay_checklist_tracks_add_done_reopen_remove_in_order() -> None:
         ev(extras.CHECKLIST_UPDATED, {"item_id": "missing", "done": True}, 7),
         ev("message", {"item_id": "x"}, 8),
     ])
-    assert [(i["text"], i["done"]) for i in items] == [("Replace bathroom fan", False), ("Patch hallway drywall", True)]
-    assert checklist_progress(items) == {"total": 2, "done": 1}
+    assert [(i["text"], i["done"]) for i in items] == [
+        ("Replace bathroom fan", False), ("Patch hallway drywall", True), ("Caulk tub", False)]
+    assert checklist_progress(items) == {"total": 3, "done": 1}
 
 
 def test_parse_checklist_lines_strips_bullets_numbers_and_blanks() -> None:
@@ -105,7 +106,8 @@ async def test_six_item_punch_list_shows_partial_completion_and_is_audited() -> 
     items = await update_checklist_item(db, ticket, ACTOR, str(items[1]["id"]), done=True)  # type: ignore[arg-type]
     assert checklist_progress(items) == {"total": 6, "done": 1}
     events = [o for o in db.added if isinstance(o, MaintEvent)]
-    assert len(events) == 7, "re-marking done must not add a duplicate event"
+    assert len(events) == 2, "one bulk-add event, one done event; re-marking done adds nothing"
+    assert events[0].body.startswith("Checklist: 6 items added")
     assert all(e.visibility.value == "internal" and e.actor_user_id == ACTOR.user_id for e in events)
     with pytest.raises(ValueError, match="not found"):
         await update_checklist_item(db, ticket, ACTOR, "nope", done=True)  # type: ignore[arg-type]
