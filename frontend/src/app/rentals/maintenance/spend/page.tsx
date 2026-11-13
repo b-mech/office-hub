@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowLeft, Download, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { duplicateKeys } from "@/lib/rentals-ux";
 
 import { downloadSpendCsv, getMaintenanceFilterOptions, getSpendReport, type MaintenanceFilterOptions, type SpendQuery, type SpendReport } from "@/lib/api/maintenance";
 import { formatMoney } from "@/lib/maintenance-workflows";
@@ -31,6 +32,7 @@ export default function MaintenanceSpendPage() {
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
   useEffect(() => { getMaintenanceFilterOptions().then(setOptions).catch(() => undefined); }, []);
 
+  const sharedAddresses = useMemo(() => duplicateKeys(options.properties, (item) => item.address), [options.properties]);
   const months = useMemo(() => Array.from(new Set(report?.rows.map((row) => row.month) || [])), [report]);
   const input = "min-h-11 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 text-sm";
 
@@ -44,7 +46,7 @@ export default function MaintenanceSpendPage() {
         <label className="text-xs font-semibold text-[var(--ch-text-muted)]">From<input type="date" value={filters.start || ""} onChange={(event) => setFilters((current) => ({ ...current, start: event.target.value || undefined }))} className={`${input} mt-1 w-full font-normal`} /></label>
         <label className="text-xs font-semibold text-[var(--ch-text-muted)]">To<input type="date" value={filters.end || ""} onChange={(event) => setFilters((current) => ({ ...current, end: event.target.value || undefined }))} className={`${input} mt-1 w-full font-normal`} /></label>
         <label className="text-xs font-semibold text-[var(--ch-text-muted)]">Group by<select value={filters.group_by} onChange={(event) => setFilters((current) => ({ ...current, group_by: event.target.value as "property" | "unit" }))} className={`${input} mt-1 w-full font-normal`}><option value="property">Property</option><option value="unit">Unit</option></select></label>
-        <label className="text-xs font-semibold text-[var(--ch-text-muted)] lg:col-span-2">Property<select value={filters.property_id ? String(filters.property_id) : ""} onChange={(event) => setFilters((current) => ({ ...current, property_id: event.target.value ? Number(event.target.value) : undefined }))} className={`${input} mt-1 w-full font-normal`}><option value="">All properties</option>{options.properties.map((item) => <option key={item.id} value={String(item.id)}>{item.address}</option>)}</select></label>
+        <label className="text-xs font-semibold text-[var(--ch-text-muted)] lg:col-span-2">Property<select value={filters.property_id ? String(filters.property_id) : ""} onChange={(event) => setFilters((current) => ({ ...current, property_id: event.target.value ? Number(event.target.value) : undefined }))} className={`${input} mt-1 w-full font-normal`}><option value="">All properties</option>{options.properties.map((item) => <option key={item.id} value={String(item.id)}>{sharedAddresses.has(item.address.trim().toLowerCase()) ? `${item.address} · #${item.id}` : item.address}</option>)}</select></label>
       </section>
       {error ? <p className="mt-4 rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] p-3 text-sm text-[var(--ch-error-text)]">{error}</p> : null}
       {report ? <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" aria-label="Totals">{[["Work orders", String(report.totals.work_orders)], ["Estimated", formatMoney(report.totals.cost_estimate)], ["Actual", formatMoney(report.totals.cost_actual)], ["Repair (opex)", formatMoney(report.totals.repair_actual)], ["Capital (capex)", formatMoney(report.totals.capital_actual)]].map(([name, amount]) => <div key={name} className="rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4"><p className="text-xs font-semibold uppercase tracking-wide text-[var(--ch-text-muted)]">{name}</p><p className="mt-1 text-2xl font-semibold">{amount}</p></div>)}</section> : null}

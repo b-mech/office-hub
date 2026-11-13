@@ -14,11 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.models.rentals import RentalInspection, RentalInspectionPhoto, RentalInspectionReport, RentalInspectionReportComment, RentalInspectionReportItem, RentalLeaseImportBatch, RentalLeaseImportRow, RentalProperty, RentalUnit
+from app.models.rentals import RentalCompany, RentalInspection, RentalInspectionPhoto, RentalInspectionReport, RentalInspectionReportComment, RentalInspectionReportItem, RentalLeaseImportBatch, RentalLeaseImportRow, RentalProperty, RentalUnit
 from app.schemas.rental_inspections import InspectionCreate, InspectionOut, InspectionPatch, PhotoOut, ReportCommentCreate, ReportCreate, ReportNotePatch, ReportSend
 from app.services import rental_inspections, rental_inspection_reports
 from app.services.box import download_file
-from app.schemas.rentals import BulkApprovalOut, LeaseImportBatchOut, LeaseImportRowOut, LeaseImportRowPatch
+from app.schemas.rentals import BulkApprovalOut, LeaseImportBatchOut, LeaseImportRowOut, LeaseImportRowPatch, LeaseImportValidationOut
 from app.services import rental_lease_imports
 from app.services import rental_units as unit_roster_service
 from app.models.core import User
@@ -35,7 +35,15 @@ async def _report_payload(db:AsyncSession,report:RentalInspectionReport,token:st
         photos=list((await db.scalars(select(RentalInspectionPhoto).where(RentalInspectionPhoto.inspection_id==inspection.id).order_by(RentalInspectionPhoto.id))).all())
         comments=list((await db.scalars(select(RentalInspectionReportComment).where(RentalInspectionReportComment.report_item_id==report_item.id).order_by(RentalInspectionReportComment.created_at,RentalInspectionReportComment.id))).all())
         items.append({"id":str(report_item.id),"inspection_id":inspection.id,"address":prop.street_address,"unit_label":unit.unit_label,"inspection_date":inspection.inspection_date,"inspection_type":inspection.inspection_type,"front_yard_score":inspection.front_yard_score,"front_yard_notes":inspection.front_yard_notes,"back_yard_score":inspection.back_yard_score,"back_yard_notes":inspection.back_yard_notes,"building_condition":inspection.building_condition,"building_notes":inspection.building_notes,"occupancy_flag":inspection.occupancy_flag,"general_notes":inspection.general_notes,"notes":report_item.notes,"notes_submitted_at":report_item.notes_submitted_at,"comments":[{"id":str(comment.id),"author_name":comment.author_name,"body":comment.body,"created_at":comment.created_at} for comment in comments],"photos":[{"id":photo.id,"caption":photo.caption,"url":f"/api/rentals/reports/public/{token}/photos/{photo.id}" if token else None} for photo in photos]})
-    return {"id":str(report.id),"title":report.title,"status":report.status,"recipient_email":report.recipient_email,"expires_at":report.expires_at,"sent_at":report.sent_at,"items":items}
+    return {"id":str(report.id),"title":report.title,"status":report.status,"display_status":report_display_status(report),"created_at":report.created_at,"recipient_email":report.recipient_email,"expires_at":report.expires_at,"sent_at":report.sent_at,"items":items}
+
+def report_display_status(report:RentalInspectionReport,now:datetime|None=None)->str:
+    """'expired' once the share link has lapsed; otherwise the stored status. Display only."""
+    expires_at=report.expires_at
+    if expires_at is not None:
+        expires_at=expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
+        if expires_at<=(now or datetime.now(timezone.utc)): return "expired"
+    return report.status
 
 async def _public_report(db:AsyncSession,token:str)->RentalInspectionReport:
     report=await db.scalar(select(RentalInspectionReport).where(RentalInspectionReport.token_hash==rental_inspection_reports.token_hash(token)))
@@ -126,16 +134,28 @@ async def rental_unit_roster(property_id: int | None = Query(None), db: AsyncSes
     """Read-only list of every rental unit with occupancy, current lease, tenants and rent."""
     return await unit_roster_service.unit_roster(db, property_id=property_id)
 
+@inspections_router.get("/units/{unit_id}/overview")
+async def rental_unit_overview(unit_id: int, db: AsyncSession = Depends(get_db),
+                               user: User = Depends(rentals_viewer)) -> dict[str, object]:
+    """Read-only unit heading data and full rent-roll lease history with date-derived status."""
+    overview = await unit_roster_service.unit_overview(db, unit_id)
+    if overview is None:
+        raise HTTPException(404, "Rental unit not found")
+    return overview
+
 @inspections_router.get("/properties/map")
 async def property_map(db:AsyncSession=Depends(get_db))->list[dict[str,object]]:
     properties=list((await db.scalars(select(RentalProperty).order_by(RentalProperty.street_address))).all());result=[];today=date.today()
+    companies={c.id:c.name for c in (await db.scalars(select(RentalCompany))).all()}
+    address_counts:dict[str,int]={}
+    for prop in properties: address_counts[prop.street_address.strip().casefold()]=address_counts.get(prop.street_address.strip().casefold(),0)+1
     for prop in properties:
         unit_ids=select(RentalUnit.id).where(RentalUnit.property_id==prop.id)
         unit_count=int(await db.scalar(select(func.count()).select_from(RentalUnit).where(RentalUnit.property_id==prop.id)) or 0)
         last=await db.scalar(select(func.max(RentalInspection.inspection_date)).where(RentalInspection.unit_id.in_(unit_ids),RentalInspection.status=="submitted"))
         age=(today-last).days if last else None
         status="never" if age is None else "current" if age<=183 else "due" if age<=365 else "overdue"
-        result.append({"property_id":prop.id,"street_address":prop.street_address,"group_name":prop.group_name,"latitude":prop.latitude,"longitude":prop.longitude,"unit_count":unit_count,"last_inspection_date":last,"inspection_status":status})
+        result.append({"property_id":prop.id,"street_address":prop.street_address,"group_name":prop.group_name,"latitude":prop.latitude,"longitude":prop.longitude,"unit_count":unit_count,"last_inspection_date":last,"inspection_status":status,"city":prop.city,"company_name":companies.get(prop.company_id),"address_is_shared":address_counts.get(prop.street_address.strip().casefold(),0)>1})
     return result
 @inspections_router.get("/units/{unit_id}/inspections",response_model=list[InspectionOut])
 async def history(unit_id:int,db:AsyncSession=Depends(get_db))->list[InspectionOut]: return [await _inspection_out(db,x) for x in (await db.scalars(select(RentalInspection).where(RentalInspection.unit_id==unit_id).order_by(RentalInspection.inspection_date.desc()))).all()]
@@ -195,10 +215,17 @@ async def download_template(db: AsyncSession = Depends(get_db)) -> StreamingResp
     return StreamingResponse(BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=headers)
 
 
-@router.post("/upload", response_model=LeaseImportBatchOut)
-async def upload_template(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)) -> LeaseImportBatchOut:
+@router.post("/upload", response_model=LeaseImportBatchOut | LeaseImportValidationOut)
+async def upload_template(file: UploadFile = File(...), dry_run: bool = Query(False),
+                          db: AsyncSession = Depends(get_db)) -> LeaseImportBatchOut | LeaseImportValidationOut:
+    """Upload a rent roll. With ``dry_run=true`` the file is only checked: nothing is stored and
+    no extraction runs, so it is safe to use as a preview before the real upload."""
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=422, detail="Upload an .xlsx lease-import template")
+    if dry_run:
+        known = await rental_lease_imports.known_unit_labels(db)
+        return LeaseImportValidationOut.model_validate(
+            rental_lease_imports.validate_workbook(file.filename, await file.read(), known))
     try:
         batch = await rental_lease_imports.upload_and_extract(db, file.filename, await file.read())
     except ValueError as exc:

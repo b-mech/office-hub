@@ -64,7 +64,7 @@ const csvCell = (value: unknown) => {
 export function rosterCsv(units: readonly RosterUnit[]): string {
   const header = ["Address", "Unit", "Group", "Occupancy", "Tenants", "Lease status", "Rent", "Discount", "Net rent", "Lease start", "Lease end", "Open tickets"];
   const lines = units.map((unit) => [
-    unit.street_address, unit.unit_label, unit.group_name, unit.occupancy, unit.tenants.join("; "), unit.lease?.status,
+    unit.street_address, unit.unit_label, unit.group_name, unit.occupancy, unit.tenants.join("; "), unit.lease ? (unit.lease.display_status || unit.lease.status) : undefined,
     unit.lease?.rent, unit.lease?.rent_discount, unit.lease?.net_rent, unit.lease?.lease_start, unit.lease?.lease_end,
     unit.open_maintenance_tickets,
   ].map(csvCell).join(","));

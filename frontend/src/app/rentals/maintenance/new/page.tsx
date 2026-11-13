@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { duplicateKeys, propertyOptionLabel } from "@/lib/rentals-ux";
 import { createStaffTicket, getStaffTicketOptions, type StaffTicketOptions, type TicketCategory, type TicketPriority } from "@/lib/api/maintenance";
 const categories = ["plumbing","electrical","heating","cooling","appliance","doors_locks_windows","pests","exterior_grounds","structural","water_leak","no_heat","gas_smell","no_power","security","other"] as TicketCategory[];
 const input = "mt-1 min-h-11 w-full rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 py-2 text-sm";
@@ -19,6 +20,7 @@ export default function NewMaintenanceTicket() {
   }).catch(e=>setError(e.message)).finally(()=>setReady(true)); },[]);
   const properties = useMemo(()=>options.properties.filter(p=>p.id===Number(propertyId)||`${p.name} ${p.address}`.toLowerCase().includes(propertySearch.toLowerCase())),[options.properties,propertySearch,propertyId]);
   const units = useMemo(()=>options.units.filter(u=>u.property_id===Number(propertyId)&&(u.id===Number(unitId)||u.label.toLowerCase().includes(unitSearch.toLowerCase()))),[options.units,propertyId,unitSearch,unitId]);
+  const sharedAddresses = useMemo(()=>duplicateKeys(options.properties,p=>p.address),[options.properties]);
   async function submit(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();setError("");const data=new FormData(event.currentTarget);
     if(photos.length>10||photos.some(f=>f.size>10*1024*1024)){setError("Choose up to 10 photos, each 10 MB or smaller");return;}
@@ -39,7 +41,7 @@ export default function NewMaintenanceTicket() {
       <fieldset className="grid gap-4 sm:grid-cols-2"><legend className="mb-3 font-semibold">Location</legend>
         <label className="text-sm">Search properties<input aria-label="Search properties" value={propertySearch} onChange={e=>setPropertySearch(e.target.value)} className={input} placeholder="Address or property"/></label>
         <label className="text-sm">Search units<input aria-label="Search units" value={unitSearch} onChange={e=>setUnitSearch(e.target.value)} className={input} disabled={!propertyId} placeholder="Unit label"/></label>
-        <label className="text-sm">Property *<select required aria-label="Property" className={input} value={propertyId} onChange={e=>{setPropertyId(e.target.value);setUnitId("");}}><option value="">Choose property</option>{properties.map(p=><option key={p.id} value={p.id}>{p.name} — {p.address}</option>)}</select></label>
+        <label className="text-sm">Property *<select required aria-label="Property" className={input} value={propertyId} onChange={e=>{setPropertyId(e.target.value);setUnitId("");}}><option value="">Choose property</option>{properties.map(p=><option key={p.id} value={p.id}>{propertyOptionLabel(p, sharedAddresses)}</option>)}</select></label>
         <label className="text-sm">Unit<select aria-label="Unit" className={input} value={unitId} onChange={e=>setUnitId(e.target.value)} disabled={!propertyId}><option value="">Common area / no unit</option>{units.map(u=><option key={u.id} value={u.id}>{u.label}</option>)}</select></label>
       </fieldset>
       <label className="block text-sm">Title *<input name="title" required maxLength={120} className={input} placeholder="Briefly describe the issue"/></label>

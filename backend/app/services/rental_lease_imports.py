@@ -137,6 +137,140 @@ async def upload_and_extract(db: AsyncSession, filename: str, content: bytes) ->
     return batch
 
 
+# Column guide shown on the import page and enforced by the dry-run check.
+REQUIRED_COLUMNS = ("Property Street Address", "Tenant 1 Name", "Rent", "Lease Start")
+MONEY_COLUMNS = ("Rent", "Rent Discount", "Deposit", "Water Credit")
+DATE_COLUMNS = ("Lease Start", "Lease End")
+
+
+def _blank(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _as_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%B %d, %Y", "%b %d, %Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _as_money(value: Any) -> Decimal | None:
+    try:
+        amount = Decimal(str(value).replace("$", "").replace(",", "").strip())
+    except Exception:
+        return None
+    return amount if amount.is_finite() else None
+
+
+def validate_workbook(filename: str, content: bytes, known_units: dict[str, set[str]]) -> dict[str, Any]:
+    """Dry-run check of a lease-import workbook. Pure: no database writes, no extraction calls.
+
+    ``known_units`` maps a case-folded street address to the case-folded unit labels it has
+    ("" for an unlabeled main unit).
+    """
+    result: dict[str, Any] = {"dry_run": True, "filename": filename, "ok": False, "file_errors": [], "rows": []}
+    try:
+        workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        result["file_errors"].append("File could not be opened as an .xlsx workbook")
+        return result
+    if "Rent Roll" not in workbook.sheetnames:
+        result["file_errors"].append("Workbook must contain a 'Rent Roll' sheet (use Download Template)")
+        return result
+    sheet = workbook["Rent Roll"]
+    headers = [str(cell.value or "").strip() for cell in sheet[1]]
+    if headers[: len(HEADERS)] != HEADERS:
+        missing = [h for h in HEADERS if h not in headers]
+        detail = f"missing: {', '.join(missing)}" if missing else "columns are out of order"
+        result["file_errors"].append(f"Rent Roll headers do not match the template ({detail})")
+        return result
+    rows: list[dict[str, Any]] = []
+    for source_row, values in enumerate(sheet.iter_rows(min_row=2, max_col=len(HEADERS), values_only=True), start=2):
+        if not any(not _blank(value) for value in values):
+            continue
+        raw = dict(zip(HEADERS, values, strict=True))
+        errors: list[str] = []
+        warnings: list[str] = []
+        for column in REQUIRED_COLUMNS:
+            if _blank(raw[column]):
+                errors.append(f"{column} is required")
+        for column in MONEY_COLUMNS:
+            if not _blank(raw[column]):
+                amount = _as_money(raw[column])
+                if amount is None:
+                    errors.append(f"{column} must be a number")
+                elif amount < 0:
+                    errors.append(f"{column} cannot be negative")
+        dates: dict[str, date | None] = {}
+        for column in DATE_COLUMNS:
+            dates[column] = None
+            if not _blank(raw[column]):
+                dates[column] = _as_date(raw[column])
+                if dates[column] is None:
+                    errors.append(f"{column} is not a date (use YYYY-MM-DD)")
+        if dates["Lease Start"] and dates["Lease End"] and dates["Lease End"] < dates["Lease Start"]:
+            errors.append("Lease End is before Lease Start")
+        if dates["Lease End"] and dates["Lease End"] < date.today():
+            warnings.append("Lease End has already passed")
+        if _blank(raw["Lease End"]) and not _blank(raw["Lease Start"]):
+            warnings.append("No Lease End: will be treated as open-ended / month to month")
+        for n in (1, 2, 3):
+            email = raw[f"Tenant {n} Email"]
+            if not _blank(email) and "@" not in str(email):
+                errors.append(f"Tenant {n} Email does not look like an email address")
+        address = None if _blank(raw["Property Street Address"]) else str(raw["Property Street Address"]).strip()
+        label = None if _blank(raw["Unit Label"]) else str(raw["Unit Label"]).strip()
+        match = "unknown"
+        if address:
+            labels = known_units.get(address.casefold())
+            if labels is None:
+                match = "new_property"
+                warnings.append("Address not found in Office Hub; review will create a new property")
+            elif (label or "").casefold() in labels:
+                match = "existing_unit"
+            else:
+                match = "existing_property"
+                warnings.append("Unit label not found at this address; review will match or create a unit")
+        rent = _as_money(raw["Rent"]) if not _blank(raw["Rent"]) else None
+        rows.append({
+            "source_row_number": source_row,
+            "property_street_address": address,
+            "unit_label": label,
+            "tenant_names": [str(raw[f"Tenant {n} Name"]).strip() for n in (1, 2, 3) if not _blank(raw[f"Tenant {n} Name"])],
+            "rent": None if rent is None else str(rent.quantize(Decimal("0.01"))),
+            "lease_start": dates["Lease Start"].isoformat() if dates["Lease Start"] else None,
+            "lease_end": dates["Lease End"].isoformat() if dates["Lease End"] else None,
+            "property_match": match,
+            "errors": errors,
+            "warnings": warnings,
+        })
+    result["rows"] = rows
+    result["total_rows"] = len(rows)
+    result["rows_with_errors"] = sum(1 for row in rows if row["errors"])
+    result["rows_with_warnings"] = sum(1 for row in rows if row["warnings"] and not row["errors"])
+    result["rows_ready"] = len(rows) - result["rows_with_errors"]
+    if not rows:
+        result["file_errors"].append("The Rent Roll sheet has no data rows")
+    result["ok"] = not result["file_errors"] and result["rows_with_errors"] == 0
+    return result
+
+
+async def known_unit_labels(db: AsyncSession) -> dict[str, set[str]]:
+    known: dict[str, set[str]] = {}
+    for address, label in (await db.execute(
+        select(RentalProperty.street_address, RentalUnit.unit_label).join(RentalUnit, RentalUnit.property_id == RentalProperty.id, isouter=True)
+    )).all():
+        known.setdefault(address.strip().casefold(), set()).add((label or "").strip().casefold())
+    return known
+
+
 async def _matching_context(db: AsyncSession) -> dict[str, Any]:
     rows = (await db.execute(select(RentalUnit, RentalProperty).join(RentalProperty))).all()
     units = []

@@ -67,3 +67,29 @@ class LeaseImportBatchOut(BaseModel):
 class BulkApprovalOut(BaseModel):
     approved: int
     skipped_for_review: int
+
+
+class LeaseImportPreviewRow(BaseModel):
+    source_row_number: int
+    property_street_address: str | None = None
+    unit_label: str | None = None
+    tenant_names: list[str] = Field(default_factory=list)
+    rent: str | None = None
+    lease_start: str | None = None
+    lease_end: str | None = None
+    property_match: Literal["existing_unit", "existing_property", "new_property", "unknown"] = "unknown"
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class LeaseImportValidationOut(BaseModel):
+    """Dry-run result: nothing is stored and no extraction runs."""
+    dry_run: Literal[True] = True
+    filename: str
+    ok: bool
+    file_errors: list[str] = Field(default_factory=list)
+    total_rows: int = 0
+    rows_ready: int = 0
+    rows_with_errors: int = 0
+    rows_with_warnings: int = 0
+    rows: list[LeaseImportPreviewRow] = Field(default_factory=list)

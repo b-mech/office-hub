@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getMaintenanceFilterOptions, listTickets, type MaintenanceFilterOptions, type TicketFilters, type TicketListItem, type TicketPriority, type TicketStatus } from "@/lib/api/maintenance";
 import { checklistLabel, filtersFromSearch, filtersToSearch } from "@/lib/maintenance-workflows";
 import MaintenanceCalendar from "@/components/maintenance/MaintenanceCalendar";
+import { duplicateKeys, propertyOptionLabel, queueEmptyMessage, queueFiltersActive } from "@/lib/rentals-ux";
 
 const labels = (value: string | null) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Untriaged";
 
@@ -44,6 +45,11 @@ export default function MaintenanceTicketsPage() {
     const next = `${window.location.pathname}${filtersToSearch(filters)}`;
     if (next !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(null, "", next);
   }, [filters, ready]);
+
+  const sharedAddresses = useMemo(() => duplicateKeys(options.properties, (item) => item.address), [options.properties]);
+  const filtersOn = queueFiltersActive(filters, query);
+  const empty = queueEmptyMessage(filters, query);
+  const resetFilters = () => { setQuery(""); setFilters((current) => ({ include_terminal: current.include_terminal })); };
 
   const changeView = (next: "list" | "calendar") => {
     setView(next);
@@ -109,7 +115,7 @@ export default function MaintenanceTicketsPage() {
           <select aria-label="Property" value={filters.property_id ? String(filters.property_id) : ""} onChange={(event) => setFilters((current) => ({ ...current, property_id: event.target.value ? Number(event.target.value) : undefined }))} className="min-h-11 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 text-sm">
             <option value="">All properties</option>
             {filters.property_id && !options.properties.some((item) => item.id === filters.property_id) ? <option value={String(filters.property_id)}>Property #{filters.property_id}</option> : null}
-            {options.properties.map((item) => <option key={item.id} value={String(item.id)}>{item.name === item.address ? item.address : `${item.address} · ${item.name}`}</option>)}
+            {options.properties.map((item) => <option key={item.id} value={String(item.id)}>{propertyOptionLabel(item, sharedAddresses)}</option>)}
           </select>
           <select aria-label="Assignee" value={filters.assignee_id || ""} onChange={(event) => setFilters((current) => ({ ...current, assignee_id: event.target.value || undefined }))} className="min-h-11 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 text-sm">
             <option value="">Any assignee</option>
@@ -122,13 +128,13 @@ export default function MaintenanceTicketsPage() {
           <label className="flex min-h-11 items-center gap-3 rounded-xl border border-[var(--ch-border)] px-3 text-sm font-medium">
             <input type="checkbox" checked={Boolean(filters.include_terminal)} onChange={(event) => setFilters((current) => ({ ...current, include_terminal: event.target.checked }))} className="h-4 w-4 accent-[var(--ch-accent)]" /> Include closed
           </label>
-          {filters.property_id || filters.assignee_id ? <button type="button" onClick={() => setFilters((current) => ({ ...current, property_id: undefined, assignee_id: undefined }))} className="min-h-11 rounded-xl border border-dashed border-[var(--ch-border-strong)] px-3 text-sm font-semibold text-[var(--ch-accent)]">Clear property / assignee</button> : null}
+          {filtersOn ? <button type="button" onClick={resetFilters} className="min-h-11 rounded-xl border border-dashed border-[var(--ch-border-strong)] px-3 text-sm font-semibold text-[var(--ch-accent)]">Reset filters</button> : null}
         </section>
 
         {error ? <p className="mt-4 rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] p-3 text-sm text-[var(--ch-error-text)]">{error}</p> : null}
         <div className="mt-5 space-y-3">
           {busy && visible.length === 0 ? <div className="rounded-2xl border border-[var(--ch-border)] p-10 text-center text-sm text-[var(--ch-text-muted)]">Loading tickets…</div> : null}
-          {!busy && visible.length === 0 ? <div className="rounded-2xl border border-dashed border-[var(--ch-border-strong)] p-10 text-center text-sm text-[var(--ch-text-muted)]">No tickets match these filters.</div> : null}
+          {!busy && !error && visible.length === 0 ? <div className="rounded-2xl border border-dashed border-[var(--ch-border-strong)] p-10 text-center text-sm text-[var(--ch-text-muted)]"><p className="text-base font-semibold text-[var(--ch-text-primary)]">{empty.title}</p><p className="mt-1">{empty.detail}</p>{empty.canReset ? <button type="button" onClick={resetFilters} className="mt-4 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-2 text-sm font-semibold text-[var(--ch-accent)]">Reset filters</button> : !filters.include_terminal ? <button type="button" onClick={() => setFilters((current) => ({ ...current, include_terminal: true }))} className="mt-4 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-2 text-sm font-semibold text-[var(--ch-accent)]">Include closed tickets</button> : null}</div> : null}
           {visible.map((ticket) => (
             <Link key={ticket.id} href={`/rentals/maintenance/${ticket.id}`} className="group block rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4 shadow-sm hover:border-[var(--ch-border-strong)] hover:bg-[var(--ch-surface-strong)] sm:p-5">
               <div className="flex items-start gap-3">

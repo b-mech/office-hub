@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -31,12 +31,44 @@ async def unit_property(db: AsyncSession, unit_id: int) -> tuple[RentalUnit, Ren
     return unit, property
 
 
-async def initial_context(db: AsyncSession, unit_id: int, from_lease: LeaseAgreement | None = None) -> tuple[dict, int | None]:
+def default_term(today: date, after: date | None = None) -> tuple[date, date]:
+    """A one-year fixed term. Starts the day after ``after`` when that is in the future,
+    otherwise on the first day of next month."""
+    if after is not None and after >= today:
+        start = after + timedelta(days=1)
+    else:
+        start = date(today.year + today.month // 12, today.month % 12 + 1, 1)
+    try:
+        anniversary = start.replace(year=start.year + 1)
+    except ValueError:  # Feb 29
+        anniversary = start.replace(year=start.year + 1, day=28) + timedelta(days=1)
+    return start, anniversary - timedelta(days=1)
+
+
+START_FROM = ("blank", "tenancy")
+
+
+async def initial_context(db: AsyncSession, unit_id: int, from_lease: LeaseAgreement | None = None,
+                          start_from: str | None = None, today: date | None = None) -> tuple[dict, int | None]:
+    """Starting context for a new lease agreement.
+
+    ``start_from=None`` keeps the original behaviour (prefill from the newest rent-roll lease).
+    ``"blank"`` starts with no tenants or rent and a default one-year term.
+    ``"tenancy"`` prefills tenants and rent from the lease currently in force (chosen by dates)
+    but never reuses a term that has already ended.
+    """
     unit, property = await unit_property(db, unit_id)
-    tenancy = await db.scalar(select(RentalLease).where(RentalLease.unit_id == unit.id)
-                              .order_by(RentalLease.lease_start.desc().nullslast(), RentalLease.id.desc()))
     if from_lease:
         return dict(from_lease.context), from_lease.tenancy_id
+    today = today or datetime.now(ZoneInfo(settings.timezone)).date()
+    if start_from in START_FROM:
+        from app.services.rental_units import pick_leases
+        leases = list((await db.scalars(select(RentalLease).where(RentalLease.unit_id == unit.id))).all())
+        current, latest = pick_leases(leases, today)
+        tenancy = None if start_from == "blank" else (current.get(unit.id) or latest.get(unit.id))
+    else:
+        tenancy = await db.scalar(select(RentalLease).where(RentalLease.unit_id == unit.id)
+                                  .order_by(RentalLease.lease_start.desc().nullslast(), RentalLease.id.desc()))
     tenants = []
     if tenancy:
         rows = (await db.execute(select(RentalTenant).join(RentalLeaseTenant, RentalLeaseTenant.tenant_id == RentalTenant.id)
@@ -58,14 +90,21 @@ async def initial_context(db: AsyncSession, unit_id: int, from_lease: LeaseAgree
                     "security_deposit_amount": fields.money(tenancy.deposit, optional=True) if tenancy else None,
                     "fixed_start": fields.long_date(tenancy.lease_start) if tenancy else None,
                     "fixed_end": fields.long_date(tenancy.lease_end) if tenancy else None})
+    if start_from in START_FROM:
+        in_term_end = tenancy.lease_end if tenancy and tenancy.lease_end and tenancy.lease_end >= today else None
+        start, end = default_term(today, in_term_end)
+        context.update({"fixed_start": fields.long_date(start), "fixed_end": fields.long_date(end)})
     return context, tenancy.id if tenancy else None
 
 
-async def create(db: AsyncSession, unit_id: int, user_id: UUID | None, copy_id: UUID | None = None) -> LeaseAgreement:
+async def create(db: AsyncSession, unit_id: int, user_id: UUID | None, copy_id: UUID | None = None,
+                 start_from: str | None = None) -> LeaseAgreement:
     source = await db.get(LeaseAgreement, copy_id) if copy_id else None
     if copy_id and (source is None or source.unit_id != unit_id):
         raise ValueError("Previous lease not found for this unit")
-    context, tenancy_id = await initial_context(db, unit_id, source)
+    if start_from is not None and start_from not in START_FROM:
+        raise ValueError("start_from must be 'blank' or 'tenancy'")
+    context, tenancy_id = await initial_context(db, unit_id, source, start_from)
     lease = LeaseAgreement(unit_id=unit_id, tenancy_id=tenancy_id, context=context,
                            tenants=context["tenants"], created_by=user_id)
     db.add(lease)

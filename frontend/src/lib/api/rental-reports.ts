@@ -5,7 +5,7 @@ export type Candidate = { inspection_id:number; property_id:number; address:stri
 export type ReportPhoto = { id:number; caption:string|null; url:string|null };
 export type ReportComment = { id:string; author_name:string; body:string; created_at:string };
 export type ReportItem = { id:string; inspection_id:number; address:string; unit_label:string|null; inspection_date:string; inspection_type:string; front_yard_score:number|null; front_yard_notes:string|null; back_yard_score:number|null; back_yard_notes:string|null; building_condition:string|null; building_notes:string|null; occupancy_flag:string|null; general_notes:string|null; notes:string|null; notes_submitted_at:string|null; comments:ReportComment[]; photos:ReportPhoto[] };
-export type Report = { id:string; title:string; status:string; recipient_email:string|null; expires_at:string; sent_at:string|null; items:ReportItem[] };
+export type Report = { id:string; title:string; status:string; display_status?:string; created_at?:string|null; recipient_email:string|null; expires_at:string; sent_at:string|null; items:ReportItem[] };
 
 async function req<T>(path:string,init?:RequestInit):Promise<T>{const response=await fetch(BASE+path,{...init,headers:{"Content-Type":"application/json",...(init?.headers||{})},cache:"no-store"});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.detail||`API ${response.status}`)}return response.json()}
 export const candidates=()=>req<Candidate[]>(`${P}/candidates`);

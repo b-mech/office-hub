@@ -66,6 +66,8 @@ async def get_lease(db: AsyncSession, lease_id: UUID) -> LeaseAgreement:
 class CreateIn(BaseModel):
     unit_id: int
     copy_id: UUID | None = None
+    # None keeps the legacy prefill; "blank" or "tenancy" (see lease_workflow.initial_context)
+    start_from: str | None = None
 
 
 class DraftIn(BaseModel):
@@ -121,7 +123,8 @@ async def update_property(property_id: int, data: PropertyIn, db: AsyncSession =
 @router.post("")
 async def create(data: CreateIn, db: AsyncSession = Depends(get_db), user: User = Depends(editor)) -> dict:
     try:
-        return output(await lease_workflow.create(db, data.unit_id, user.id, data.copy_id))
+        extra = {"start_from": data.start_from} if data.start_from is not None else {}
+        return output(await lease_workflow.create(db, data.unit_id, user.id, data.copy_id, **extra))
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
