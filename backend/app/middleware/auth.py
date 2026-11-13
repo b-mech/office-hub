@@ -39,21 +39,22 @@ PUBLIC_PREFIXES = (
     "/api/presales/extension/",
 )
 
-# Machine routes used by the Chrome extension and the Next.js change-orders
-# proxy. They authenticate with ``X-API-Key`` (checked again by each route's
+# Machine routes called by the Chrome extension (and server-to-server box
+# helpers). They authenticate with ``X-API-Key`` (checked again by each route's
 # own dependency), so under AUTH_ENFORCED=true a request that carries a valid
 # key and no user credential is let through instead of getting a sign-in 401.
+#
+# Deliberately NOT the whole /api/v1/change-orders router: the Next.js
+# change-orders proxy injects the server API key into every request, so the
+# staff change-order routes must still require the forwarded session cookie.
 API_KEY_PATHS = {
     ("POST", "/api/v1/ingest"),
+    ("POST", "/api/v1/change-orders/extract"),
     ("GET", "/api/financing/funds-notices/extension/properties"),
     ("POST", "/api/financing/funds-notices/intake"),
     ("GET", "/api/v1/box/status"),
     ("POST", "/api/v1/box/appraisal-prep"),
 }
-API_KEY_PREFIXES = (
-    "/api/v1/change-orders",
-)
-
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 SIGN_IN_REQUIRED = "Office Hub sign-in is required"
 SESSION_EXPIRED = "Your Office Hub session has expired. Sign in again."
@@ -64,10 +65,7 @@ def is_public_path(path: str) -> bool:
 
 
 def is_api_key_path(method: str, path: str) -> bool:
-    normalized = path.rstrip("/") or "/"
-    if (method.upper(), normalized) in API_KEY_PATHS:
-        return True
-    return normalized == API_KEY_PREFIXES[0] or normalized.startswith(tuple(f"{p}/" for p in API_KEY_PREFIXES))
+    return (method.upper(), path.rstrip("/") or "/") in API_KEY_PATHS
 
 
 def valid_api_key(request: Request) -> bool:

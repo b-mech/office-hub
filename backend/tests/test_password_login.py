@@ -349,7 +349,6 @@ async def test_session_endpoint_reports_state_without_secrets(world: World, wire
 EXTENSION_ROUTES = [
     ("POST", "/api/v1/ingest"),
     ("POST", "/api/v1/change-orders/extract"),
-    ("GET", "/api/v1/change-orders"),
     ("GET", "/api/financing/funds-notices/extension/properties"),
     ("POST", "/api/financing/funds-notices/intake"),
     ("GET", "/api/presales/extension/lots"),
@@ -373,9 +372,19 @@ async def test_api_key_routes_work_when_enforced(world: World, wired, method: st
 @pytest.mark.asyncio
 async def test_api_key_does_not_unlock_staff_routes(world: World, wired) -> None:
     for method, path in (("GET", PROTECTED), ("GET", "/api/rentals/leases/units/1"),
-                         ("GET", "/api/financing/funds-notices"), ("GET", "/api/maintenance/tickets")):
+                         ("GET", "/api/financing/funds-notices"), ("GET", "/api/maintenance/tickets"),
+                         # What the Next change-orders proxy sends for an anonymous browser:
+                         ("GET", "/api/v1/change-orders"), ("POST", "/api/v1/change-orders/draft")):
         response = await call(method, path, headers={"X-API-Key": API_KEY})
         assert response.status_code == 401, (path, response.status_code)
+
+
+@db_only
+@pytest.mark.asyncio
+async def test_proxied_change_orders_need_the_forwarded_session(world: World, wired) -> None:
+    token, _ = session_cookie(await login(world, "ch_admin"))
+    response = await call("GET", "/api/v1/change-orders", token, headers={"X-API-Key": API_KEY})
+    assert response.status_code == 200, response.text
 
 
 @db_only
