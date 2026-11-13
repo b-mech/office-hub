@@ -80,10 +80,10 @@ export default function LenderDetailPage() {
   }
 
   if (loading) {
-    return <main className="min-h-screen bg-[var(--ch-page-bg)] p-8 text-sm text-[var(--ch-text-muted)]">Loading lender...</main>;
+    return <div className="min-h-screen bg-[var(--ch-page-bg)] p-8 text-sm text-[var(--ch-text-muted)]">Loading lender...</div>;
   }
   if (error && !lender) {
-    return <main className="min-h-screen bg-[var(--ch-page-bg)] p-8 text-sm text-[var(--ch-error-text)]">{error}</main>;
+    return <div className="min-h-screen bg-[var(--ch-page-bg)] p-8 text-sm text-[var(--ch-error-text)]">{error}</div>;
   }
   if (!lender) return null;
 
@@ -94,7 +94,7 @@ export default function LenderDetailPage() {
     : null;
 
   return (
-    <main className="min-h-screen bg-[var(--ch-page-bg)] px-6 py-8 text-[var(--ch-text-primary)] lg:px-10">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] px-6 py-8 text-[var(--ch-text-primary)] lg:px-10">
       <div className="mx-auto max-w-5xl space-y-6">
         <header className="border-b border-[var(--ch-border)] pb-6">
           <Link href="/financing/lenders" className="inline-flex items-center gap-2 text-sm text-[var(--ch-text-muted)] hover:text-[var(--ch-text-primary)]">
@@ -182,7 +182,7 @@ export default function LenderDetailPage() {
           </button>
         </section>
       </div>
-    </main>
+    </div>
   );
 }
 

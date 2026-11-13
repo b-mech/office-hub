@@ -6,7 +6,7 @@ import { getRentalMap, type MapProperty } from "@/lib/api/rentals-map";
 import { RentalsLeafletMap } from "../components/RentalsLeafletMap";
 import { INSPECTION_COLORS, isLocatedProperty, locatedProperties } from "@/lib/rentals-map-points";
 import { maintenanceHrefForProperty } from "@/lib/maintenance-workflows";
-import { DEFAULT_MAP_FILTERS, filterMapItems, mapFiltersActive, type MapFilters } from "@/lib/rentals-ux";
+import { DEFAULT_MAP_FILTERS, filterMapItems, formatDate, mapFiltersActive, type MapFilters } from "@/lib/rentals-ux";
 
 const STATUSES = ["current", "due", "overdue", "never"] as const;
 const STATUS_LABEL: Record<(typeof STATUSES)[number], string> = { current: "Inspected ≤ 6 mo", due: "Due", overdue: "Overdue", never: "Never inspected" };
@@ -21,7 +21,7 @@ function PropertyCard({ property }: { property: MapProperty }) {
         <span className="ml-auto rounded-full px-2 py-1 text-xs text-white" style={{ background: INSPECTION_COLORS[property.inspection_status] }}>{property.inspection_status}</span>
       </div>
       <div className="text-sm text-[var(--ch-text-muted)]">
-        {[property.group_name, property.city].filter(Boolean).join(" · ")} · {property.unit_count} unit{property.unit_count === 1 ? "" : "s"} · {property.last_inspection_date || "never inspected"}
+        {[property.group_name, property.city].filter(Boolean).join(" · ")} · {property.unit_count} unit{property.unit_count === 1 ? "" : "s"} · {property.last_inspection_date ? `last inspected ${formatDate(property.last_inspection_date)}` : "never inspected"}
         {property.address_is_shared && property.company_name ? ` · ${property.company_name}` : ""}
         {!isLocatedProperty(property) ? " · not on map (no coordinates)" : ""}
       </div>
@@ -54,7 +54,7 @@ export default function RentalsHome() {
   }, []);
 
   return (
-    <main className="flex h-screen flex-col">
+    <div className="flex h-screen flex-col">
       <header className="border-b bg-[var(--ch-surface)] p-4">
         <div className="mx-auto flex max-w-6xl flex-wrap gap-2">
           <input value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} className="min-w-0 flex-1 rounded-xl border p-3" placeholder="Search rental address or group" aria-label="Search rentals" />
@@ -89,6 +89,6 @@ export default function RentalsHome() {
           {!filtered.length && items.length ? <p className="rounded-xl border border-dashed p-8 text-center text-sm text-[var(--ch-text-muted)]">No properties match these filters.</p> : null}
         </div>
       )}
-    </main>
+    </div>
   );
 }

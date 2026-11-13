@@ -58,8 +58,8 @@
   --ch-sidebar-border: rgba(255, 255, 255, 0.1);
   --ch-sidebar-hover: rgba(255, 255, 255, 0.05);
   --ch-sidebar-text-primary: rgb(255 255 255);
-  --ch-sidebar-text-secondary: rgba(255, 255, 255, 0.6);
-  --ch-sidebar-text-muted: rgba(255, 255, 255, 0.45);
+  --ch-sidebar-text-secondary: rgba(255, 255, 255, 0.72);
+  --ch-sidebar-text-muted: rgba(255, 255, 255, 0.68);
   --ch-sidebar-user-bg: rgb(23 105 140);
   --ch-overlay: rgb(0 0 0 / 45%);
   --ch-calendar-routine: #2563EB;
@@ -141,4 +141,27 @@ input,
 select,
 textarea {
   color: var(--ch-text-primary);
+}
+
+/* Accessibility: placeholders default to 50% currentColor (~3.3:1); use the muted token (≥5:1 on page and surface). */
+::placeholder {
+  color: var(--ch-text-muted);
+  opacity: 1;
+}
+
+/* "Skip to content" link: off-screen until focused. */
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: -4rem;
+  z-index: 100;
+  border-radius: 0.75rem;
+  background: var(--ch-accent);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.skip-link:focus {
+  top: 0.75rem;
 }

@@ -163,7 +163,7 @@ export default function FinancingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--ch-page-bg)] px-5 py-6 text-[var(--ch-text-primary)] md:px-8">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] px-5 py-6 text-[var(--ch-text-primary)] md:px-8">
       <div className="mx-auto max-w-7xl space-y-5">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -214,6 +214,6 @@ export default function FinancingPage() {
         <StatementsPanel selected={selectedStatement} onSelect={setSelectedStatement} onChanged={load} />
       </div>
       <PropertyDetailDrawer property={selected} properties={dashboard?.properties || []} onClose={() => setSelected(null)} onUpdated={load} />
-    </main>
+    </div>
   );
 }

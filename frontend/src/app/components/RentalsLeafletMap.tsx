@@ -6,6 +6,7 @@ import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import { useEffect, useRef, useState } from "react";
 import type { Map as LeafletMap, MarkerClusterGroup } from "leaflet";
 import type { MapProperty } from "@/lib/api/rentals-map";
+import { formatDate } from "@/lib/rentals-ux";
 import {
   INSPECTION_COLORS,
   OSM_ATTRIBUTION,
@@ -38,7 +39,7 @@ function popupContent(property: MapProperty): HTMLElement {
 
   const inspected = document.createElement("p");
   inspected.textContent = property.last_inspection_date
-    ? `Last inspected ${property.last_inspection_date}`
+    ? `Last inspected ${formatDate(property.last_inspection_date)}`
     : "Never inspected";
   root.appendChild(inspected);
 

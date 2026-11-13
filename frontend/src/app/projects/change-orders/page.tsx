@@ -338,7 +338,7 @@ export default function ProjectChangeOrdersPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)]">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)]">
       <div className={`mx-auto flex flex-col gap-6 px-6 py-8 lg:px-10 ${view === "pipeline" ? "max-w-none" : "max-w-6xl"}`}>
         <header className="flex flex-col gap-4 border-b border-[var(--ch-border)] pb-6 md:flex-row md:items-end md:justify-between">
           <div>
@@ -602,6 +602,6 @@ export default function ProjectChangeOrdersPage() {
           </form>
         </div>
       )}
-    </main>
+    </div>
   );
 }

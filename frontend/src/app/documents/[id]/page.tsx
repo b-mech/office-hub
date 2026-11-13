@@ -586,18 +586,18 @@ export default function DocumentReviewPage() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[var(--ch-page-bg)]">
+      <div className="flex min-h-screen items-center justify-center bg-[var(--ch-page-bg)]">
         <div className="flex items-center gap-3 rounded-full border border-[var(--ch-border)] bg-[var(--ch-surface)] px-5 py-3 text-sm font-medium text-[var(--ch-text-secondary)] shadow-lg backdrop-blur">
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--ch-border)] border-t-[var(--ch-accent)]" />
           Loading review workspace
         </div>
-      </main>
+      </div>
     );
   }
 
   if (error && !detail) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[var(--ch-page-bg)] px-6">
+      <div className="flex min-h-screen items-center justify-center bg-[var(--ch-page-bg)] px-6">
         <div className="max-w-xl rounded-[2rem] border border-rose-200 bg-white px-6 py-8 shadow-xl">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-rose-500">
             Review Error
@@ -613,7 +613,7 @@ export default function DocumentReviewPage() {
             Back to documents
           </Link>
         </div>
-      </main>
+      </div>
     );
   }
 
@@ -623,7 +623,7 @@ export default function DocumentReviewPage() {
   const activeAgreementFields = isSaleOtp ? saleAgreementFieldLabels : agreementFieldLabels;
 
   return (
-    <main className="h-screen bg-[var(--ch-page-bg)] p-3 text-[var(--ch-text-primary)] sm:p-4">
+    <div className="h-screen bg-[var(--ch-page-bg)] p-3 text-[var(--ch-text-primary)] sm:p-4">
       <div className="grid h-full gap-3 lg:grid-cols-[1.1fr_0.9fr]">
         <section className="min-h-[42vh] min-w-0 overflow-hidden rounded-[2rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] shadow-lg">
           <div className="flex h-full flex-col">
@@ -1385,6 +1385,6 @@ export default function DocumentReviewPage() {
           </div>
         </section>
       </div>
-    </main>
+    </div>
   );
 }

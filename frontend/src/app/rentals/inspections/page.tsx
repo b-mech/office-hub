@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as api from "@/lib/api/rental-inspections";
-import { inspectionStatusLabel, todayIso } from "@/lib/rentals-ux";
+import { formatDate, inspectionStatusLabel, plural, sortInspectionUnits, todayIso, type InspectionSort } from "@/lib/rentals-ux";
 
 async function resize(file: File): Promise<File> {
   const image = await createImageBitmap(file);
@@ -31,6 +31,8 @@ const unitTitle = (unit: api.Unit) => `${unit.street_address}${unit.unit_label ?
 export default function Page() {
   const [units, setUnits] = useState<api.Unit[]>([]);
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<InspectionSort>("oldest_inspection");
+  const sortedUnits = useMemo(() => sortInspectionUnits(units, sort), [units, sort]);
   const [unit, setUnit] = useState<api.Unit | null>(null);
   const [item, setItem] = useState<api.Inspection | null>(null);
   const [history, setHistory] = useState<api.Inspection[]>([]);
@@ -140,7 +142,7 @@ export default function Page() {
   function remove() {
     if (!item) return;
     const what = item.status === "submitted" ? "this submitted inspection" : "this draft";
-    if (!window.confirm(`Delete ${what} from ${item.inspection_date} and its ${item.photos.length} photo(s)? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${what} from ${formatDate(item.inspection_date)} and its ${plural(item.photos.length, "photo")}? This cannot be undone.`)) return;
     api.deleteInspection(item.id).then(() => {
       window.localStorage.removeItem(`officehub-inspection-draft:${item.id}`);
       setHistory((current) => current.filter((candidate) => candidate.id !== item.id));
@@ -152,10 +154,10 @@ export default function Page() {
   if (item && unit) {
     const readOnly = !editing;
     return (
-      <main className="mx-auto flex min-h-screen max-w-xl flex-col">
+      <div className="mx-auto flex min-h-screen max-w-xl flex-col">
         <header className="sticky top-0 z-10 bg-[var(--ch-sidebar-bg)] p-4 text-white">
           <button onClick={backToUnit}>← {unitTitle(unit)}</button>
-          <h1 className="mt-2 flex flex-wrap items-center gap-2 text-xl font-bold">Inspection {item.inspection_date} <StatusBadge status={item.status} /></h1>
+          <h1 className="mt-2 flex flex-wrap items-center gap-2 text-xl font-bold">Inspection {formatDate(item.inspection_date)} <StatusBadge status={item.status} /></h1>
           <p className="text-xs opacity-80">{unitTitle(unit)} · Unit #{unit.id} · {item.inspection_type}{dirty ? " · unsaved changes" : ""}</p>
         </header>
         {readOnly ? <div className="m-4 flex items-center justify-between gap-3 rounded-xl border bg-[var(--ch-surface)] p-3 text-sm font-semibold"><span>Viewing {item.status === "submitted" ? "a submitted inspection" : "a draft"} (read-only)</span><button onClick={() => openInspection(item, true)} className="rounded-lg border px-3 py-2">{item.status === "submitted" ? "Edit inspection" : "Continue draft"}</button></div> : null}
@@ -200,7 +202,7 @@ export default function Page() {
           <button disabled={saving} onClick={() => void save().then((saved) => { if (saved?.status === "submitted") setEditing(false); }).catch(() => undefined)} className="flex-1 rounded-xl border px-4 py-3 font-bold disabled:opacity-50">{saving ? "Saving…" : item.status === "submitted" ? "Save changes" : "Save draft"}</button>
           {item.status !== "submitted" ? <button disabled={saving} onClick={() => void submit()} className="flex-1 rounded-xl bg-[var(--ch-accent)] px-4 py-3 font-bold text-white disabled:opacity-50">{saving ? "Saving…" : "Submit"}</button> : null}
         </footer> : null}
-      </main>
+      </div>
     );
   }
 
@@ -208,7 +210,7 @@ export default function Page() {
   if (unit) {
     const today = todayIso();
     const todaysDraft = history.find((inspection) => inspection.inspection_date === today && inspection.status !== "submitted");
-    return <main className="mx-auto max-w-2xl p-4">
+    return <div className="mx-auto max-w-2xl p-4">
       <button onClick={() => { setUnit(null); setHistory([]); setError(""); setSaveMessage(""); }} className="text-sm font-semibold text-[var(--ch-accent)]">← All units</button>
       <h1 className="mt-2 text-2xl font-bold">{unitTitle(unit)}</h1>
       <p className="text-sm text-[var(--ch-text-muted)]">{unit.group_name ? `${unit.group_name} · ` : ""}Property #{unit.property_id} · Unit #{unit.id}</p>
@@ -221,13 +223,34 @@ export default function Page() {
       </div>
       <h2 className="mt-6 text-lg font-bold">Inspection history</h2>
       {history.length === 0 ? <p className="mt-2 rounded-xl border border-dashed p-6 text-sm text-[var(--ch-text-muted)]">No inspections yet. “Start inspection” creates a draft for today.</p> : <ul className="mt-2 space-y-2">{history.map((inspection) => <li key={inspection.id} className="flex flex-wrap items-center gap-3 rounded-xl border bg-[var(--ch-surface)] p-3">
-        <div className="min-w-0 flex-1"><strong>{inspection.inspection_date}</strong> <StatusBadge status={inspection.status} /><div className="text-sm text-[var(--ch-text-muted)]">{inspection.inspection_type} · {inspection.photos.length} photo(s){inspection.front_yard_score != null ? ` · front ${inspection.front_yard_score}` : ""}{inspection.back_yard_score != null ? ` · back ${inspection.back_yard_score}` : ""}</div></div>
+        <div className="min-w-0 flex-1"><strong>{formatDate(inspection.inspection_date)}</strong> <StatusBadge status={inspection.status} /><div className="text-sm text-[var(--ch-text-muted)]">{inspection.inspection_type} · {plural(inspection.photos.length, "photo")}{inspection.front_yard_score != null ? ` · front ${inspection.front_yard_score}` : ""}{inspection.back_yard_score != null ? ` · back ${inspection.back_yard_score}` : ""}</div></div>
         <button onClick={() => openInspection(inspection, false)} className="rounded-lg border px-3 py-2 text-sm font-semibold">View</button>
         {inspection.status !== "submitted" ? <button onClick={() => openInspection(inspection, true)} className="rounded-lg border px-3 py-2 text-sm font-semibold">Continue draft</button> : null}
       </li>)}</ul>}
-    </main>;
+    </div>;
   }
 
   // ---------- Unit list ----------
-  return <main className="mx-auto max-w-2xl p-4"><h1 className="text-3xl font-bold">Rental Inspections</h1><p className="mt-1 text-sm text-[var(--ch-text-muted)]">Pick a unit to see its history. Nothing is created until you tap “Start inspection”.</p><input value={query} onChange={(event) => setQuery(event.target.value)} className="my-5 w-full rounded-xl border p-4" placeholder="Search address or group" />{error ? <p className="text-[var(--ch-error-text)]">{error}</p> : null}{units.map((candidate) => <div key={candidate.id} className="mb-2 flex rounded-xl border"><button onClick={() => selectUnit(candidate).catch((cause) => setError(cause.message))} className="min-w-0 flex-1 p-4 text-left"><strong>{candidate.street_address} {candidate.unit_label || ""}</strong><div className="text-sm text-[var(--ch-text-muted)]">{candidate.group_name} · Unit #{candidate.id} · {candidate.last_inspection ? `last inspected ${candidate.last_inspection.inspection_date}` : "never inspected"}</div></button><a href={`/rentals/units/${candidate.id}?tab=leases`} className="my-2 self-center rounded-lg border px-3 py-2 text-sm font-semibold">Leases</a><a href={`/rentals/units/${candidate.id}`} className="m-2 self-center rounded-lg border px-3 py-2 text-sm font-semibold">QR{candidate.maintenance_qr_rotation_recommended ? " ⚠" : ""}</a></div>)}</main>;
+  const rotationCount = units.filter((candidate) => candidate.maintenance_qr_rotation_recommended).length;
+  return <div className="mx-auto max-w-2xl p-4">
+    <h1 className="text-3xl font-bold">Rental Inspections</h1>
+    <p className="mt-1 text-sm text-[var(--ch-text-muted)]">Pick a unit to see its history. Nothing is created until you tap “Start inspection”.</p>
+    <div className="my-5 grid gap-3 sm:grid-cols-[1fr_auto]">
+      <label className="text-sm font-medium">Search<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} className="mt-1 w-full rounded-xl border p-3 font-normal" placeholder="Address or group" /></label>
+      <label className="text-sm font-medium">Sort<select value={sort} onChange={(event) => setSort(event.target.value as InspectionSort)} className="mt-1 w-full rounded-xl border p-3 font-normal"><option value="oldest_inspection">Least recently inspected</option><option value="recent_inspection">Most recently inspected</option><option value="address">Address A–Z</option></select></label>
+    </div>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm text-[var(--ch-text-muted)]">
+      <span aria-live="polite">{plural(units.length, "unit")}</span>
+      {rotationCount ? <span id="qr-legend"><span aria-hidden="true">QR ⚠</span> = maintenance QR code should be rotated (open the unit page to reissue it). {plural(rotationCount, "unit")} flagged.</span> : null}
+    </div>
+    {error ? <p role="alert" className="text-[var(--ch-error-text)]">{error}</p> : null}
+    {query && !units.length ? <p className="rounded-xl border border-dashed p-6 text-center text-sm text-[var(--ch-text-muted)]">No units match “{query}”. <button onClick={() => setQuery("")} className="font-semibold text-[var(--ch-accent)] underline">Clear search</button></p> : null}
+    {sortedUnits.map((candidate) => <div key={candidate.id} className="mb-2 flex flex-wrap rounded-xl border sm:flex-nowrap">
+      <button onClick={() => selectUnit(candidate).catch((cause) => setError(cause.message))} className="min-w-0 flex-1 basis-full p-4 text-left sm:basis-auto"><strong>{candidate.street_address} {candidate.unit_label || ""}</strong><div className="text-sm text-[var(--ch-text-muted)]">{candidate.group_name ? `${candidate.group_name} · ` : ""}Unit #{candidate.id} · {candidate.last_inspection ? `last inspected ${formatDate(candidate.last_inspection.inspection_date)}` : "never inspected"}</div></button>
+      <div className="flex gap-2 px-2 pb-2 sm:items-center sm:pb-0">
+        <a href={`/rentals/units/${candidate.id}?tab=leases`} className="rounded-lg border px-3 py-2 text-sm font-semibold">Leases</a>
+        <a href={`/rentals/units/${candidate.id}`} title={candidate.maintenance_qr_rotation_recommended ? "Maintenance QR code should be rotated" : "Unit page and maintenance QR code"} aria-label={candidate.maintenance_qr_rotation_recommended ? `QR code for unit ${candidate.id}: rotation recommended` : `QR code for unit ${candidate.id}`} aria-describedby={candidate.maintenance_qr_rotation_recommended ? "qr-legend" : undefined} className="rounded-lg border px-3 py-2 text-sm font-semibold">QR{candidate.maintenance_qr_rotation_recommended ? " ⚠" : ""}</a>
+      </div>
+    </div>)}
+  </div>;
 }

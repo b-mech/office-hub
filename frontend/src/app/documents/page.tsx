@@ -128,7 +128,7 @@ export default function DocumentsPage() {
   }, [docType, status]);
 
   return (
-    <main className="min-h-screen bg-[var(--ch-page-bg)] px-5 py-6 text-[var(--ch-text-primary)] sm:px-8 lg:px-10">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] px-5 py-6 text-[var(--ch-text-primary)] sm:px-8 lg:px-10">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <section className="overflow-hidden rounded-[2rem] border border-[var(--ch-border)] bg-[var(--ch-surface)] shadow-lg backdrop-blur">
           <div className="border-b border-[var(--ch-border)] px-6 py-6 sm:px-8">
@@ -331,6 +331,6 @@ export default function DocumentsPage() {
           </div>
         </section>
       </div>
-    </main>
+    </div>
   );
 }

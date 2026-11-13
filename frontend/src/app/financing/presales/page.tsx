@@ -58,7 +58,7 @@ export default function PresalesPage() {
   );
 
   return (
-    <main className="min-h-screen bg-[var(--ch-page-bg)] px-5 py-6 text-[var(--ch-text-primary)] md:px-8">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] px-5 py-6 text-[var(--ch-text-primary)] md:px-8">
       <div className="mx-auto max-w-[1600px] space-y-5">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -98,7 +98,7 @@ export default function PresalesPage() {
           </div>
         ) : null}
       </div>
-    </main>
+    </div>
   );
 }
 

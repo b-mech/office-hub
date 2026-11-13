@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { approveAllClean, approveImportRow, batchSummary, getBatch, IMPORT_COLUMNS, listBatches, listRentalUnits, patchImportRow, rejectImportRow, templateUrl, uploadLeaseImport, validateLeaseImport, type ImportBatch, type ImportRow, type ImportValidation, type RentalUnit } from "@/lib/api/rentals";
+import { formatDate } from "@/lib/rentals-ux";
 
 function flags(row:ImportRow):string[] { const value=row.confidence?.flags; return Array.isArray(value) ? value.map(String) : []; }
 function confidence(row:ImportRow):number { const values=Object.entries(row.confidence||{}).filter(([k,v])=>k!=="flags"&&typeof v==="number").map(([,v])=>v as number); return values.length?Math.min(...values):0; }
@@ -24,7 +25,7 @@ export default function LeaseImportPage() {
   async function upload(){if(!file)return;setBusy(true);setError(null);try{const result=await uploadLeaseImport(file);setBatch(result);setCheck(null);setFile(null);setNotice(`Batch #${result.id} created with ${result.total_rows} row(s) to review. Nothing is written to leases until you approve rows.`);await load()}catch(e){setError(e instanceof Error?e.message:"Upload failed")}finally{setBusy(false)}}
   const rows=useMemo(()=>[...(batch?.rows||[])].sort((a,b)=>Number(b.match_type==="unresolved")-Number(a.match_type==="unresolved")||flags(b).length-flags(a).length||confidence(a)-confidence(b)),[batch]);
   const step=batch?3:check?2:1;
-  return <main className="mx-auto max-w-7xl p-6 lg:p-10">
+  return <div className="mx-auto max-w-7xl p-6 lg:p-10">
     <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--ch-border)] pb-6"><div><p className="text-xs font-semibold uppercase tracking-[.2em] text-[var(--ch-text-muted)]">Rentals · PRIVI</p><h1 className="mt-1 text-3xl font-semibold">Lease Import</h1><p className="mt-2 text-sm text-[var(--ch-text-muted)]">Check a rent roll, upload it for review, then explicitly approve each change.</p></div><a href={templateUrl} className="rounded-lg border border-[var(--ch-border)] px-4 py-2 text-sm font-semibold">Download Template</a></header>
     <ol className="mt-4 flex flex-wrap gap-2 text-xs font-semibold" aria-label="Import steps">{["1 · Check file","2 · Upload for review","3 · Approve rows"].map((label,index)=><li key={label} className={`rounded-full border px-3 py-1 ${step===index+1?"border-[var(--ch-accent)] text-[var(--ch-accent)]":"border-[var(--ch-border)] text-[var(--ch-text-muted)]"}`}>{label}</li>)}</ol>
     {error&&<div role="alert" className="mt-4 rounded-lg bg-[var(--ch-error-bg)] p-3 text-sm text-[var(--ch-error-text)]">{error}</div>}
@@ -50,12 +51,12 @@ export default function LeaseImportPage() {
         <tbody>{check.rows.map(r=><tr key={r.source_row_number} className={`border-t align-top ${r.errors.length?"bg-[var(--ch-error-bg)]":""}`}><td className="py-2 pr-3">{r.source_row_number}</td><td className="py-2 pr-3">{r.property_street_address||"—"}{r.unit_label?` · ${r.unit_label}`:""}</td><td className="py-2 pr-3">{r.tenant_names.join(", ")||"—"}</td><td className="py-2 pr-3 text-right">{r.rent??"—"}</td><td className="py-2 pr-3">{r.lease_start||"?"} → {r.lease_end||"open"}</td><td className="py-2 pr-3">{MATCH_LABEL[r.property_match]}</td><td className="py-2">{r.errors.map(e=><div key={e} className="text-[var(--ch-error-text)]">✕ {e}</div>)}{r.warnings.map(w=><div key={w} className="text-[var(--ch-warning-text)]">! {w}</div>)}{!r.errors.length&&!r.warnings.length?<span className="text-[var(--ch-success-text)]">OK</span>:null}</td></tr>)}</tbody></table></div>:null}
     </section>}
     {batches.length?<h2 className="mt-8 text-lg font-semibold">Uploaded batches</h2>:null}
-    <section className="mt-3 grid gap-3 md:grid-cols-3">{batches.map(item=><button key={item.id} onClick={()=>getBatch(item.id).then(setBatch).catch(e=>setError(e.message))} className={`rounded-xl border bg-[var(--ch-surface)] p-4 text-left ${batch?.id===item.id?"border-[var(--ch-accent)]":"border-[var(--ch-border)]"}`}><strong>#{item.id} · {item.source_filename}</strong><div className="mt-2 text-xs text-[var(--ch-text-muted)]">{new Date(item.uploaded_at).toLocaleDateString()} · {item.status.replaceAll("_"," ")} · {item.rows_pending}/{item.total_rows} pending</div></button>)}</section>
+    <section className="mt-3 grid gap-3 md:grid-cols-3">{batches.map(item=><button key={item.id} onClick={()=>getBatch(item.id).then(setBatch).catch(e=>setError(e.message))} className={`rounded-xl border bg-[var(--ch-surface)] p-4 text-left ${batch?.id===item.id?"border-[var(--ch-accent)]":"border-[var(--ch-border)]"}`}><strong>#{item.id} · {item.source_filename}</strong><div className="mt-2 text-xs text-[var(--ch-text-muted)]">{formatDate(item.uploaded_at)} · {item.status.replaceAll("_"," ")} · {item.rows_pending}/{item.total_rows} pending</div></button>)}</section>
     {batch&&<section className="mt-8"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">Batch #{batch.id}</h2><p className="text-sm text-[var(--ch-text-muted)]">{batch.source_filename} · {batch.status.replaceAll("_"," ")}</p></div><button disabled={busy} onClick={async()=>{if(!window.confirm("Approve every clean, matched row in this batch? Approved rows are written to lease records."))return;setBusy(true);try{const r=await approveAllClean(batch.id);setNotice(`${r.approved} row(s) approved and written; ${r.skipped_for_review} left for manual review.`);await refresh()}catch(e){setError(e instanceof Error?e.message:"Approval failed")}finally{setBusy(false)}}} className="rounded-lg bg-[var(--ch-accent)] px-4 py-2 text-sm font-semibold text-[var(--ch-accent-text)] disabled:opacity-50">Approve all clean rows</button></div>
       <Summary batch={batch}/>
       <div className="mt-4 space-y-3">{rows.map(row=><ReviewRow key={row.id} row={row} units={units} onDone={refresh}/>)}</div>
     </section>}
-  </main>
+  </div>
 }
 
 function ReviewRow({row,units,onDone}:{row:ImportRow;units:RentalUnit[];onDone:()=>Promise<void>}) {

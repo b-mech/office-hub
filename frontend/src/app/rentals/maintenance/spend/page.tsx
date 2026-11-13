@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowLeft, Download, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { duplicateKeys } from "@/lib/rentals-ux";
+import { duplicateKeys, formatMonth } from "@/lib/rentals-ux";
 
 import { downloadSpendCsv, getMaintenanceFilterOptions, getSpendReport, type MaintenanceFilterOptions, type SpendQuery, type SpendReport } from "@/lib/api/maintenance";
 import { formatMoney } from "@/lib/maintenance-workflows";
@@ -36,7 +36,7 @@ export default function MaintenanceSpendPage() {
   const months = useMemo(() => Array.from(new Set(report?.rows.map((row) => row.month) || [])), [report]);
   const input = "min-h-11 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 text-sm";
 
-  return <main className="min-h-screen bg-[var(--ch-page-bg)] px-4 py-6 sm:px-6 lg:px-8">
+  return <div className="min-h-screen bg-[var(--ch-page-bg)] px-4 py-6 sm:px-6 lg:px-8">
     <div className="mx-auto max-w-[1400px]">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--ch-border)] pb-5">
         <div><Link href="/rentals/maintenance" className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--ch-accent)]"><ArrowLeft size={15} /> Tickets</Link><h1 className="mt-2 text-3xl font-semibold">Maintenance spend</h1><p className="mt-2 text-sm text-[var(--ch-text-muted)]">Work-order estimates and actuals by month and address, split repair vs capital. Read-only.</p></div>
@@ -54,7 +54,7 @@ export default function MaintenanceSpendPage() {
         <table className="min-w-full text-sm">
           <thead className="bg-[var(--ch-surface-muted)] text-left text-xs uppercase tracking-wide text-[var(--ch-text-muted)]"><tr><th className="px-4 py-3">Month</th><th className="px-4 py-3">Property</th>{filters.group_by === "unit" ? <th className="px-4 py-3">Unit</th> : null}<th className="px-4 py-3 text-right">WOs</th><th className="px-4 py-3 text-right">Estimate</th><th className="px-4 py-3 text-right">Actual</th><th className="px-4 py-3 text-right">Repair</th><th className="px-4 py-3 text-right">Capital</th><th className="px-4 py-3 text-right">Unclassified</th></tr></thead>
           <tbody>{months.map((month) => report!.rows.filter((row) => row.month === month).map((row, index) => <tr key={`${month}-${row.property_id}-${row.unit_id ?? "all"}`} className="border-t border-[var(--ch-border)]">
-            <td className="px-4 py-2 font-semibold">{index === 0 ? month : ""}</td>
+            <td className="px-4 py-2 font-semibold">{index === 0 ? formatMonth(month) : ""}</td>
             <td className="px-4 py-2"><Link href={`/rentals/maintenance?property_id=${row.property_id}&include_terminal=true`} className="hover:text-[var(--ch-accent)]">{row.property}</Link></td>
             {filters.group_by === "unit" ? <td className="px-4 py-2">{row.unit}</td> : null}
             <td className="px-4 py-2 text-right">{row.work_orders}</td><td className="px-4 py-2 text-right">{formatMoney(row.cost_estimate)}</td><td className="px-4 py-2 text-right font-semibold">{formatMoney(row.cost_actual)}</td><td className="px-4 py-2 text-right">{formatMoney(row.repair_actual)}</td><td className="px-4 py-2 text-right">{formatMoney(row.capital_actual)}</td><td className="px-4 py-2 text-right">{formatMoney(row.unclassified_actual)}</td>
@@ -64,5 +64,5 @@ export default function MaintenanceSpendPage() {
       </div>
       {report ? <p className="mt-3 text-xs text-[var(--ch-text-muted)]">{report.basis} Purchase notes are tracked on tickets but are not added here, so invoices are not double counted.</p> : null}
     </div>
-  </main>;
+  </div>;
 }

@@ -32,13 +32,14 @@ import {
   type CompleteWorkOrderInput,
 } from "@/lib/api/maintenance";
 import { ChecklistPanel, CompleteWorkOrderDialog, DuplicatePicker, PurchasesPanel, RelatedTicketsPanel, WorkOrderCostLine } from "@/components/maintenance/TicketWorkflowPanels";
+import { formatDateTime } from "@/lib/rentals-ux";
 
 type ComposerTarget = "tenant" | "vendor" | "internal";
 type ActionName = "triage" | "assign" | "schedule" | "resolve" | "more" | null;
 type ScheduleAccessBasis = "routine" | "tenant_consent" | "emergency";
 
 const label = (value: string | null | undefined) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "—";
-const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat("en-CA", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not scheduled";
+const formatDate = (value: string | null) => formatDateTime(value, "Not scheduled");
 const localDateTimeIso = (date: FormDataEntryValue | null, time: FormDataEntryValue | null) => {
   const value = new Date(`${String(date)}T${String(time)}`);
   if (Number.isNaN(value.getTime())) throw new Error("Choose a valid visit date, start time, and end time.");
@@ -188,11 +189,11 @@ export default function MaintenanceTicketPage() {
     }, false);
   }
 
-  if (loading && !ticket) return <main className="grid min-h-[70vh] place-items-center text-sm text-[var(--ch-text-muted)]"><RefreshCw className="animate-spin" /> Loading ticket…</main>;
-  if (!ticket) return <main className="p-6"><Link href="/rentals/maintenance" className="text-sm font-semibold text-[var(--ch-accent)]">← Back to tickets</Link><p className="mt-6 text-[var(--ch-error-text)]">{error || "Ticket not found"}</p></main>;
+  if (loading && !ticket) return <div className="grid min-h-[70vh] place-items-center text-sm text-[var(--ch-text-muted)]"><RefreshCw className="animate-spin" /> Loading ticket…</div>;
+  if (!ticket) return <div className="p-6"><Link href="/rentals/maintenance" className="text-sm font-semibold text-[var(--ch-accent)]">← Back to tickets</Link><p className="mt-6 text-[var(--ch-error-text)]">{error || "Ticket not found"}</p></div>;
 
   return (
-    <main className="min-h-screen bg-[var(--ch-page-bg)] px-3 py-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] px-3 py-4 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <header className="rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4 sm:p-5">
           <div className="flex items-start gap-3">
@@ -234,7 +235,7 @@ export default function MaintenanceTicketPage() {
         </div>
       </div>
       {completion ? <CompleteWorkOrderDialog order={completion.order} mode={completion.mode} busy={busy} serverError={error} onClose={() => setCompletion(null)} onSubmit={submitCompletion} /> : null}
-    </main>
+    </div>
   );
 }
 

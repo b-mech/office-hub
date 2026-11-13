@@ -47,7 +47,7 @@ export default function LendersPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--ch-page-bg)] px-6 py-8 text-[var(--ch-text-primary)] lg:px-10">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] px-6 py-8 text-[var(--ch-text-primary)] lg:px-10">
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="flex flex-col gap-4 border-b border-[var(--ch-border)] pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -129,7 +129,7 @@ export default function LendersPage() {
           )}
         </section>
       </div>
-    </main>
+    </div>
   );
 }
 

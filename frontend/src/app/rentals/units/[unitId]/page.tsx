@@ -72,7 +72,7 @@ export default function UnitPage({ params }: { params: Promise<{unitId:string}> 
     finally { setBusy(false); }
   }
 
-  return <main className="mx-auto max-w-3xl p-6">
+  return <div className="mx-auto max-w-3xl p-6">
     <UnitHeader unitId={unitId} overview={overview} tab={tab} onTab={setTab} />
     {tab === "leases" ? <LeasesPanel unitId={unitId} overview={overview} /> : <>
     <section className="mt-6 rounded-2xl border bg-[var(--ch-surface)] p-5">
@@ -83,5 +83,5 @@ export default function UnitPage({ params }: { params: Promise<{unitId:string}> 
       {status?.active && !generated ? <p className="mt-4 text-xs text-[var(--ch-text-muted)]">Because tokens are stored only as secure hashes, rotate to reveal a new printable link.</p> : null}
     </section>
     </>}
-  </main>;
+  </div>;
 }

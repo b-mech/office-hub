@@ -25,7 +25,7 @@ const tools: { id: Tool; label: string }[] = [
 export function PdfMarkupEditor({ document, onClose }: { document: TenderDocument; onClose: () => void }) {
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
   const markupCanvasRef = useRef<HTMLCanvasElement>(null);
-  const scrollAreaRef = useRef<HTMLElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const fabricRef = useRef<Canvas | null>(null);
   const canvasPageRef = useRef(1);
@@ -226,7 +226,7 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
     </header>
     {error ? <p className="bg-[var(--ch-error-bg)] px-4 py-2 text-sm text-[var(--ch-error-text)]">{error}</p> : null}
     <div className="flex min-h-0 flex-1">
-      <main
+      <div
         ref={scrollAreaRef}
         className={`min-w-0 flex-1 overflow-auto bg-neutral-700 p-6 ${tool === "pan" ? "cursor-grab active:cursor-grabbing" : ""}`}
         onPointerDown={event => { const area = scrollAreaRef.current; if (tool === "pan" && area) { panRef.current = { x: event.clientX, y: event.clientY, left: area.scrollLeft, top: area.scrollTop }; event.currentTarget.setPointerCapture(event.pointerId); } }}
@@ -238,7 +238,7 @@ export function PdfMarkupEditor({ document, onClose }: { document: TenderDocumen
           width: pageSize.width * zoom || undefined,
           height: pageSize.height * zoom || undefined,
         }}
-      ><div className="absolute left-0 top-0 origin-top-left" style={{ transform: `scale(${zoom})` }}><canvas ref={pdfCanvasRef}/><canvas ref={markupCanvasRef} className="absolute inset-0"/></div></div></main>
+      ><div className="absolute left-0 top-0 origin-top-left" style={{ transform: `scale(${zoom})` }}><canvas ref={pdfCanvasRef}/><canvas ref={markupCanvasRef} className="absolute inset-0"/></div></div></div>
       <aside className="w-64 shrink-0 overflow-auto border-l border-[var(--ch-border)] bg-[var(--ch-surface)] p-3">
         <div className="mb-4 flex items-center justify-between"><button disabled={pageNumber <= 1} onClick={() => setPageNumber(value => value - 1)}><ChevronLeft/></button><span className="text-sm">Page {pageNumber} / {pageCount || "…"}</span><button disabled={pageNumber >= pageCount} onClick={() => setPageNumber(value => value + 1)}><ChevronRight/></button></div>
         <h3 className="text-sm font-semibold">Versions</h3><p className="mb-2 text-xs text-[var(--ch-text-muted)]">Latest five are retained.</p>

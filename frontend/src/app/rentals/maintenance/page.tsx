@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getMaintenanceFilterOptions, listTickets, type MaintenanceFilterOptions, type TicketFilters, type TicketListItem, type TicketPriority, type TicketStatus } from "@/lib/api/maintenance";
 import { checklistLabel, filtersFromSearch, filtersToSearch } from "@/lib/maintenance-workflows";
 import MaintenanceCalendar from "@/components/maintenance/MaintenanceCalendar";
-import { duplicateKeys, propertyOptionLabel, queueEmptyMessage, queueFiltersActive } from "@/lib/rentals-ux";
+import { categoryLabel, duplicateKeys, PRIORITY_ORDER, propertyOptionLabel, queueEmptyMessage, queueFiltersActive, showNeedsReply } from "@/lib/rentals-ux";
 
 const labels = (value: string | null) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Untriaged";
 
@@ -76,12 +76,12 @@ export default function MaintenanceTicketsPage() {
   }, [query, tickets]);
 
   return (
-    <main className="min-h-screen bg-[var(--ch-page-bg)] px-4 py-6 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1600px]">
         <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--ch-border)] pb-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[.2em] text-[var(--ch-text-muted)]">Rentals · Maintenance</p>
-            <h1 className="mt-1 text-3xl font-semibold">Open tickets</h1>
+            <h1 className="mt-1 text-3xl font-semibold">{filters.include_terminal ? "All tickets" : "Open tickets"}</h1>
             <p className="mt-2 text-sm text-[var(--ch-text-muted)]">Conversations, SLA risk, and field work in one queue.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -110,7 +110,7 @@ export default function MaintenanceTicketsPage() {
           </select>
           <select aria-label="Priority" value={filters.priority || ""} onChange={(event) => setFilters((current) => ({ ...current, priority: event.target.value as TicketPriority | "" }))} className="min-h-11 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 text-sm">
             <option value="">All priorities</option>
-            {["emergency", "urgent", "routine", "low"].map((priority) => <option key={priority} value={priority}>{labels(priority)}</option>)}
+            {PRIORITY_ORDER.map((priority) => <option key={priority} value={priority}>{labels(priority)}</option>)}
           </select>
           <select aria-label="Property" value={filters.property_id ? String(filters.property_id) : ""} onChange={(event) => setFilters((current) => ({ ...current, property_id: event.target.value ? Number(event.target.value) : undefined }))} className="min-h-11 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface-strong)] px-3 text-sm">
             <option value="">All properties</option>
@@ -142,12 +142,12 @@ export default function MaintenanceTicketsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs font-semibold text-[var(--ch-accent)]">{ticket.number}</span>
                     {ticket.is_emergency ? <span className="inline-flex items-center gap-1 rounded-full border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-2 py-0.5 text-xs font-semibold text-[var(--ch-error-text)]"><AlertTriangle size={12} /> Emergency</span> : null}
-                    {ticket.needs_reply ? <span className="inline-flex items-center gap-1 rounded-full border border-[var(--ch-info-border)] bg-[var(--ch-info-bg)] px-2 py-0.5 text-xs font-semibold text-[var(--ch-info-text)]"><MessageCircleMore size={12} /> Needs reply</span> : null}
+                    {showNeedsReply(ticket) ? <span className="inline-flex items-center gap-1 rounded-full border border-[var(--ch-info-border)] bg-[var(--ch-info-bg)] px-2 py-0.5 text-xs font-semibold text-[var(--ch-info-text)]"><MessageCircleMore size={12} /> Needs reply</span> : null}
                   </div>
                   <h2 className="mt-2 truncate text-base font-semibold sm:text-lg">{ticket.title}</h2>
                   <p className="mt-1 text-sm text-[var(--ch-text-secondary)]">{ticket.property} · {ticket.unit}</p>
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="rounded-full border border-[var(--ch-border)] px-2 py-1">{labels(ticket.category)}</span>
+                    <span className="rounded-full border border-[var(--ch-border)] px-2 py-1">{ticket.category ? categoryLabel(ticket.category) : "Untriaged"}</span>
                     <span className="rounded-full border border-[var(--ch-border)] px-2 py-1">{labels(ticket.priority)}</span>
                     <span className="rounded-full border border-[var(--ch-border)] px-2 py-1">{labels(ticket.status)}</span>
                     <span className={`rounded-full border px-2 py-1 font-semibold ${slaClass[ticket.sla_status]}`}>SLA {labels(ticket.sla_status)}</span>
@@ -161,6 +161,6 @@ export default function MaintenanceTicketsPage() {
         </div>
         </>}
       </div>
-    </main>
+    </div>
   );
 }

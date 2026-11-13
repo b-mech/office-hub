@@ -61,12 +61,12 @@ export default function PresaleLotPage() {
     );
   }
 
-  if (loading) return <main className="p-8 text-sm text-[var(--ch-text-muted)]">Loading presale financing…</main>;
-  if (!detail) return <main className="p-8 text-sm text-[var(--ch-error-text)]">{error || "Lot not found"}</main>;
+  if (loading) return <div className="p-8 text-sm text-[var(--ch-text-muted)]">Loading presale financing…</div>;
+  if (!detail) return <div className="p-8 text-sm text-[var(--ch-error-text)]">{error || "Lot not found"}</div>;
 
   const letter = detail.active_letter || detail.letter_history[0] || null;
   return (
-    <main className="min-h-screen bg-[var(--ch-page-bg)] px-5 py-6 text-[var(--ch-text-primary)] md:px-8">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] px-5 py-6 text-[var(--ch-text-primary)] md:px-8">
       <div className="mx-auto max-w-7xl space-y-5">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div><Link href="/financing/presales" className="text-xs font-semibold text-[var(--ch-accent)]">← Presales board</Link><h1 className="mt-2 text-2xl font-semibold">{detail.lot.address}</h1><p className="mt-1 text-sm text-[var(--ch-text-muted)]">{detail.buyer_names.join(", ") || "No purchaser recorded"}</p></div>
@@ -131,7 +131,7 @@ export default function PresaleLotPage() {
 
         <section className="rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-5"><h2 className="font-semibold">Approval letter history</h2><div className="mt-3 divide-y divide-[var(--ch-border)]">{detail.letter_history.length ? detail.letter_history.map((item) => <div key={item.id} className="flex flex-wrap justify-between gap-2 py-3 text-sm"><span>Version {item.version} · {item.status.replaceAll("_", " ")}</span><span className="text-[var(--ch-text-muted)]">{item.quality_score ? `${item.quality_score}/10` : "No score"} · {dateText(item.created_at)}</span></div>) : <p className="py-3 text-sm text-[var(--ch-text-muted)]">No letters yet.</p>}</div></section>
       </div>
-    </main>
+    </div>
   );
 }
 

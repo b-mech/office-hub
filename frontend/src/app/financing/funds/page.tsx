@@ -37,7 +37,7 @@ export default function FundsPage() {
 
   const total = Number(selected?.entry_total || 0);
   const trust = selected?.trust_statement_total == null ? null : Number(selected.trust_statement_total);
-  return <main className="min-h-screen bg-[var(--ch-page-bg)] p-6 text-[var(--ch-text-primary)]">
+  return <div className="min-h-screen bg-[var(--ch-page-bg)] p-6 text-[var(--ch-text-primary)]">
     <div className="mx-auto max-w-[1500px] space-y-5">
       <header className="flex items-center justify-between gap-4">
         <div><Link href="/financing" className="text-sm text-[var(--ch-accent)]">← Financing</Link>
@@ -113,7 +113,7 @@ export default function FundsPage() {
         </section>}
       </div>
     </div>
-  </main>;
+  </div>;
 }
 
 function EntryCard({ entry, noticeId, options, disabled, act }: {

@@ -14,7 +14,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const current = SETTINGS_NAV.find((item) => pathname.startsWith(item.href));
 
   return (
-    <main className="min-h-screen bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)]">
+    <div className="min-h-screen bg-[var(--ch-page-bg)] text-[var(--ch-text-primary)]">
       <div className="flex min-h-screen">
         <aside className="w-60 shrink-0 border-r border-[var(--ch-border)] bg-[var(--ch-surface)] px-4 py-6">
           <p className="px-3 text-xs font-semibold uppercase tracking-[0.24em] text-[var(--ch-text-muted)]">
@@ -49,6 +49,6 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
           {children}
         </section>
       </div>
-    </main>
+    </div>
   );
 }

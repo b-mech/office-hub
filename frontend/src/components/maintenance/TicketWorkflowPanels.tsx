@@ -18,6 +18,7 @@ import {
   type WorkOrder,
 } from "@/lib/api/maintenance";
 import { checklistLabel, duplicateCandidates, formatMoney, parseMoney } from "@/lib/maintenance-workflows";
+import { formatDate } from "@/lib/rentals-ux";
 
 type Mutate = (task: () => Promise<unknown>, closeAction?: boolean) => Promise<void>;
 
@@ -26,7 +27,7 @@ const primary = "min-h-11 rounded-xl bg-[var(--ch-accent)] px-4 text-sm font-sem
 const secondary = "min-h-10 rounded-xl border border-[var(--ch-border)] bg-[var(--ch-surface)] px-3 text-xs font-semibold disabled:opacity-40";
 const card = "rounded-2xl border border-[var(--ch-border)] bg-[var(--ch-surface)] p-4";
 const label = (value: string | null | undefined) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "—";
-const shortDate = (value: string | null) => value ? new Intl.DateTimeFormat("en-CA", { dateStyle: "medium" }).format(new Date(value)) : "—";
+const shortDate = (value: string | null) => formatDate(value);
 
 export type CompletionSubmit = (order: WorkOrder, mode: "complete" | "costs", values: CompleteWorkOrderInput, invoice: File | null) => Promise<boolean>;
 

@@ -6,30 +6,16 @@ import { Menu, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "./auth-context";
+import { NAV } from "./AppSidebar";
+import { activeNavHref } from "@/lib/rentals-ux";
 
-const links = [
-  ["Documents", "/documents"],
-  ["Lots", "/lots"],
-  ["OTP Timeline", "/lots/timeline"],
-  ["Projects", "/projects"],
-  ["Change Orders", "/projects/change-orders"],
-  ["Costbook", "/costbook"],
-  ["Financing", "/financing"],
-  ["Presales", "/financing/presales"],
-  ["Contractors", "/contractors"],
-  ["Lenders", "/financing/lenders"],
-  ["Rentals", "/rentals"],
-  ["Rental Units", "/rentals/units"],
-  ["Lease Import", "/rentals/lease-import"],
-  ["Maintenance", "/rentals/maintenance"],
-  ["Inspections", "/rentals/inspections"],
-  ["Inspection Reports", "/rentals/reports"],
-] as const;
+const NAV_HREFS = NAV.map((item) => item.href);
 
 export default function MobileNavigation() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const { session, signOutAndLeave } = useAuth();
+  const activeHref = activeNavHref(pathname, NAV_HREFS);
 
   return (
     <>
@@ -57,18 +43,19 @@ export default function MobileNavigation() {
             className="absolute inset-0 bg-black/40"
             onClick={() => setOpen(false)}
           />
-          <nav className="absolute right-0 top-0 h-full w-[min(82vw,20rem)] overflow-y-auto border-l border-[var(--ch-sidebar-border)] bg-[var(--ch-sidebar-bg)] p-4 shadow-2xl">
+          <nav aria-label="Modules" className="absolute right-0 top-0 h-full w-[min(82vw,20rem)] overflow-y-auto border-l border-[var(--ch-sidebar-border)] bg-[var(--ch-sidebar-bg)] p-4 shadow-2xl">
             <p className="px-3 pb-3 pt-1 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ch-sidebar-text-muted)]">
               Modules
             </p>
-            {links.map(([label, href]) => {
-              const active = pathname === href;
+            {NAV.map(({ label, href, parent }) => {
+              const active = href === activeHref;
               return (
                 <Link
                   key={href}
                   href={href}
                   onClick={() => setOpen(false)}
-                  className={`mb-1 block rounded-lg px-3 py-3 text-sm font-medium transition ${
+                  aria-current={active ? "page" : undefined}
+                  className={`mb-1 block rounded-lg px-3 py-3 text-sm font-medium transition ${parent ? "ml-3 " : ""}${
                     active
                       ? "bg-[var(--ch-sidebar-hover)] text-[var(--ch-sidebar-text-primary)]"
                       : "text-[var(--ch-sidebar-text-secondary)] hover:bg-[var(--ch-sidebar-hover)] hover:text-[var(--ch-sidebar-text-primary)]"

@@ -39,19 +39,19 @@ export default function EditChangeOrderPage() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[var(--ch-page-bg)] px-6 py-8 text-[var(--ch-text-primary)]">
+      <div className="min-h-screen bg-[var(--ch-page-bg)] px-6 py-8 text-[var(--ch-text-primary)]">
         <div className="mx-auto max-w-6xl rounded-xl border border-[var(--ch-error-border)] bg-[var(--ch-error-bg)] px-4 py-3 text-sm text-[var(--ch-error-text)]">
           {error}
         </div>
-      </main>
+      </div>
     );
   }
 
   if (!draft) {
     return (
-      <main className="min-h-screen bg-[var(--ch-page-bg)] px-6 py-8 text-[var(--ch-text-primary)]">
+      <div className="min-h-screen bg-[var(--ch-page-bg)] px-6 py-8 text-[var(--ch-text-primary)]">
         <div className="mx-auto max-w-6xl text-sm text-[var(--ch-text-muted)]">Loading change order...</div>
-      </main>
+      </div>
     );
   }
 

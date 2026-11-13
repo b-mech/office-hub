@@ -58,11 +58,12 @@ export default function AuthGate({ fallbackUserName, children }: { fallbackUserN
   }
   return (
     <AuthContext.Provider value={{ session: state.session, signOutAndLeave }}>
+      <a href="#main-content" className="skip-link">Skip to content</a>
       <div className="flex min-h-screen">
         <AppSidebar fallbackUserName={fallbackUserName} />
         <div className="min-w-0 flex-1">
           <MobileNavigation />
-          {children}
+          <main id="main-content" tabIndex={-1} className="outline-none">{children}</main>
         </div>
       </div>
     </AuthContext.Provider>

@@ -183,7 +183,7 @@ export function ChangeOrderForm({
   }
 
   return (
-    <main
+    <div
       className="change-order-page min-h-screen pb-28 text-[var(--ch-text-primary)]"
       style={{ backgroundColor: "var(--ch-page-bg)" }}
     >
@@ -449,7 +449,7 @@ export function ChangeOrderForm({
           </div>
         </div>
       </footer>
-    </main>
+    </div>
   );
 }
 

@@ -5,6 +5,9 @@ import {
   deriveLeaseStatus, duplicateKeys, filterMapItems, filterReports, leaseStatusLabel, leaseStatusTone, mapFiltersActive,
   propertyOptionLabel, queueEmptyMessage, queueFiltersActive, reportStatus, shortId, DEFAULT_MAP_FILTERS,
 } from "./rentals-ux.ts";
+import {
+  activeNavHref, categoryLabel, formatDate, formatDateTime, formatMonth, formatPhone, plural, PRIORITY_ORDER, showNeedsReply, sortInspectionUnits,
+} from "./rentals-ux.ts";
 
 test("lease status labels and tones", () => {
   assert.equal(leaseStatusLabel("month_to_month"), "Month to month");
@@ -76,4 +79,49 @@ test("maintenance empty state distinguishes no tickets from filtered out", () =>
   assert.equal(queueEmptyMessage({ priority: "low" }, "").canReset, true);
   assert.match(queueEmptyMessage({}, "").title, /No open tickets/);
   assert.match(queueEmptyMessage({ include_terminal: true }, "").title, /No maintenance tickets yet/);
+});
+
+test("one shared date, month and time format", () => {
+  assert.equal(formatDate("2026-08-09"), "Aug 9, 2026");
+  assert.equal(formatDate("2026-01-01"), "Jan 1, 2026"); // calendar date never shifts a day
+  assert.equal(formatDate(null), "—");
+  assert.equal(formatDate("not a date"), "—");
+  assert.equal(formatMonth("2026-10"), "Oct 2026");
+  assert.equal(formatMonth("2026-10-01"), "Oct 2026");
+  assert.equal(formatDateTime("2026-08-09"), "Aug 9, 2026");
+  assert.match(formatDateTime("2026-08-09T15:40:00"), /^Aug 9, 2026, 3:40\s?PM$/);
+  assert.doesNotMatch(formatDate("2026-09-01"), /\d+\/\d+\/\d+/);
+});
+
+test("plural, phone and maintenance wording", () => {
+  assert.equal(plural(1, "property", "properties"), "1 property");
+  assert.equal(plural(3, "property", "properties"), "3 properties");
+  assert.equal(plural(0, "photo"), "0 photos");
+  assert.equal(formatPhone("+14313348018"), "(431) 334-8018");
+  assert.equal(formatPhone("4313348018"), "(431) 334-8018");
+  assert.equal(formatPhone("+442071234567"), "+442071234567");
+  assert.equal(formatPhone(null), "—");
+  assert.equal(categoryLabel("doors_locks_windows"), "Doors, locks & windows");
+  assert.equal(categoryLabel("no_heat"), "No heat");
+  assert.deepEqual([...PRIORITY_ORDER], ["low", "routine", "urgent", "emergency"]);
+  assert.equal(showNeedsReply({ needs_reply: true, status: "new" }), true);
+  assert.equal(showNeedsReply({ needs_reply: true, status: "closed" }), false);
+  assert.equal(showNeedsReply({ needs_reply: true, status: "resolved" }), false);
+  assert.equal(showNeedsReply({ needs_reply: false, status: "new" }), false);
+});
+
+test("active sidebar entry and inspection sorting", () => {
+  const hrefs = ["/rentals", "/rentals/maintenance", "/rentals/units", "/lots", "/lots/timeline"];
+  assert.equal(activeNavHref("/rentals/maintenance/new", hrefs), "/rentals/maintenance");
+  assert.equal(activeNavHref("/rentals", hrefs), "/rentals");
+  assert.equal(activeNavHref("/rentals-old", hrefs), null);
+  assert.equal(activeNavHref("/lots/12", hrefs), "/lots");
+  const units = [
+    { street_address: "20 B St", unit_label: null, last_inspection: { inspection_date: "2026-05-01" } },
+    { street_address: "3 A St", unit_label: null, last_inspection: null },
+    { street_address: "10 A St", unit_label: null, last_inspection: { inspection_date: "2026-10-01" } },
+  ];
+  assert.deepEqual(sortInspectionUnits(units, "address").map((u) => u.street_address), ["3 A St", "10 A St", "20 B St"]);
+  assert.deepEqual(sortInspectionUnits(units, "oldest_inspection").map((u) => u.street_address), ["3 A St", "20 B St", "10 A St"]);
+  assert.deepEqual(sortInspectionUnits(units, "recent_inspection").map((u) => u.street_address), ["10 A St", "20 B St", "3 A St"]);
 });

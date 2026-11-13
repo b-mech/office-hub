@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import * as leases from "@/lib/api/lease-agreements";
 import type { UnitOverview } from "@/lib/api/rental-units";
-import { leaseStatusLabel, leaseStatusTone, TONE_CLASS } from "@/lib/rentals-ux";
+import { formatDate, leaseStatusLabel, leaseStatusTone, TONE_CLASS } from "@/lib/rentals-ux";
 
 const money = (value: string | null) => value === null ? "—"
   : new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0 }).format(Number(value));
-const day = (value: string | null) => value ? new Intl.DateTimeFormat("en-CA", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`)) : "open";
+const day = (value: string | null) => formatDate(value, "open");
 
 function StatusPill({ status }: { status: string }) {
   return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${TONE_CLASS[leaseStatusTone(status)]}`}>{leaseStatusLabel(status)}</span>;
@@ -92,7 +92,7 @@ export default function LeasesPanel({ unitId, overview }: { unitId: number; over
             : hasTenancy ? <button disabled={busy} onClick={() => void create(undefined, "tenancy")} className="rounded-lg border px-4 py-2 font-semibold disabled:opacity-50" title="Tenants and rent from the current lease; the term is reset to a new one-year term">Renew current tenancy</button> : null}
         </div></div>
         <div className="mt-4 divide-y">{data.leases.length === 0 ? <p className="py-6 text-sm text-[var(--ch-text-muted)]">No e-lease agreements for this unit yet.{overview?.leases.length ? " The lease history above comes from the rent roll." : ""}</p> : data.leases.map(lease => <div key={lease.id} className="flex flex-wrap items-center gap-3 py-4 text-sm">
-          <div className="min-w-48 flex-1"><strong>{(lease.tenants || []).map(t => t.name).join(" & ") || "Draft lease"}</strong><p className="text-[var(--ch-text-muted)]">{new Date(lease.created_at).toLocaleDateString()} · {String(lease.context.fixed_start || lease.context.periodic_start || "Term pending")}{lease.context.fixed_end ? ` – ${lease.context.fixed_end}` : ""}</p></div>
+          <div className="min-w-48 flex-1"><strong>{(lease.tenants || []).map(t => t.name).join(" & ") || "Draft lease"}</strong><p className="text-[var(--ch-text-muted)]">{formatDate(lease.created_at)} · {lease.context.fixed_start || lease.context.periodic_start ? formatDate(String(lease.context.fixed_start || lease.context.periodic_start)) : "Term pending"}{lease.context.fixed_end ? ` – ${formatDate(String(lease.context.fixed_end))}` : ""}</p></div>
           <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold">{lease.display_status}</span>
           <a className="font-semibold underline" href={`/rentals/leases/${lease.id}`}>Open</a>
           {lease.draft_pdf_key && <a className="font-semibold underline" href={leases.pdfUrl(lease.id)} target="_blank" rel="noreferrer">View PDF</a>}
